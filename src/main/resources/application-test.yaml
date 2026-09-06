@@ -1,0 +1,7 @@
+app:
+  telegram:
+    enabled: false
+  openai:
+    enabled: false
+  notifications:
+    enabled: false

@@ -1,0 +1,13 @@
+spring:
+  application:
+    name: FinanceConsultante
+  profiles:
+    default: local
+
+app:
+  telegram:
+    enabled: false
+  openai:
+    enabled: false
+  notifications:
+    enabled: false

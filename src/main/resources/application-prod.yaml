@@ -1,0 +1,15 @@
+spring:
+  main:
+    banner-mode: "off"
+
+logging:
+  level:
+    root: INFO
+
+app:
+  telegram:
+    enabled: ${TELEGRAM_ENABLED:false}
+  openai:
+    enabled: ${OPENAI_ENABLED:false}
+  notifications:
+    enabled: ${NOTIFICATIONS_ENABLED:false}

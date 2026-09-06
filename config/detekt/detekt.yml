@@ -1,0 +1,16 @@
+config:
+  validation: true
+  warningsAsErrors: true
+
+style:
+  MaxLineLength:
+    maxLineLength: 120
+
+naming:
+  FunctionNaming:
+    ignoreAnnotated:
+      - Test
+      - ParameterizedTest
+      - RepeatedTest
+      - TestFactory
+      - TestTemplate
