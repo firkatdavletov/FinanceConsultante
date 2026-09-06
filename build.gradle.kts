@@ -27,7 +27,11 @@ repositories {
 
 dependencies {
     implementation("org.springframework.boot:spring-boot-starter")
+    implementation("org.springframework.boot:spring-boot-starter-jdbc")
+    implementation("org.springframework.boot:spring-boot-starter-flyway")
+    implementation("org.flywaydb:flyway-database-postgresql")
     implementation("org.jetbrains.kotlin:kotlin-reflect")
+    runtimeOnly("org.postgresql:postgresql")
     testImplementation("org.springframework.boot:spring-boot-starter-test")
     testImplementation("org.jetbrains.kotlin:kotlin-test-junit5")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
@@ -50,12 +54,19 @@ configurations[integrationTestSourceSet.implementationConfigurationName]
 configurations[integrationTestSourceSet.runtimeOnlyConfigurationName]
     .extendsFrom(configurations.testRuntimeOnly.get())
 
+dependencies {
+    add(integrationTestSourceSet.implementationConfigurationName, "org.testcontainers:testcontainers-postgresql")
+}
+
 val integrationTest by tasks.registering(Test::class) {
     description = "Runs Spring context and integration tests."
     group = LifecycleBasePlugin.VERIFICATION_GROUP
     testClassesDirs = integrationTestSourceSet.output.classesDirs
     classpath = integrationTestSourceSet.runtimeClasspath
     shouldRunAfter(tasks.test)
+    providers.gradleProperty("testPostgresUrl").orNull?.let {
+        systemProperty("test.postgres.url", it)
+    }
 }
 
 tasks.withType<Test>().configureEach {

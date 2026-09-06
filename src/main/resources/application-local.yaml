@@ -1,3 +1,9 @@
+spring:
+  datasource:
+    url: ${DATABASE_URL:jdbc:postgresql://localhost:${POSTGRES_PORT:5432}/${POSTGRES_DB:financeconsultante}}
+    username: ${DATABASE_USERNAME:${POSTGRES_USER:financeconsultante}}
+    password: ${DATABASE_PASSWORD:${POSTGRES_PASSWORD}}
+
 app:
   telegram:
     enabled: ${TELEGRAM_ENABLED:false}
