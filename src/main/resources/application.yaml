@@ -23,6 +23,8 @@ app:
     enabled: false
   telegram:
     enabled: false
+    bot-token: ${TELEGRAM_BOT_TOKEN:}
+    owner-id: ${TELEGRAM_OWNER_ID:0}
   openai:
     enabled: false
   notifications:

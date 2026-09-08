@@ -1,6 +1,8 @@
 package com.firkatdavletov.financeconsultante
 
 import com.firkatdavletov.financeconsultante.exchange.application.ExchangeRateWorker
+import com.firkatdavletov.financeconsultante.telegram.application.TelegramDeliveryWorker
+import com.firkatdavletov.financeconsultante.telegram.application.TelegramPoller
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
@@ -21,5 +23,7 @@ class FinanceConsultanteApplicationTests
             assertThat(environment.getProperty("app.notifications.enabled", Boolean::class.java)).isFalse()
             assertThat(environment.getProperty("app.exchange-rates.enabled", Boolean::class.java)).isFalse()
             assertThat(applicationContext.getBeansOfType(ExchangeRateWorker::class.java)).isEmpty()
+            assertThat(applicationContext.getBeansOfType(TelegramPoller::class.java)).isEmpty()
+            assertThat(applicationContext.getBeansOfType(TelegramDeliveryWorker::class.java)).isEmpty()
         }
     }
