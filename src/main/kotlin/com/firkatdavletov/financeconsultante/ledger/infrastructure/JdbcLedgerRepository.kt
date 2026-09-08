@@ -92,7 +92,7 @@ class JdbcLedgerRepository(
     companion object {
         private val SELECT_ENTRY =
             """
-            SELECT l.*, r.source AS rate_source, r.fetched_at AS rate_fetched_at
+            SELECT l.*, r.source AS rate_source, r.quoted_at AS rate_quoted_at, r.fetched_at AS rate_fetched_at
             FROM ledger_entry l LEFT JOIN daily_exchange_rate r
                 ON l.occurred_on = r.rate_date AND l.rub_kzt = r.rub_kzt
             """.trimIndent()

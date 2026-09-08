@@ -7,6 +7,10 @@ logging:
     root: INFO
 
 app:
+  exchange-rates:
+    enabled: ${EXCHANGE_RATES_ENABLED:false}
+    access-key: ${CURRENCYLAYER_ACCESS_KEY:}
+    base-url: https://api.currencylayer.com
   telegram:
     enabled: ${TELEGRAM_ENABLED:false}
   openai:

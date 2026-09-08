@@ -24,6 +24,7 @@ class JdbcExchangeRateRepository(
                     row.getBigDecimal("rub_kzt"),
                     row.getString("source"),
                     row.getObject("fetched_at", OffsetDateTime::class.java).toInstant(),
+                    row.getObject("quoted_at", OffsetDateTime::class.java).toInstant(),
                 )
             }.optional()
             .orElse(null)
@@ -33,11 +34,16 @@ class JdbcExchangeRateRepository(
         jdbc
             .sql(
                 """
-                INSERT INTO daily_exchange_rate (rate_date, rub_kzt, source, fetched_at)
-                VALUES (?, ?, ?, ?) ON CONFLICT (rate_date) DO NOTHING
+                INSERT INTO daily_exchange_rate (rate_date, rub_kzt, source, quoted_at, fetched_at)
+                VALUES (?, ?, ?, ?, ?) ON CONFLICT (rate_date) DO NOTHING
                 """.trimIndent(),
-            ).params(rate.date, rate.rubKzt, rate.source, rate.fetchedAt.atOffset(ZoneOffset.UTC))
-            .update()
+            ).params(
+                rate.date,
+                rate.rubKzt,
+                rate.source,
+                rate.quotedAt.atOffset(ZoneOffset.UTC),
+                rate.fetchedAt.atOffset(ZoneOffset.UTC),
+            ).update()
         val saved = checkNotNull(find(rate.date))
         require(saved.rubKzt.compareTo(rate.rubKzt) == 0 && saved.source == rate.source) {
             "Daily exchange rate is already fixed with a different snapshot"

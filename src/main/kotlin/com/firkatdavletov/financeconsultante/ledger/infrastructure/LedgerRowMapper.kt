@@ -41,6 +41,7 @@ internal object LedgerRowMapper : RowMapper<LedgerEntry> {
                         rate,
                         row.getString("rate_source"),
                         row.getObject("rate_fetched_at", OffsetDateTime::class.java).toInstant(),
+                        row.getObject("rate_quoted_at", OffsetDateTime::class.java).toInstant(),
                     )
                 },
             status = EntryStatus.valueOf(row.getString("status")),

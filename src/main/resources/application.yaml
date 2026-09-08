@@ -19,6 +19,8 @@ spring:
     baseline-on-migrate: false
 
 app:
+  exchange-rates:
+    enabled: false
   telegram:
     enabled: false
   openai:
