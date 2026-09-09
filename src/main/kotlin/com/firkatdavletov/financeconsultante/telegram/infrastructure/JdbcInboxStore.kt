@@ -5,6 +5,7 @@ import com.firkatdavletov.financeconsultante.telegram.application.InboxStore
 import org.springframework.jdbc.core.simple.JdbcClient
 import org.springframework.transaction.annotation.Propagation
 import org.springframework.transaction.annotation.Transactional
+import java.time.OffsetDateTime
 
 open class JdbcInboxStore(
     private val jdbc: JdbcClient,
@@ -29,7 +30,12 @@ open class JdbcInboxStore(
                 row,
                 _,
                 ->
-                InboxMessage(row.getLong("id"), row.getLong("owner_id"), row.getString("text"))
+                InboxMessage(
+                    row.getLong("id"),
+                    row.getLong("owner_id"),
+                    row.getString("text"),
+                    row.getObject("message_sent_at", OffsetDateTime::class.java)?.toInstant(),
+                )
             }.optional()
             .orElse(null)
     }
@@ -77,7 +83,7 @@ open class JdbcInboxStore(
                 """
                 INSERT INTO telegram_outbox (inbox_id, bot_id, owner_id, text)
                 SELECT id, bot_id, owner_id, 'Не удалось обработать сообщение. Повторите команду
-                /start или /settings.'
+                /history, затем повторите ввод; /draft — сохранённое уточнение.'
                 FROM telegram_inbox WHERE id = ? AND status = 'FAILED' ON CONFLICT (inbox_id) DO
                 NOTHING
                 """.trimIndent(),

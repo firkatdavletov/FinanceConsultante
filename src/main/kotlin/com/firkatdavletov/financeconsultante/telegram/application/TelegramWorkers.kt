@@ -2,6 +2,7 @@ package com.firkatdavletov.financeconsultante.telegram.application
 
 import com.firkatdavletov.financeconsultante.telegram.domain.ACCOUNTING_ZONE
 import com.firkatdavletov.financeconsultante.telegram.domain.SetupConversation
+import com.firkatdavletov.financeconsultante.telegram.domain.SetupStep
 import org.slf4j.LoggerFactory
 import org.springframework.transaction.annotation.Transactional
 import java.time.Clock
@@ -33,6 +34,7 @@ open class TelegramInboxProcessor(
     private val setup: SetupStore,
     private val access: OwnerAccess,
     private val clock: Clock,
+    private val ledger: LedgerHandler,
 ) {
     private val conversation = SetupConversation()
 
@@ -58,6 +60,13 @@ open class TelegramInboxProcessor(
     ) {
         val dialog = setup.dialog(message.ownerId)
         val current = setup.settings(message.ownerId)
+        if (dialog.step == SetupStep.IDLE) {
+            val reply = ledger.handle(message, botId)
+            if (reply != null) {
+                inbox.complete(message, botId, reply)
+                return
+            }
+        }
         val decision =
             conversation.respond(
                 message.text,

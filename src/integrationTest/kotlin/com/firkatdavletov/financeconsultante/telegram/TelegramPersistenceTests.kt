@@ -57,7 +57,8 @@ class TelegramPersistenceTests
         @BeforeEach
         fun reset() {
             jdbc.execute(
-                "TRUNCATE telegram_outbox, telegram_inbox, telegram_polling_state, telegram_dialog RESTART IDENTITY",
+                "TRUNCATE transaction_draft, telegram_outbox, telegram_inbox, telegram_polling_state, " +
+                    "telegram_dialog RESTART IDENTITY",
             )
             val households = jdbc.queryForList("SELECT household_id FROM member WHERE telegram_user_id = ?", OWNER)
             households.forEach { row ->

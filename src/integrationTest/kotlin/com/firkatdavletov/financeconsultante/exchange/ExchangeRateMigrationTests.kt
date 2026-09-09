@@ -20,6 +20,7 @@ class ExchangeRateMigrationTests
     constructor(
         private val dataSource: DataSource,
     ) : PostgresIntegrationTest() {
+        @Suppress("MagicNumber")
         @Test
         fun `V2 preserves V1 daily rates and backfills quote timestamp`() {
             val schema = "t02a_${UUID.randomUUID().toString().replace("-", "")}"
@@ -39,7 +40,7 @@ class ExchangeRateMigrationTests
                 )
 
                 val current = flyway(schema)
-                assertThat(current.migrate().migrationsExecuted).isEqualTo(2)
+                assertThat(current.migrate().migrationsExecuted).isEqualTo(3)
                 val timestamps =
                     jdbc.queryForMap(
                         "SELECT fetched_at, quoted_at FROM $schema.daily_exchange_rate WHERE rate_date = ?",
@@ -47,7 +48,9 @@ class ExchangeRateMigrationTests
                     )
                 assertThat((timestamps.getValue("fetched_at") as Timestamp).toInstant()).isEqualTo(fetchedAt)
                 assertThat((timestamps.getValue("quoted_at") as Timestamp).toInstant()).isEqualTo(fetchedAt)
-                assertThat(current.info().applied().mapNotNull { it.version?.version }).containsExactly("1", "2", "3")
+                assertThat(
+                    current.info().applied().mapNotNull { it.version?.version },
+                ).containsExactly("1", "2", "3", "4")
             } finally {
                 jdbc.execute("DROP SCHEMA IF EXISTS $schema CASCADE")
             }

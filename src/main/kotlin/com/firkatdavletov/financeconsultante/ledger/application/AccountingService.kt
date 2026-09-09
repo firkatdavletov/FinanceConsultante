@@ -51,7 +51,10 @@ class AccountingService(
 
     @Transactional
     fun record(command: RecordEntry): RecordResult {
-        val account = ownedAccount(command.householdId, command.memberId)
+        val account =
+            requireNotNull(budgets.findOwnedAccount(command.householdId, command.memberId, lock = true)) {
+                "Budget access denied"
+            }
         ledger.findBySource(command.householdId, command.sourceKey)?.let { return RecordResult(it, false) }
         command.amount.requirePositive()
         val now = clock.instant().truncatedTo(ChronoUnit.MICROS)
@@ -101,6 +104,17 @@ class AccountingService(
         val account = ownedAccount(householdId, memberId)
         require(untilExclusive <= clock.instant()) { "Balance cutoff is in the future" }
         return Balance.calculate(account, ledger.findBefore(householdId, untilExclusive), untilExclusive)
+    }
+
+    /** Includes entries at the current microsecond; period reports keep their exclusive cutoff. */
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
+    fun currentBalance(
+        householdId: UUID,
+        memberId: UUID,
+    ): Balance {
+        val account = ownedAccount(householdId, memberId)
+        val cutoff = clock.instant().truncatedTo(ChronoUnit.MICROS).plus(1, ChronoUnit.MICROS)
+        return Balance.calculate(account, ledger.findBefore(householdId, cutoff), cutoff)
     }
 
     private fun ownedAccount(

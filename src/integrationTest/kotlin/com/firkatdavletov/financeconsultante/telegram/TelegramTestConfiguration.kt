@@ -1,6 +1,7 @@
 package com.firkatdavletov.financeconsultante.telegram
 
 import com.firkatdavletov.financeconsultante.telegram.application.InboxStore
+import com.firkatdavletov.financeconsultante.telegram.application.LedgerHandler
 import com.firkatdavletov.financeconsultante.telegram.application.OwnerAccess
 import com.firkatdavletov.financeconsultante.telegram.application.SetupStore
 import com.firkatdavletov.financeconsultante.telegram.application.TelegramInboxProcessor
@@ -21,7 +22,8 @@ class TelegramTestConfiguration {
         inbox: InboxStore,
         setup: SetupStore,
         clock: Clock,
-    ): TelegramInboxProcessor = TelegramInboxProcessor(inbox, setup, OwnerAccess(OWNER), clock)
+        ledger: LedgerHandler,
+    ): TelegramInboxProcessor = TelegramInboxProcessor(inbox, setup, OwnerAccess(OWNER), clock, ledger)
 
     companion object {
         const val OWNER = 555L

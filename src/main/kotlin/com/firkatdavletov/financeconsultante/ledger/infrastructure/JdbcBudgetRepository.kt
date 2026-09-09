@@ -57,12 +57,14 @@ class JdbcBudgetRepository(
     override fun findOwnedAccount(
         householdId: UUID,
         memberId: UUID,
+        lock: Boolean,
     ): Account? =
         jdbc
             .sql(
                 """
                 SELECT a.* FROM account a JOIN member m ON m.household_id = a.household_id
                 WHERE a.household_id = :household AND m.id = :member AND m.role = 'OWNER'
+                ${if (lock) "FOR UPDATE OF a" else ""}
                 """.trimIndent(),
             ).param("household", householdId)
             .param("member", memberId)

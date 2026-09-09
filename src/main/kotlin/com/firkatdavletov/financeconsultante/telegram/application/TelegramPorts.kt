@@ -3,6 +3,7 @@ package com.firkatdavletov.financeconsultante.telegram.application
 import com.firkatdavletov.financeconsultante.telegram.domain.BudgetSettings
 import com.firkatdavletov.financeconsultante.telegram.domain.SetupDialog
 import java.time.Duration
+import java.time.Instant
 import java.util.UUID
 
 class OwnerAccess(
@@ -33,6 +34,7 @@ data class IncomingMessage(
     val chatType: String?,
     val isBot: Boolean,
     val text: String?,
+    val sentAt: Instant? = null,
 )
 
 interface TelegramClient {
@@ -64,6 +66,7 @@ data class InboxMessage(
     val id: Long,
     val ownerId: Long,
     val text: String,
+    val sentAt: Instant? = null,
 )
 
 data class OutboxDelivery(

@@ -55,7 +55,18 @@ class OwnerAccessTests {
                     settings: BudgetSettings,
                 ) = error("Changed private settings")
             }
-        TelegramInboxProcessor(inbox, forbidden, OwnerAccess(555), Clock.systemUTC()).processOne(1)
+        TelegramInboxProcessor(
+            inbox,
+            forbidden,
+            OwnerAccess(555),
+            Clock.systemUTC(),
+            LedgerHandler {
+                _,
+                _,
+                ->
+                error("Unauthorized ledger")
+            },
+        ).processOne(1)
         assertThat(ignored).isTrue()
     }
 }

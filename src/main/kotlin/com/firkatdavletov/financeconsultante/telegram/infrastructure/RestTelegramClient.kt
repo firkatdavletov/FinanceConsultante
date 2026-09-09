@@ -13,6 +13,7 @@ import org.springframework.web.client.ResourceAccessException
 import org.springframework.web.client.RestClient
 import org.springframework.web.client.RestClientException
 import java.time.Duration
+import java.time.Instant
 
 class RestTelegramClient(
     private val client: RestClient,
@@ -38,6 +39,7 @@ class RestTelegramClient(
                         message.chat?.type,
                         message.from?.isBot ?: true,
                         message.text,
+                        message.date?.takeIf { it in 1..MAX_MESSAGE_TIMESTAMP }?.let(Instant::ofEpochSecond),
                     )
                 },
             )
@@ -116,6 +118,7 @@ class RestTelegramClient(
         val from: BotUser? = null,
         val chat: BotChat? = null,
         val text: String? = null,
+        val date: Long? = null,
     )
 
     @JsonIgnoreProperties(ignoreUnknown = true)
@@ -144,6 +147,7 @@ class RestTelegramClient(
 
     companion object {
         const val MAX_TEXT_LENGTH = 4096
+        private const val MAX_MESSAGE_TIMESTAMP = 253402300799L
         private const val UPDATE_LIMIT = 100
         private val PERMANENT_ERRORS =
             setOf(

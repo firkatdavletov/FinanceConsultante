@@ -111,7 +111,7 @@ class SetupConversation {
                 SetupStep.IDLE -> {
                     SetupDecision(
                         dialog,
-                        "Для настройки используйте /start или /settings. Учёт операций ещё недоступен.",
+                        "Для настройки используйте /start или /settings. Формат операций: /help.",
                     )
                 }
 

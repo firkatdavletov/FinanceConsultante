@@ -7,6 +7,7 @@ import com.firkatdavletov.financeconsultante.telegram.application.PollingStore
 import org.springframework.jdbc.core.simple.JdbcClient
 import org.springframework.transaction.annotation.Transactional
 import java.time.Duration
+import java.time.ZoneOffset
 import java.util.UUID
 
 open class JdbcPollingStore(
@@ -61,14 +62,15 @@ open class JdbcPollingStore(
             jdbc
                 .sql(
                     """
-                    INSERT INTO telegram_inbox (bot_id, update_id, owner_id, text, status)
-                    VALUES (:bot, :update, :owner, :text, :status) ON CONFLICT (bot_id, update_id) DO NOTHING
+                    INSERT INTO telegram_inbox (bot_id, update_id, owner_id, text, status, message_sent_at)
+                    VALUES (:bot, :update, :owner, :text, :status, :sent) ON CONFLICT (bot_id, update_id) DO NOTHING
                     """.trimIndent(),
                 ).param("bot", lease.botId)
                 .param("update", update.updateId)
                 .param("owner", if (allowed) message.userId else null)
                 .param("text", if (allowed) message.text else null)
                 .param("status", if (allowed) "RECEIVED" else "IGNORED")
+                .param("sent", if (allowed) message.sentAt?.atOffset(ZoneOffset.UTC) else null)
                 .update()
         }
         // Derive from this returned batch: Telegram may choose a random update ID after a week of inactivity.

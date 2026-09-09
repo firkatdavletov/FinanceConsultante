@@ -15,6 +15,7 @@ interface BudgetRepository {
     fun findOwnedAccount(
         householdId: UUID,
         memberId: UUID,
+        lock: Boolean = false,
     ): Account?
 
     fun findCategory(

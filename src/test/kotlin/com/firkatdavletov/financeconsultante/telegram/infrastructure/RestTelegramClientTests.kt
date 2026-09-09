@@ -44,6 +44,7 @@ class RestTelegramClientTests {
       "update_id": 11,
       "message": {
         "message_id": 1,
+        "date": 1788663600,
         "from": {
           "id": 555,
           "is_bot": false
@@ -68,6 +69,7 @@ class RestTelegramClientTests {
         val updates = client().getUpdates(11)
         assertThat(updates.map { it.updateId }).containsExactly(11, 12)
         assertThat(updates.first().message?.userId).isEqualTo(555)
+        assertThat(updates.first().message?.sentAt).isEqualTo(java.time.Instant.ofEpochSecond(1788663600))
         assertThat(updates.last().message).isNull()
         server.verify(
             postRequestedFor(urlEqualTo("/bot$token/getUpdates"))

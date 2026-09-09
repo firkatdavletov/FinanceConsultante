@@ -1,7 +1,10 @@
 package com.firkatdavletov.financeconsultante.telegram.infrastructure
 
 import com.firkatdavletov.financeconsultante.ledger.application.AccountingService
+import com.firkatdavletov.financeconsultante.ledger.application.LedgerOperations
+import com.firkatdavletov.financeconsultante.ledger.application.TransactionDraftRepository
 import com.firkatdavletov.financeconsultante.telegram.application.InboxStore
+import com.firkatdavletov.financeconsultante.telegram.application.LedgerHandler
 import com.firkatdavletov.financeconsultante.telegram.application.OutboxStore
 import com.firkatdavletov.financeconsultante.telegram.application.OwnerAccess
 import com.firkatdavletov.financeconsultante.telegram.application.PollingStore
@@ -9,6 +12,7 @@ import com.firkatdavletov.financeconsultante.telegram.application.SetupStore
 import com.firkatdavletov.financeconsultante.telegram.application.TelegramClient
 import com.firkatdavletov.financeconsultante.telegram.application.TelegramDeliveryWorker
 import com.firkatdavletov.financeconsultante.telegram.application.TelegramInboxProcessor
+import com.firkatdavletov.financeconsultante.telegram.application.TelegramLedgerHandler
 import com.firkatdavletov.financeconsultante.telegram.application.TelegramPoller
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty
 import org.springframework.boot.context.properties.EnableConfigurationProperties
@@ -69,7 +73,8 @@ class TelegramConfiguration {
         setup: SetupStore,
         access: OwnerAccess,
         clock: Clock,
-    ): TelegramInboxProcessor = TelegramInboxProcessor(inbox, setup, access, clock)
+        ledger: LedgerHandler,
+    ): TelegramInboxProcessor = TelegramInboxProcessor(inbox, setup, access, clock, ledger)
 
     @Bean
     fun telegramDeliveryWorker(
@@ -104,6 +109,14 @@ class TelegramConfiguration {
 }
 
 class TelegramStorageConfiguration {
+    @Bean
+    fun ledgerHandler(
+        properties: TelegramProperties,
+        operations: LedgerOperations,
+        drafts: TransactionDraftRepository,
+        clock: Clock,
+    ): LedgerHandler = TelegramLedgerHandler(OwnerAccess(properties.ownerId), operations, drafts, clock)
+
     @Bean
     fun pollingStore(
         jdbc: JdbcClient,
