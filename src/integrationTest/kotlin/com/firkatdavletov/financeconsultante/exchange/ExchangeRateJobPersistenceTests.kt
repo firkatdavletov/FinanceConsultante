@@ -41,7 +41,8 @@ class ExchangeRateJobPersistenceTests
     ) : PostgresIntegrationTest() {
         @BeforeEach
         fun removeSyntheticExchangeRateRows() {
-            jdbc.sql("DELETE FROM exchange_rate_job WHERE rate_date >= DATE '2040-01-01'").update()
+            // claimDue consumes the global queue, including jobs left by Telegram integration scenarios.
+            jdbc.sql("DELETE FROM exchange_rate_job").update()
             jdbc.sql("DELETE FROM daily_exchange_rate WHERE rate_date >= DATE '2040-01-01'").update()
         }
 

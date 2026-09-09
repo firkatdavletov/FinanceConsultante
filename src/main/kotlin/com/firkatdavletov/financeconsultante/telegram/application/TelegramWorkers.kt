@@ -60,10 +60,10 @@ open class TelegramInboxProcessor(
     ) {
         val dialog = setup.dialog(message.ownerId)
         val current = setup.settings(message.ownerId)
-        if (dialog.step == SetupStep.IDLE) {
+        if (dialog.step == SetupStep.IDLE || message.kind != IncomingKind.MESSAGE) {
             val reply = ledger.handle(message, botId)
             if (reply != null) {
-                inbox.complete(message, botId, reply)
+                inbox.completeReply(message, botId, reply)
                 return
             }
         }
@@ -93,8 +93,16 @@ class TelegramDeliveryWorker(
             outbox.failed(delivery, TelegramFailure("access_revoked", permanent = true))
             return
         }
+        delivery.callbackQueryId?.let { queryId ->
+            try {
+                client.answerCallback(queryId)
+            } catch (failure: TelegramFailure) {
+                // Expired callback acknowledgements must not suppress the durable financial response.
+                logger.warn("Telegram callback acknowledgement failed ({})", failure.code)
+            }
+        }
         try {
-            outbox.sent(delivery, client.sendMessage(delivery.ownerId, delivery.text))
+            outbox.sent(delivery, client.sendMessage(delivery.ownerId, delivery.text, delivery.buttons))
         } catch (failure: TelegramFailure) {
             outbox.failed(delivery, failure)
             logger.warn("Telegram reply delivery failed ({})", failure.code)

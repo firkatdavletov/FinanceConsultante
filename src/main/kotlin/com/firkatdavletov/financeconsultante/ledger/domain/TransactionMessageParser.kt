@@ -13,7 +13,9 @@ import java.time.format.ResolverStyle
 import java.util.Locale
 
 /** Parses complete messages only. The caller supplies today's date in the budget's time zone. */
-class TransactionMessageParser {
+class TransactionMessageParser(
+    private val categories: Map<String, TransactionCategory> = DEFAULT_CATEGORIES,
+) {
     fun parse(
         text: String,
         today: LocalDate,
@@ -110,7 +112,7 @@ class TransactionMessageParser {
         val match =
             (if (direction == null) SHORT_TRANSACTION else EXPLICIT_TRANSACTION).matchEntire(input)
                 ?: return NeedsClarification(ClarificationReason.INVALID_FORMAT)
-        val category = CATEGORIES[match.groups["category"]?.value]
+        val category = categories[match.groups["category"]?.value]
         val currencyToken = match.groups["currency"]?.value.orEmpty()
         val currency = CURRENCIES[currencyToken]
         val amount = currency?.let { parseAmount(match.groups["amount"]?.value.orEmpty(), it) }
@@ -153,7 +155,7 @@ class TransactionMessageParser {
     companion object {
         private const val MAX_INPUT_LENGTH = 512
         private const val AMOUNT = "(?<amount>-?(?:[0-9]{1,3}(?: [0-9]{3})+|[0-9]+)(?:[.,][0-9]+)?)"
-        private const val CATEGORY = "(?<category>[а-яё]+)"
+        private const val CATEGORY = "(?<category>[a-zа-яё]+(?:-[a-zа-яё]+)*)"
         private const val CURRENCY = "(?: (?<currency>[a-zа-яё]+|[₸₽$€]))?"
         private val SHORT_TRANSACTION = Regex("$CATEGORY $AMOUNT$CURRENCY")
         private val EXPLICIT_TRANSACTION = Regex("$AMOUNT$CURRENCY $CATEGORY")
@@ -164,7 +166,7 @@ class TransactionMessageParser {
         private val DATE_TOKEN = Regex("сегодня|вчера|завтра|[0-9]{4}-[0-9]{2}-[0-9]{2}|[0-9]{2}\\.[0-9]{2}\\.[0-9]{4}")
         private val ISO_DATE = DateTimeFormatter.ISO_LOCAL_DATE
         private val RUSSIAN_DATE = DateTimeFormatter.ofPattern("dd.MM.uuuu").withResolverStyle(ResolverStyle.STRICT)
-        private val CATEGORIES =
+        val DEFAULT_CATEGORIES =
             mapOf(
                 "супермаркет" to TransactionCategory.GROCERIES,
                 "продукты" to TransactionCategory.GROCERIES,

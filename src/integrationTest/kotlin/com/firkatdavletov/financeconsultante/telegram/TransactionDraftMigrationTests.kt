@@ -91,7 +91,7 @@ class TransactionDraftMigrationTests
                         "SELECT snapshot::text FROM $schema.entry_revision",
                         String::class.java,
                     )
-                val current = config.target(MigrationVersion.LATEST).load()
+                val current = config.target(MigrationVersion.fromVersion("4")).load()
                 assertThat(current.migrate().migrationsExecuted).isEqualTo(1)
                 assertThat(
                     jdbc.queryForObject(

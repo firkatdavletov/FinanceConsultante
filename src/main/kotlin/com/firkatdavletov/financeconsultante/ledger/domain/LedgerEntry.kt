@@ -36,17 +36,27 @@ data class LedgerEntry(
     val exchangeRate: DailyExchangeRate? = null,
     val status: EntryStatus = EntryStatus.POSTED,
     val version: Long = 0,
+    val modifiedAt: Instant = createdAt,
+    val refundOf: UUID? = null,
 ) {
     init {
         originalAmount.requirePositive()
         amountKzt.requirePositive()
         require(amountKzt.currency == Currency.KZT) { "Ledger valuation must be KZT" }
-        require(occurredAt >= accountingStartedAt && occurredAt <= createdAt) { "Outside accounting interval" }
+        require(occurredAt >= accountingStartedAt && occurredAt <= modifiedAt && modifiedAt >= createdAt) {
+            "Outside accounting interval"
+        }
         // Prevent database timestamp rounding from moving an operation into the next currency date.
-        require(listOf(accountingStartedAt, occurredAt, createdAt).all { it == it.truncatedTo(ChronoUnit.MICROS) }) {
+        require(
+            listOf(accountingStartedAt, occurredAt, createdAt, modifiedAt).all {
+                it ==
+                    it.truncatedTo(ChronoUnit.MICROS)
+            },
+        ) {
             "Accounting timestamps support microsecond precision"
         }
         require(SOURCE_PATTERN.matches(sourceKey)) { "Invalid financial source key" }
+        require(refundOf == null || (direction == Direction.EXPENSE_REFUND && refundOf != id))
         require(version >= 0) { "Invalid entry version" }
         when (originalAmount.currency) {
             Currency.KZT -> {

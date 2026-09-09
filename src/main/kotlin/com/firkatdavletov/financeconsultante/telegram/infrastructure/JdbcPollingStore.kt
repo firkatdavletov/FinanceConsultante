@@ -1,5 +1,7 @@
 package com.firkatdavletov.financeconsultante.telegram.infrastructure
 
+import com.firkatdavletov.financeconsultante.telegram.application.IncomingKind
+import com.firkatdavletov.financeconsultante.telegram.application.IncomingMessage
 import com.firkatdavletov.financeconsultante.telegram.application.IncomingUpdate
 import com.firkatdavletov.financeconsultante.telegram.application.OwnerAccess
 import com.firkatdavletov.financeconsultante.telegram.application.PollLease
@@ -55,22 +57,23 @@ open class JdbcPollingStore(
         if (!active) return false
         updates.sortedBy { it.updateId }.forEach { update ->
             require(update.updateId >= 0 && update.updateId < Long.MAX_VALUE)
-            val message = update.message
-            val allowed =
-                message != null && access.allows(message.userId, message.chatId, message.chatType, message.isBot) &&
-                    !message.text.isNullOrBlank() && message.text.length <= RestTelegramClient.MAX_TEXT_LENGTH
+            val message = authorized(update.message, access)
             jdbc
                 .sql(
                     """
-                    INSERT INTO telegram_inbox (bot_id, update_id, owner_id, text, status, message_sent_at)
-                    VALUES (:bot, :update, :owner, :text, :status, :sent) ON CONFLICT (bot_id, update_id) DO NOTHING
+                    INSERT INTO telegram_inbox (bot_id, update_id, owner_id, text, status, message_sent_at,
+                        event_kind, callback_query_id, telegram_message_id)
+                    VALUES (:bot, :update, :owner, :text, :status, :sent, :kind, :query, :messageId) ON CONFLICT DO NOTHING
                     """.trimIndent(),
                 ).param("bot", lease.botId)
                 .param("update", update.updateId)
-                .param("owner", if (allowed) message.userId else null)
-                .param("text", if (allowed) message.text else null)
-                .param("status", if (allowed) "RECEIVED" else "IGNORED")
-                .param("sent", if (allowed) message.sentAt?.atOffset(ZoneOffset.UTC) else null)
+                .param("owner", message?.userId)
+                .param("text", message?.text)
+                .param("kind", message?.kind?.name ?: "MESSAGE")
+                .param("query", message?.callbackQueryId)
+                .param("messageId", message?.messageId)
+                .param("status", if (message != null) "RECEIVED" else "IGNORED")
+                .param("sent", message?.sentAt?.atOffset(ZoneOffset.UTC))
                 .update()
         }
         // Derive from this returned batch: Telegram may choose a random update ID after a week of inactivity.
@@ -85,6 +88,22 @@ open class JdbcPollingStore(
             .update()
         return true
     }
+
+    @Suppress("ReturnCount") // Discard unauthorized payload before persistence.
+    private fun authorized(message: IncomingMessage?, access: OwnerAccess): IncomingMessage? {
+        if (message == null ||
+            !access.allows(message.userId, message.chatId, message.chatType, message.isBot)
+        ) {
+            return null
+        }
+        if (message.text.isNullOrBlank() || message.text.length > RestTelegramClient.MAX_TEXT_LENGTH) return null
+        if (message.kind == IncomingKind.CALLBACK && !validCallback(message)) return null
+        return if (message.kind == IncomingKind.EDITED) message.copy(text = "edited_message") else message
+    }
+
+    private fun validCallback(message: IncomingMessage): Boolean =
+        message.callbackQueryId?.length in 1..MAX_QUERY_LENGTH &&
+            message.text?.toByteArray(Charsets.UTF_8)?.size in 1..MAX_CALLBACK_BYTES
 
     @Transactional
     override fun retry(
@@ -102,5 +121,10 @@ open class JdbcPollingStore(
             .param("bot", lease.botId)
             .param("token", lease.token)
             .update()
+    }
+
+    companion object {
+        private const val MAX_QUERY_LENGTH = 256
+        private const val MAX_CALLBACK_BYTES = 64
     }
 }

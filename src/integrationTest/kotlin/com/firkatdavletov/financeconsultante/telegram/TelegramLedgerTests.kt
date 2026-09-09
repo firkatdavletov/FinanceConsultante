@@ -2,6 +2,8 @@ package com.firkatdavletov.financeconsultante.telegram
 
 import com.firkatdavletov.financeconsultante.PostgresIntegrationTest
 import com.firkatdavletov.financeconsultante.ledger.application.AccountingService
+import com.firkatdavletov.financeconsultante.ledger.application.CategoryManagement
+import com.firkatdavletov.financeconsultante.ledger.application.EntryCorrections
 import com.firkatdavletov.financeconsultante.ledger.application.LedgerOperations
 import com.firkatdavletov.financeconsultante.ledger.application.TransactionDraftRepository
 import com.firkatdavletov.financeconsultante.ledger.infrastructure.JdbcBudgetRepository
@@ -17,6 +19,7 @@ import com.firkatdavletov.financeconsultante.telegram.application.OutboxStore
 import com.firkatdavletov.financeconsultante.telegram.application.OwnerAccess
 import com.firkatdavletov.financeconsultante.telegram.application.PollingStore
 import com.firkatdavletov.financeconsultante.telegram.application.SetupStore
+import com.firkatdavletov.financeconsultante.telegram.application.TelegramCorrectionHandler
 import com.firkatdavletov.financeconsultante.telegram.application.TelegramDeliveryWorker
 import com.firkatdavletov.financeconsultante.telegram.application.TelegramInboxProcessor
 import com.firkatdavletov.financeconsultante.telegram.application.TelegramLedgerHandler
@@ -65,6 +68,8 @@ class TelegramLedgerTests
         private val processor: TelegramInboxProcessor,
         private val operations: LedgerOperations,
         private val drafts: TransactionDraftRepository,
+        private val categories: CategoryManagement,
+        private val corrections: EntryCorrections,
         private val clock: Clock,
         private val jdbc: JdbcTemplate,
         transactionManager: PlatformTransactionManager,
@@ -239,7 +244,20 @@ class TelegramLedgerTests
                         setup,
                         access,
                         clock,
-                        TelegramLedgerHandler(access, operations, drafts, clock),
+                        TelegramLedgerHandler(
+                            access,
+                            operations,
+                            drafts,
+                            clock,
+                            categories,
+                            TelegramCorrectionHandler(
+                                access,
+                                operations,
+                                corrections,
+                                categories,
+                                clock,
+                            ),
+                        ),
                     )
                 assertThat(fresh.processOne(BOT)).isTrue()
             }
@@ -345,7 +363,20 @@ class TelegramLedgerTests
             assertThat(count("ledger_entry")).isZero()
             assertThat(jdbc.queryForObject("SELECT text FROM telegram_inbox", String::class.java)).isNull()
             assertThatThrownBy {
-                TelegramLedgerHandler(access, operations, drafts, clock).handle(
+                TelegramLedgerHandler(
+                    access,
+                    operations,
+                    drafts,
+                    clock,
+                    categories,
+                    TelegramCorrectionHandler(
+                        access,
+                        operations,
+                        corrections,
+                        categories,
+                        clock,
+                    ),
+                ).handle(
                     com.firkatdavletov.financeconsultante.telegram.application
                         .InboxMessage(1, 999, "/balance"),
                     BOT,
@@ -420,7 +451,14 @@ class TelegramLedgerTests
             receive("аптека 20")
             assertThat(reply()).contains("Категория архивирована")
             assertThat(count("ledger_entry")).isEqualTo(1)
-            assertThat(count("category")).isEqualTo(1)
+            assertThat(
+                jdbc.queryForObject(
+                    "SELECT count(*) FROM category WHERE dictionary_key = 'HEALTH' AND " +
+                        "household_id = (SELECT household_id FROM member WHERE telegram_user_id = ?)",
+                    Long::class.java,
+                    OWNER,
+                ),
+            ).isEqualTo(1)
         }
 
         @Test

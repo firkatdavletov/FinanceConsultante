@@ -34,7 +34,7 @@ open class JdbcOutboxStore(
                 ORDER BY id LIMIT 1
                 ) AND next_attempt_at <= clock_timestamp()
                 AND (status = 'PENDING' OR lease_until <= clock_timestamp())
-                RETURNING id, owner_id, text
+                RETURNING id, owner_id, text, buttons, callback_query_id
                 """.trimIndent(),
             ).param("bot", botId)
             .param("token", token)
@@ -43,7 +43,14 @@ open class JdbcOutboxStore(
                 row,
                 _,
                 ->
-                OutboxDelivery(row.getLong("id"), row.getLong("owner_id"), row.getString("text"), token)
+                OutboxDelivery(
+                    row.getLong("id"),
+                    row.getLong("owner_id"),
+                    row.getString("text"),
+                    token,
+                    ReplyButtonsJson.decode(row.getString("buttons")),
+                    row.getString("callback_query_id"),
+                )
             }.optional()
             .orElse(null)
     }

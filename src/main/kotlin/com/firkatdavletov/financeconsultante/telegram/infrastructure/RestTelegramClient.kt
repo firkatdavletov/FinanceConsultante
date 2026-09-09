@@ -1,9 +1,12 @@
 package com.firkatdavletov.financeconsultante.telegram.infrastructure
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties
+import com.fasterxml.jackson.annotation.JsonInclude
 import com.fasterxml.jackson.annotation.JsonProperty
+import com.firkatdavletov.financeconsultante.telegram.application.IncomingKind
 import com.firkatdavletov.financeconsultante.telegram.application.IncomingMessage
 import com.firkatdavletov.financeconsultante.telegram.application.IncomingUpdate
+import com.firkatdavletov.financeconsultante.telegram.application.ReplyButton
 import com.firkatdavletov.financeconsultante.telegram.application.TelegramClient
 import com.firkatdavletov.financeconsultante.telegram.application.TelegramFailure
 import org.springframework.core.ParameterizedTypeReference
@@ -30,31 +33,77 @@ class RestTelegramClient(
             val id =
                 update.updateId?.takeIf { it >= 0 && it < Long.MAX_VALUE }
                     ?: throw TelegramFailure("invalid_update_id")
-            IncomingUpdate(
-                id,
-                update.message?.let { message ->
-                    IncomingMessage(
-                        message.from?.id,
-                        message.chat?.id,
-                        message.chat?.type,
-                        message.from?.isBot ?: true,
-                        message.text,
-                        message.date?.takeIf { it in 1..MAX_MESSAGE_TIMESTAMP }?.let(Instant::ofEpochSecond),
-                    )
-                },
-            )
+            IncomingUpdate(id, incoming(update))
         }
+    }
+
+    @Suppress("ReturnCount") // Distinguish callback, edited message and ordinary message transports.
+    private fun incoming(update: BotUpdate): IncomingMessage? {
+        update.callbackQuery?.let { return incomingCallback(it) }
+        val message = update.editedMessage ?: update.message ?: return null
+        val edited = update.editedMessage != null
+        return IncomingMessage(
+            message.from?.id,
+            message.chat?.id,
+            message.chat?.type,
+            message.from?.isBot ?: true,
+            if (edited) "edited_message" else message.text,
+            message.date?.takeIf { it in 1..MAX_MESSAGE_TIMESTAMP }?.let(Instant::ofEpochSecond),
+            if (edited) IncomingKind.EDITED else IncomingKind.MESSAGE,
+            messageId = message.messageId,
+        )
+    }
+
+    @Suppress("ReturnCount") // Invalid or inaccessible callback messages carry no authorized action.
+    private fun incomingCallback(callback: BotCallback): IncomingMessage? {
+        val message =
+            callback.message?.takeIf {
+                it.from?.id == properties.botId && it.from.isBot && (it.date ?: 0) > 0
+            } ?: return null
+        val id = callback.id?.takeIf { it.isNotBlank() && it.length <= MAX_QUERY_LENGTH } ?: return null
+        val data =
+            callback.data?.takeIf {
+                it.isNotBlank() && it.toByteArray(Charsets.UTF_8).size <= MAX_CALLBACK_BYTES
+            } ?: return null
+        return IncomingMessage(
+            callback.from?.id,
+            message.chat?.id,
+            message.chat?.type,
+            callback.from?.isBot ?: true,
+            data,
+            null,
+            IncomingKind.CALLBACK,
+            id,
+            message.messageId,
+        )
+    }
+
+    override fun answerCallback(queryId: String) {
+        require(queryId.isNotBlank() && queryId.length <= MAX_QUERY_LENGTH)
+        request(
+            "answerCallbackQuery",
+            mapOf("callback_query_id" to queryId),
+            object : ParameterizedTypeReference<BotResponse<Boolean>>() {},
+        )
     }
 
     override fun sendMessage(
         chatId: Long,
         text: String,
+        buttons: List<ReplyButton>,
     ): Long {
         require(chatId > 0 && text.isNotBlank() && text.length <= MAX_TEXT_LENGTH)
+        require(buttons.all { it.data.toByteArray(Charsets.UTF_8).size in 1..MAX_CALLBACK_BYTES })
         val result =
             request(
                 "sendMessage",
-                SendMessageRequest(chatId, text),
+                SendMessageRequest(
+                    chatId,
+                    text,
+                    buttons.takeIf { it.isNotEmpty() }?.let { rows ->
+                        InlineKeyboard(rows.chunked(2).map { row -> row.map { InlineButton(it.text, it.data) } })
+                    },
+                ),
                 object : ParameterizedTypeReference<BotResponse<BotMessage>>() {},
             )
         return result.messageId?.takeIf { it > 0 } ?: throw TelegramFailure("invalid_message_id")
@@ -110,6 +159,16 @@ class RestTelegramClient(
     private data class BotUpdate(
         @param:JsonProperty("update_id") val updateId: Long? = null,
         val message: BotMessage? = null,
+        @param:JsonProperty("edited_message") val editedMessage: BotMessage? = null,
+        @param:JsonProperty("callback_query") val callbackQuery: BotCallback? = null,
+    )
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    private data class BotCallback(
+        val id: String? = null,
+        val from: BotUser? = null,
+        val message: BotMessage? = null,
+        val data: String? = null,
     )
 
     @JsonIgnoreProperties(ignoreUnknown = true)
@@ -137,15 +196,29 @@ class RestTelegramClient(
         val offset: Long,
         val timeout: Int,
         val limit: Int = UPDATE_LIMIT,
-        @get:JsonProperty("allowed_updates") val allowedUpdates: List<String> = listOf("message"),
+        @get:JsonProperty("allowed_updates") val allowedUpdates: List<String> =
+            listOf("message", "callback_query", "edited_message"),
     )
 
+    @JsonInclude(JsonInclude.Include.NON_NULL)
     private data class SendMessageRequest(
         @get:JsonProperty("chat_id") val chatId: Long,
         val text: String,
+        @get:JsonProperty("reply_markup") val replyMarkup: InlineKeyboard? = null,
+    )
+
+    private data class InlineKeyboard(
+        @get:JsonProperty("inline_keyboard") val rows: List<List<InlineButton>>,
+    )
+
+    private data class InlineButton(
+        val text: String,
+        @get:JsonProperty("callback_data") val data: String,
     )
 
     companion object {
+        private const val MAX_CALLBACK_BYTES = 64
+        private const val MAX_QUERY_LENGTH = 256
         const val MAX_TEXT_LENGTH = 4096
         private const val MAX_MESSAGE_TIMESTAMP = 253402300799L
         private const val UPDATE_LIMIT = 100

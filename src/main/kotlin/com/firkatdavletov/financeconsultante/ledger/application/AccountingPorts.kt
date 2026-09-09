@@ -25,6 +25,24 @@ interface BudgetRepository {
 }
 
 interface LedgerRepository {
+    fun find(
+        householdId: UUID,
+        entryId: UUID,
+    ): LedgerEntry?
+
+    fun refunds(
+        householdId: UUID,
+        entryId: UUID,
+    ): List<LedgerEntry>
+
+    /** Compare-and-set ledger and append its audit snapshot in the same transaction. */
+    fun revise(
+        entry: LedgerEntry,
+        actorId: UUID,
+        reason: String,
+        source: String,
+    ): Boolean
+
     fun findBySource(
         householdId: UUID,
         sourceKey: String,

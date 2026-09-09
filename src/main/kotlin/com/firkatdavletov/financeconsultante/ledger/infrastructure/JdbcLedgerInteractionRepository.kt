@@ -37,10 +37,28 @@ class JdbcLedgerInteractionRepository(
             }.optional()
             .orElse(null)
 
+    @Suppress("ReturnCount") // Resolve either a persistent UUID or a legacy dictionary identity.
     override fun resolveCategory(
         householdId: UUID,
         key: TransactionCategory,
     ): Category {
+        if (key.id != null) {
+            return checkNotNull(
+                jdbc
+                    .sql("SELECT * FROM category WHERE household_id = ? AND id = ?")
+                    .params(householdId, key.id)
+                    .query { row, _ ->
+                        Category(
+                            key.id,
+                            householdId,
+                            row.getString("name"),
+                            CategoryKind.valueOf(row.getString("kind")),
+                            row.getBoolean("archived"),
+                        )
+                    }.optional()
+                    .orElse(null),
+            ) { "Category is unavailable" }
+        }
         findCategory(householdId, key)?.let { return it }
         // Attach dictionary identity to an existing category without changing its ID or archive state.
         jdbc

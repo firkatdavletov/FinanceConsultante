@@ -2,6 +2,8 @@ package com.firkatdavletov.financeconsultante.telegram.infrastructure
 
 import com.firkatdavletov.financeconsultante.telegram.application.InboxMessage
 import com.firkatdavletov.financeconsultante.telegram.application.InboxStore
+import com.firkatdavletov.financeconsultante.telegram.application.IncomingKind
+import com.firkatdavletov.financeconsultante.telegram.application.TelegramReply
 import org.springframework.jdbc.core.simple.JdbcClient
 import org.springframework.transaction.annotation.Propagation
 import org.springframework.transaction.annotation.Transactional
@@ -35,6 +37,9 @@ open class JdbcInboxStore(
                     row.getLong("owner_id"),
                     row.getString("text"),
                     row.getObject("message_sent_at", OffsetDateTime::class.java)?.toInstant(),
+                    IncomingKind.valueOf(row.getString("event_kind")),
+                    row.getString("callback_query_id"),
+                    row.getObject("telegram_message_id", Long::class.javaObjectType),
                 )
             }.optional()
             .orElse(null)
@@ -59,6 +64,24 @@ open class JdbcInboxStore(
         jdbc
             .sql("UPDATE telegram_inbox SET status = ?, text = NULL WHERE id = ? AND bot_id = ?")
             .params(if (reply == null) "IGNORED" else "PROCESSED", message.id, botId)
+            .update()
+    }
+
+    @Transactional(propagation = Propagation.MANDATORY)
+    override fun completeReply(
+        message: InboxMessage,
+        botId: Long,
+        reply: TelegramReply,
+    ) {
+        complete(message, botId, reply.text)
+        jdbc
+            .sql(
+                "UPDATE telegram_outbox SET buttons = :buttons::jsonb, callback_query_id = :query " +
+                    "WHERE inbox_id = :inbox AND bot_id = :bot",
+            ).param("buttons", ReplyButtonsJson.encode(reply.buttons))
+            .param("query", message.callbackQueryId)
+            .param("inbox", message.id)
+            .param("bot", botId)
             .update()
     }
 

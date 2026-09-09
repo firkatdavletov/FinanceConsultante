@@ -15,6 +15,69 @@ import java.util.UUID
 class JdbcLedgerRepository(
     private val jdbc: JdbcClient,
 ) : LedgerRepository {
+    override fun find(
+        householdId: UUID,
+        entryId: UUID,
+    ): LedgerEntry? =
+        jdbc
+            .sql("$SELECT_ENTRY WHERE l.household_id = ? AND l.id = ?")
+            .params(householdId, entryId)
+            .query(LedgerRowMapper)
+            .optional()
+            .orElse(null)
+
+    override fun refunds(
+        householdId: UUID,
+        entryId: UUID,
+    ): List<LedgerEntry> =
+        jdbc
+            .sql("$SELECT_ENTRY WHERE l.household_id = ? AND l.refund_of = ? AND l.status = 'POSTED'")
+            .params(householdId, entryId)
+            .query(LedgerRowMapper)
+            .list()
+
+    @Transactional(propagation = Propagation.MANDATORY)
+    override fun revise(
+        entry: LedgerEntry,
+        actorId: UUID,
+        reason: String,
+        source: String,
+    ): Boolean {
+        val changed =
+            jdbc
+                .sql(
+                    """
+                    UPDATE ledger_entry SET original_amount = :amount, amount_kzt = :kzt, category_id = :category,
+                        occurred_at = :date, rub_kzt = :rate, status = :status, version = :version, modified_at = :now
+                    WHERE household_id = :household AND id = :id AND version = :version - 1 AND status = 'POSTED'
+                        AND NOT EXISTS (SELECT 1 FROM entry_revision WHERE household_id = :household AND mutation_source = :source)
+                    """.trimIndent(),
+                ).param("amount", entry.originalAmount.amount)
+                .param("kzt", entry.amountKzt.amount)
+                .param("category", entry.categoryId)
+                .param("date", entry.occurredAt.atOffset(ZoneOffset.UTC))
+                .param("rate", entry.exchangeRate?.rubKzt, Types.NUMERIC)
+                .param("status", entry.status.name)
+                .param("version", entry.version)
+                .param("now", entry.modifiedAt.atOffset(ZoneOffset.UTC))
+                .param("household", entry.householdId)
+                .param("id", entry.id)
+                .param("source", source)
+                .update()
+        if (changed == 0) return false
+        jdbc
+            .sql(
+                """
+                INSERT INTO entry_revision(household_id, entry_id, version, actor_id, action, snapshot,
+                    created_at, reason, mutation_source)
+                SELECT household_id, id, version, ?, CASE WHEN status = 'VOIDED' THEN 'VOIDED' ELSE 'CORRECTED' END,
+                    to_jsonb(l), modified_at, ?, ? FROM ledger_entry l WHERE household_id = ? AND id = ?
+                """.trimIndent(),
+            ).params(actorId, reason, source, entry.householdId, entry.id)
+            .update()
+        return true
+    }
+
     override fun findBySource(
         householdId: UUID,
         sourceKey: String,
@@ -37,11 +100,11 @@ class JdbcLedgerRepository(
                     INSERT INTO ledger_entry (
                         id, household_id, account_id, accounting_started_at, category_id, direction,
                         original_amount, original_currency, amount_kzt, occurred_at, rub_kzt,
-                        status, version, source_key, actor_id, created_at
+                        status, version, source_key, actor_id, created_at, modified_at, refund_of
                     ) VALUES (
                         :id, :household, :account, :start, :category, :direction,
                         :original, :currency, :kzt, :occurred, :rate,
-                        :status, :version, :source, :actor, :created
+                        :status, :version, :source, :actor, :created, :modified, :refund
                     ) ON CONFLICT (household_id, source_key) DO NOTHING
                     """.trimIndent(),
                 ).param("id", entry.id)
@@ -60,6 +123,8 @@ class JdbcLedgerRepository(
                 .param("source", entry.sourceKey)
                 .param("actor", entry.actorId)
                 .param("created", entry.createdAt.atOffset(ZoneOffset.UTC))
+                .param("modified", entry.modifiedAt.atOffset(ZoneOffset.UTC))
+                .param("refund", entry.refundOf)
                 .update()
         if (inserted == 0) return false
         jdbc

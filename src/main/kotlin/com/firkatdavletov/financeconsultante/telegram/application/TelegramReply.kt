@@ -1,0 +1,31 @@
+package com.firkatdavletov.financeconsultante.telegram.application
+
+import com.firkatdavletov.financeconsultante.ledger.domain.Direction
+import com.firkatdavletov.financeconsultante.ledger.domain.EntryStatus
+import com.firkatdavletov.financeconsultante.ledger.domain.LedgerEntry
+
+data class ReplyButton(
+    val text: String,
+    val data: String,
+)
+
+data class TelegramReply(
+    val text: String,
+    val buttons: List<ReplyButton> = emptyList(),
+)
+
+fun String.reply() = TelegramReply(this)
+
+object EntryButtons {
+    fun actions(entry: LedgerEntry): List<ReplyButton> {
+        if (entry.status != EntryStatus.POSTED) return emptyList()
+        val suffix = "${entry.id}:${entry.version}"
+        return listOf(
+            ReplyButton("Сумма", "amount:$suffix"),
+            ReplyButton("Категория", "cat:$suffix"),
+            ReplyButton("Дата", "date:$suffix"),
+            ReplyButton("Отменить запись", "void:$suffix"),
+        ) +
+            if (entry.direction == Direction.EXPENSE) listOf(ReplyButton("Возврат", "refund:$suffix")) else emptyList()
+    }
+}

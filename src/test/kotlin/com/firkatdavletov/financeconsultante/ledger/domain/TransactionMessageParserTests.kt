@@ -36,13 +36,13 @@ class TransactionMessageParserTests {
         input: String,
         amount: String,
         direction: Direction,
-        category: TransactionCategory,
+        category: String,
         displayName: String,
     ) {
         val result = record(input)
         assertThat(result.amount).isEqualTo(Money.of(amount))
         assertThat(result.direction).isEqualTo(direction)
-        assertThat(result.category).isEqualTo(category)
+        assertThat(result.category.name).isEqualTo(category)
         assertThat(result.category.displayName).isEqualTo(displayName)
         assertThat(result.occurredOn).isEqualTo(today)
     }
@@ -118,11 +118,11 @@ class TransactionMessageParserTests {
     fun `fallback commands determine direction and canonical category`(
         input: String,
         direction: Direction,
-        category: TransactionCategory,
+        category: String,
     ) {
         val result = record(input)
         assertThat(result.direction).isEqualTo(direction)
-        assertThat(result.category).isEqualTo(category)
+        assertThat(result.category.name).isEqualTo(category)
         assertThat(result.amount).isEqualTo(Money.of("5000"))
     }
 

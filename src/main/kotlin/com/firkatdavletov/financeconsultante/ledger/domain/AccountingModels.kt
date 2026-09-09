@@ -56,6 +56,7 @@ data class Category(
     val name: String,
     val kind: CategoryKind,
     val archived: Boolean = false,
+    val dictionaryKey: String? = null,
 ) {
     init {
         require(name.isNotBlank() && name.length <= MAX_NAME_LENGTH) { "Invalid category name" }

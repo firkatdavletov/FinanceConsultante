@@ -35,7 +35,12 @@ data class IncomingMessage(
     val isBot: Boolean,
     val text: String?,
     val sentAt: Instant? = null,
+    val kind: IncomingKind = IncomingKind.MESSAGE,
+    val callbackQueryId: String? = null,
+    val messageId: Long? = null,
 )
+
+enum class IncomingKind { MESSAGE, CALLBACK, EDITED }
 
 interface TelegramClient {
     fun getUpdates(offset: Long): List<IncomingUpdate>
@@ -43,7 +48,10 @@ interface TelegramClient {
     fun sendMessage(
         chatId: Long,
         text: String,
+        buttons: List<ReplyButton> = emptyList(),
     ): Long
+
+    fun answerCallback(queryId: String)
 }
 
 class TelegramFailure(
@@ -67,6 +75,9 @@ data class InboxMessage(
     val ownerId: Long,
     val text: String,
     val sentAt: Instant? = null,
+    val kind: IncomingKind = IncomingKind.MESSAGE,
+    val callbackQueryId: String? = null,
+    val messageId: Long? = null,
 )
 
 data class OutboxDelivery(
@@ -74,6 +85,8 @@ data class OutboxDelivery(
     val ownerId: Long,
     val text: String,
     val token: UUID,
+    val buttons: List<ReplyButton> = emptyList(),
+    val callbackQueryId: String? = null,
 )
 
 data class OwnedSettings(
@@ -105,6 +118,14 @@ interface InboxStore {
         botId: Long,
         reply: String?,
     )
+
+    fun completeReply(
+        message: InboxMessage,
+        botId: Long,
+        reply: TelegramReply,
+    ) {
+        complete(message, botId, reply.text)
+    }
 
     fun failedAttempt(
         botId: Long,

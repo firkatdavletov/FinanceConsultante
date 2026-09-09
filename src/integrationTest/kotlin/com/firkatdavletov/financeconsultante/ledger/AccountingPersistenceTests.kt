@@ -42,7 +42,7 @@ class AccountingPersistenceTests
             val setup = AccountingFixtures.budget("100")
             service.openBudget(setup)
             val result = service.record(AccountingFixtures.command(setup))
-            assertThat(flyway.info().applied().map { it.version.version }).containsExactly("1", "2", "3", "4")
+            assertThat(flyway.info().applied().map { it.version.version }).containsExactly("1", "2", "3", "4", "5")
             assertThat(flyway.migrate().migrationsExecuted).isZero()
             flyway.validate()
             assertThat(ledger.findBySource(setup.household.id, result.entry.sourceKey)).isEqualTo(result.entry)

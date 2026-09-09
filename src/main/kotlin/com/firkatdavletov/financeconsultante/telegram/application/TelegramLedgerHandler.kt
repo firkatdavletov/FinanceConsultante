@@ -1,5 +1,6 @@
 package com.firkatdavletov.financeconsultante.telegram.application
 
+import com.firkatdavletov.financeconsultante.ledger.application.CategoryManagement
 import com.firkatdavletov.financeconsultante.ledger.application.LedgerOperations
 import com.firkatdavletov.financeconsultante.ledger.application.OwnedLedger
 import com.firkatdavletov.financeconsultante.ledger.application.ProposalCheck
@@ -17,7 +18,7 @@ fun interface LedgerHandler {
     fun handle(
         message: InboxMessage,
         botId: Long,
-    ): String?
+    ): TelegramReply?
 }
 
 class TelegramLedgerHandler(
@@ -25,26 +26,32 @@ class TelegramLedgerHandler(
     private val operations: LedgerOperations,
     private val drafts: TransactionDraftRepository,
     private val clock: Clock,
+    private val categories: CategoryManagement,
+    private val corrections: TelegramCorrectionHandler,
 ) : LedgerHandler {
-    private val parser = TransactionMessageParser()
-
     @Suppress("ReturnCount") // Route commands and reject invalid transport data before proposing money.
     override fun handle(
         message: InboxMessage,
         botId: Long,
-    ): String? {
+    ): TelegramReply? {
         require(access.owns(message.ownerId)) { "Budget access denied" }
+        if (message.kind == IncomingKind.EDITED) {
+            return "Изменение сообщения не меняет учёт. Откройте /history, выберите запись и исправьте её явно.".reply()
+        }
+        if (message.kind == IncomingKind.CALLBACK) return corrections.callback(message, botId)
         val sentAt = message.sentAt
         val today = (sentAt ?: clock.instant()).atZone(LedgerOperations.ZONE).toLocalDate()
-        val parsed = parser.parse(message.text, today)
-        if (parsed is MessageParseResult.Command && parsed.name !in COMMANDS) return null
-        val owner = operations.owned(message.ownerId) ?: return "Сначала завершите настройку: /start."
+        val initial = TransactionMessageParser().parse(message.text, today)
+        if (initial is MessageParseResult.Command) return routeCommand(message, initial, botId)
+        val owner = operations.owned(message.ownerId) ?: return "Сначала завершите настройку: /start.".reply()
+        val parsed = TransactionMessageParser(categories.dictionary(message.ownerId)).parse(message.text, today)
         val active = drafts.active(owner, botId)
-        if (parsed is MessageParseResult.Command) return command(parsed, owner, botId, active)
         if (parsed == MessageParseResult.PurchaseQuestion) {
-            return "Вопрос о покупке не записан как расход. Анализ покупок появится позже. " +
-                "Для фактической траты: /expense <сумма> <категория>." +
-                if (active != null) " Есть незавершённый черновик: /draft." else ""
+            return (
+                "Вопрос о покупке не записан как расход. Анализ покупок появится позже. " +
+                    "Для фактической траты: /expense <сумма> <категория>." +
+                    if (active != null) " Есть незавершённый черновик: /draft." else ""
+            ).reply()
         }
         if (sentAt == null || sentAt > clock.instant()) {
             return saveDraft(
@@ -58,6 +65,10 @@ class TelegramLedgerHandler(
             )
         }
         return when (parsed) {
+            is MessageParseResult.Command -> {
+                routeCommand(message, parsed, botId)
+            }
+
             is RecordTransaction -> {
                 propose(owner, botId, message.id, active, parsed)
             }
@@ -76,20 +87,29 @@ class TelegramLedgerHandler(
         }
     }
 
+    @Suppress("ReturnCount") // Only ledger commands load the budget; setup keeps its existing route.
+    private fun routeCommand(message: InboxMessage, command: MessageParseResult.Command, botId: Long): TelegramReply? {
+        corrections.command(message, command, botId)?.let { return it }
+        if (command.name !in COMMANDS) return null
+        val owner = operations.owned(message.ownerId) ?: return "Сначала завершите настройку: /start.".reply()
+        return command(command, owner, botId, drafts.active(owner, botId))
+    }
+
     private fun command(
         command: MessageParseResult.Command,
         owner: OwnedLedger,
         botId: Long,
         active: TransactionDraft?,
-    ): String? =
+    ): TelegramReply? =
         when (command.name) {
             "/balance" -> {
                 if (command.arguments.isEmpty()) {
-                    LedgerMessages.balance(
-                        operations.balance(owner),
-                    )
+                    LedgerMessages
+                        .balance(
+                            operations.balance(owner),
+                        ).reply()
                 } else {
-                    "Формат: /balance"
+                    "Формат: /balance".reply()
                 }
             }
 
@@ -98,7 +118,7 @@ class TelegramLedgerHandler(
             }
 
             "/draft" -> {
-                active?.let(LedgerMessages::draft) ?: "Незавершённых черновиков нет."
+                active?.let(LedgerMessages::draft) ?: "Незавершённых черновиков нет.".reply()
             }
 
             "/confirm" -> {
@@ -110,7 +130,7 @@ class TelegramLedgerHandler(
                     null
                 } else {
                     drafts.save(owner, botId, active.cancel())
-                    "Черновик отменён. Баланс не изменён."
+                    "Черновик отменён. Баланс не изменён.".reply()
                 }
             }
 
@@ -122,10 +142,10 @@ class TelegramLedgerHandler(
     private fun history(
         arguments: String,
         owner: OwnedLedger,
-    ): String {
+    ): TelegramReply {
         val before = if (arguments.isEmpty()) Long.MAX_VALUE else arguments.toLongOrNull()
         return if (before == null || before <= 0) {
-            "Формат: /history или /history <курсор из ответа>."
+            "Формат: /history или /history <курсор из ответа>.".reply()
         } else {
             LedgerMessages.history(operations.history(owner, before))
         }
@@ -137,7 +157,7 @@ class TelegramLedgerHandler(
         inboxId: Long,
         active: TransactionDraft?,
         proposal: RecordTransaction,
-    ): String {
+    ): TelegramReply {
         val check = operations.check(owner, proposal, source(botId, active?.sourceInboxId ?: inboxId))
         return when (check) {
             is ProposalCheck.Pending -> {
@@ -167,17 +187,17 @@ class TelegramLedgerHandler(
         arguments: String,
         owner: OwnedLedger,
         botId: Long,
-    ): String {
-        val match = CONFIRM.matchEntire(arguments) ?: return "Скопируйте команду подтверждения из /draft."
+    ): TelegramReply {
+        val match = CONFIRM.matchEntire(arguments) ?: return "Скопируйте команду подтверждения из /draft.".reply()
         val id = UUID.fromString(match.groupValues[1])
-        val version = match.groupValues[2].toLongOrNull() ?: return "Некорректная версия. /draft"
-        val draft = drafts.find(owner, botId, id) ?: return "Черновик недоступен. /draft"
+        val version = match.groupValues[2].toLongOrNull() ?: return "Некорректная версия. /draft".reply()
+        val draft = drafts.find(owner, botId, id) ?: return "Черновик недоступен. /draft".reply()
         if (draft.state ==
             DraftState.CONFIRMED
         ) {
-            return "Уже записано: ${draft.entryId}. Повторного изменения баланса нет."
+            return "Уже записано: ${draft.entryId}. Повторного изменения баланса нет.".reply()
         }
-        if (!draft.active || draft.version != version) return "Подтверждение устарело. Откройте /draft."
+        if (!draft.active || draft.version != version) return "Подтверждение устарело. Откройте /draft.".reply()
         if (draft.state == DraftState.NEEDS_INPUT) return LedgerMessages.draft(draft)
         val proposal = checkNotNull(draft.proposal)
         return when (val checked = operations.check(owner, proposal, source(botId, draft.sourceInboxId))) {
@@ -210,7 +230,7 @@ class TelegramLedgerHandler(
         proposal: RecordTransaction?,
         state: DraftState,
         reason: String,
-    ): String {
+    ): TelegramReply {
         val draft =
             active?.revise(proposal, state, reason)
                 ?: TransactionDraft(UUID.randomUUID(), inboxId, state, 0, proposal, reason)

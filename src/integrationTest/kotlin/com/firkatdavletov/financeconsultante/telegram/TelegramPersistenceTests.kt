@@ -8,6 +8,7 @@ import com.firkatdavletov.financeconsultante.telegram.application.IncomingUpdate
 import com.firkatdavletov.financeconsultante.telegram.application.OutboxStore
 import com.firkatdavletov.financeconsultante.telegram.application.OwnerAccess
 import com.firkatdavletov.financeconsultante.telegram.application.PollingStore
+import com.firkatdavletov.financeconsultante.telegram.application.ReplyButton
 import com.firkatdavletov.financeconsultante.telegram.application.TelegramClient
 import com.firkatdavletov.financeconsultante.telegram.application.TelegramDeliveryWorker
 import com.firkatdavletov.financeconsultante.telegram.application.TelegramFailure
@@ -254,9 +255,12 @@ class TelegramPersistenceTests
                 object : TelegramClient {
                     override fun getUpdates(offset: Long): List<IncomingUpdate> = error("Unexpected polling")
 
+                    override fun answerCallback(queryId: String) = Unit
+
                     override fun sendMessage(
                         chatId: Long,
                         text: String,
+                        buttons: List<ReplyButton>,
                     ): Long {
                         assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse()
                         sent += text
@@ -282,9 +286,12 @@ class TelegramPersistenceTests
                         return if (offset == 0L) listOf(update(10, "/help")) else emptyList()
                     }
 
+                    override fun answerCallback(queryId: String) = Unit
+
                     override fun sendMessage(
                         chatId: Long,
                         text: String,
+                        buttons: List<ReplyButton>,
                     ): Long = error("Unexpected send")
                 }
             TelegramPoller(BOT, access, client, polls).pollOnce()
@@ -417,9 +424,12 @@ created_at, source_key)
                     override fun getUpdates(offset: Long): List<IncomingUpdate> =
                         throw TelegramFailure("api_429", Duration.ofSeconds(41))
 
+                    override fun answerCallback(queryId: String) = Unit
+
                     override fun sendMessage(
                         chatId: Long,
                         text: String,
+                        buttons: List<ReplyButton>,
                     ): Long = error("Unexpected send")
                 }
             TelegramPoller(BOT, access, client, polls).pollOnce()

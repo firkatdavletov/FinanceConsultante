@@ -2,6 +2,7 @@ package com.firkatdavletov.financeconsultante.ledger.domain
 
 import com.firkatdavletov.financeconsultante.shared.domain.Money
 import java.time.LocalDate
+import java.util.UUID
 
 sealed interface MessageParseResult {
     /** A parsed proposal; recording still requires the accounting use case and its checks. */
@@ -30,13 +31,18 @@ sealed interface MessageParseResult {
 }
 
 /** Stable dictionary keys, independent of the household's persistent category IDs. */
-enum class TransactionCategory(
+data class TransactionCategory(
+    val name: String,
     val displayName: String,
     val direction: Direction,
+    val id: UUID? = null,
 ) {
-    GROCERIES("Продукты", Direction.EXPENSE),
-    HEALTH("Здоровье", Direction.EXPENSE),
-    SALARY("Зарплата", Direction.INCOME),
+    companion object {
+        val GROCERIES = TransactionCategory("GROCERIES", "Продукты", Direction.EXPENSE)
+        val HEALTH = TransactionCategory("HEALTH", "Здоровье", Direction.EXPENSE)
+        val SALARY = TransactionCategory("SALARY", "Зарплата", Direction.INCOME)
+        val entries = listOf(GROCERIES, HEALTH, SALARY)
+    }
 }
 
 enum class ClarificationReason(
@@ -48,8 +54,8 @@ enum class ClarificationReason(
     INVALID_FORMAT("Уточните одну операцию: /expense <сумма> [валюта] <категория> или /income в том же формате."),
     INVALID_AMOUNT("Сумма должна быть больше нуля, до двух дробных знаков и не больше 99 999 999 999 999 999,99."),
     UNSUPPORTED_CURRENCY("Поддерживаются только KZT/тенге и RUB/рубли."),
-    UNKNOWN_CATEGORY("Уточните категорию: продукты, здоровье или зарплата."),
-    CATEGORY_MISMATCH("Категория зарплата относится к доходам, продукты и здоровье — к расходам."),
+    UNKNOWN_CATEGORY("Категория неизвестна. Доступные: /categories; новая: /category_add expense <название>."),
+    CATEGORY_MISMATCH("Тип категории не соответствует операции. Проверьте /categories."),
     INVALID_DATE("Укажите действительную дату: ГГГГ-ММ-ДД, ДД.ММ.ГГГГ, сегодня или вчера."),
     FUTURE_DATE("Будущая операция требует планирования или уточнения; фактическое движение ещё не подтверждено."),
 }

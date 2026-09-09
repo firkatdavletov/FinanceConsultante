@@ -16,14 +16,22 @@ object LedgerMessages {
         "Учётный баланс: ${money(balance.amount)}" +
             (if (balance.amount.amount.signum() < 0) " (отрицательный)" else "") +
             ".\nДоходы: ${money(balance.income)}. Расходы: ${money(balance.expenses)}. " +
-            "Возвраты: ${money(balance.refunds)}.\nНачальный остаток не включён в доходы; черновики не учтены."
+            "Возвраты: ${money(
+                balance.refunds,
+            )}. Чистые расходы: ${money(
+                balance.netExpenses,
+            )}.\nНачальный остаток не включён в доходы; черновики не учтены."
 
     fun recorded(
         entry: LedgerEntry,
         category: String,
-    ): String = "Записано: ${line(entry, category)}\nОперация ${entry.id}. /balance — баланс; /history — история."
+    ): TelegramReply =
+        TelegramReply(
+            "Записано: ${line(entry, category)}\nОперация ${entry.id}. /balance — баланс; /history — история.",
+            EntryButtons.actions(entry),
+        )
 
-    fun draft(draft: TransactionDraft): String =
+    fun draft(draft: TransactionDraft): TelegramReply =
         buildString {
             append("Черновик ${draft.id}, версия ${draft.version}. Баланс не изменён.\n")
             draft.proposal?.let {
@@ -34,17 +42,24 @@ object LedgerMessages {
                 append("\n/confirm ${draft.id} ${draft.version}")
             }
             append("\nДля уточнения отправьте одну операцию целиком. /draft — показать; /cancel — отменить черновик.")
-        }
+        }.reply()
 
-    fun history(items: List<HistoryItem>): String {
-        if (items.isEmpty()) return "История пуста. /history — с начала."
+    fun history(items: List<HistoryItem>): TelegramReply {
+        if (items.isEmpty()) return "История пуста. /history — с начала.".reply()
         val page = items.take(LedgerOperations.HISTORY_PAGE_SIZE)
-        return "Последние записи (по порядку добавления):\n" +
-            page.joinToString("\n") { "${it.sequence}. ${line(it.entry, it.category)}" } +
-            if (items.size > page.size) "\nДалее: /history ${page.last().sequence}" else "\nКонец истории."
+        val text =
+            "Последние записи (по порядку добавления):\n" +
+                page.joinToString("\n") { "${it.sequence}. ${line(it.entry, it.category)}" } +
+                if (items.size > page.size) "\nДалее: /history ${page.last().sequence}" else "\nКонец истории."
+        return TelegramReply(
+            text,
+            page.filter { it.entry.status == EntryStatus.POSTED }.map {
+                ReplyButton("Запись ${it.sequence}", "entry:${it.entry.id}:${it.entry.version}")
+            },
+        )
     }
 
-    private fun line(
+    internal fun line(
         entry: LedgerEntry,
         category: String,
     ): String {

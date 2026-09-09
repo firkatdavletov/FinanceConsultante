@@ -74,7 +74,10 @@ class RestTelegramClientTests {
         server.verify(
             postRequestedFor(urlEqualTo("/bot$token/getUpdates"))
                 .withRequestBody(
-                    equalToJson("""{"offset":11,"timeout":25,"limit":100,"allowed_updates":["message"]}"""),
+                    equalToJson(
+                        """{"offset":11,"timeout":25,"limit":100,
+                        "allowed_updates":["message","callback_query","edited_message"]}""",
+                    ),
                 ),
         )
     }
@@ -182,6 +185,61 @@ class RestTelegramClientTests {
                     aResponse().withStatus(status).withHeader("Content-Type", "application/json").withBody(body),
                 ),
         )
+    }
+
+    @Test
+    fun `callbacks use the pressing user and edited messages discard their text`() {
+        stub(
+            "getUpdates",
+            """{"ok":true,"result":[
+            {"update_id":1,"callback_query":{"id":"synthetic-query","from":{"id":555,"is_bot":false},
+              "message":{"message_id":73,"date":1788663600,"from":{"id":123456,"is_bot":true},
+                "chat":{"id":555,"type":"private"}},"data":"void:00000000-0000-0000-0000-000000000001:0"}},
+            {"update_id":2,"edited_message":{"message_id":5,"date":1788663600,"from":{"id":555,"is_bot":false},
+              "chat":{"id":555,"type":"private"},"text":"продукты 9000"}},
+            {"update_id":3,"callback_query":{"id":"foreign-bot","from":{"id":555,"is_bot":false},
+              "message":{"date":1788663600,"from":{"id":999,"is_bot":true},"chat":{"id":555,"type":"private"}},
+              "data":"void:00000000-0000-0000-0000-000000000001:0"}}
+        ]}""",
+        )
+        val updates = client().getUpdates(0)
+        assertThat(updates[0].message?.userId).isEqualTo(555)
+        assertThat(updates[0].message?.callbackQueryId).isEqualTo("synthetic-query")
+        assertThat(
+            updates[0].message?.kind,
+        ).isEqualTo(com.firkatdavletov.financeconsultante.telegram.application.IncomingKind.CALLBACK)
+        assertThat(updates[1].message?.text).isEqualTo("edited_message")
+        assertThat(
+            updates[1].message?.kind,
+        ).isEqualTo(com.firkatdavletov.financeconsultante.telegram.application.IncomingKind.EDITED)
+        assertThat(updates[2].message).isNull()
+    }
+
+    @Test
+    fun `inline keyboard payload and callback acknowledgement follow Bot API contract`() {
+        stub("sendMessage", """{"ok":true,"result":{"message_id":73}}""")
+        stub("answerCallbackQuery", """{"ok":true,"result":true}""")
+        val data = "cat:00000000-0000-0000-0000-000000000001:9223372036854775807"
+        val button =
+            com.firkatdavletov.financeconsultante.telegram.application
+                .ReplyButton("Категория", data)
+        client().sendMessage(555, "Выберите действие", listOf(button))
+        client().answerCallback("synthetic-query")
+        server.verify(
+            postRequestedFor(urlEqualTo("/bot$token/sendMessage")).withRequestBody(
+                equalToJson(
+                    """{"chat_id":555,"text":"Выберите действие","reply_markup":{"inline_keyboard":[[
+              {"text":"Категория","callback_data":"$data"}]]}}""",
+                ),
+            ),
+        )
+        server.verify(
+            postRequestedFor(
+                urlEqualTo("/bot$token/answerCallbackQuery"),
+            ).withRequestBody(equalToJson("""{"callback_query_id":"synthetic-query"}""")),
+        )
+        assertThatThrownBy { client().sendMessage(555, "Действие", listOf(button.copy(data = "x".repeat(65)))) }
+            .isInstanceOf(IllegalArgumentException::class.java)
     }
 
     private fun client(timeout: Duration = Duration.ofSeconds(2)): RestTelegramClient {

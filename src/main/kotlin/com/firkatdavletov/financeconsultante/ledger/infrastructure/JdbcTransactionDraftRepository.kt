@@ -2,6 +2,7 @@ package com.firkatdavletov.financeconsultante.ledger.infrastructure
 
 import com.firkatdavletov.financeconsultante.ledger.application.OwnedLedger
 import com.firkatdavletov.financeconsultante.ledger.application.TransactionDraftRepository
+import com.firkatdavletov.financeconsultante.ledger.domain.Direction
 import com.firkatdavletov.financeconsultante.ledger.domain.DraftState
 import com.firkatdavletov.financeconsultante.ledger.domain.MessageParseResult.RecordTransaction
 import com.firkatdavletov.financeconsultante.ledger.domain.TransactionCategory
@@ -68,12 +69,13 @@ class JdbcTransactionDraftRepository(
                     """
                     INSERT INTO transaction_draft (
                         id, household_id, member_id, owner_id, bot_id, source_inbox_id, state, version,
-                        amount, currency, category_key, occurred_on, reason, entry_id
+                        amount, currency, category_key, occurred_on, reason, entry_id, category_name, category_direction, category_id
                     ) VALUES (:id, :household, :member, :owner, :bot, :source, :state, :version,
-                        :amount, :currency, :category, :date, :reason, :entry)
+                        :amount, :currency, :category, :date, :reason, :entry, :name, :direction, :categoryId)
                     ON CONFLICT (id) DO UPDATE SET state = EXCLUDED.state, version = EXCLUDED.version,
                         amount = EXCLUDED.amount, currency = EXCLUDED.currency, category_key = EXCLUDED.category_key,
-                        occurred_on = EXCLUDED.occurred_on, reason = EXCLUDED.reason, entry_id = EXCLUDED.entry_id
+                        category_name = EXCLUDED.category_name, category_direction = EXCLUDED.category_direction,
+                        category_id = EXCLUDED.category_id, occurred_on = EXCLUDED.occurred_on, reason = EXCLUDED.reason, entry_id = EXCLUDED.entry_id
                     WHERE transaction_draft.version = EXCLUDED.version - 1
                         AND transaction_draft.state IN ('NEEDS_INPUT', 'READY', 'WAITING_RATE')
                         AND transaction_draft.household_id = EXCLUDED.household_id
@@ -96,6 +98,9 @@ class JdbcTransactionDraftRepository(
                         ?.currency
                         ?.name,
                 ).param("category", draft.proposal?.category?.name)
+                .param("name", draft.proposal?.category?.displayName)
+                .param("direction", draft.proposal?.direction?.name)
+                .param("categoryId", draft.proposal?.category?.id)
                 .param("date", draft.proposal?.occurredOn)
                 .param("reason", draft.reason)
                 .param("entry", draft.entryId)
@@ -114,7 +119,12 @@ class JdbcTransactionDraftRepository(
                     row.getBigDecimal("amount")?.let {
                         RecordTransaction(
                             Money.of(it, Currency.valueOf(row.getString("currency"))),
-                            TransactionCategory.valueOf(row.getString("category_key")),
+                            TransactionCategory(
+                                row.getString("category_key"),
+                                row.getString("category_name"),
+                                Direction.valueOf(row.getString("category_direction")),
+                                row.getObject("category_id", UUID::class.java),
+                            ),
                             row.getObject("occurred_on", LocalDate::class.java),
                         )
                     },
