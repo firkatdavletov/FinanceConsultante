@@ -1,5 +1,6 @@
 package com.firkatdavletov.financeconsultante.telegram.application
 
+import com.firkatdavletov.financeconsultante.ai.application.OpenAiRecognitionRouter
 import com.firkatdavletov.financeconsultante.telegram.domain.ACCOUNTING_ZONE
 import com.firkatdavletov.financeconsultante.telegram.domain.SetupConversation
 import com.firkatdavletov.financeconsultante.telegram.domain.SetupStep
@@ -35,6 +36,7 @@ open class TelegramInboxProcessor(
     private val access: OwnerAccess,
     private val clock: Clock,
     private val ledger: LedgerHandler,
+    private val recognition: OpenAiRecognitionRouter? = null,
 ) {
     private val conversation = SetupConversation()
 
@@ -61,6 +63,9 @@ open class TelegramInboxProcessor(
         val dialog = setup.dialog(message.ownerId)
         val current = setup.settings(message.ownerId)
         if (dialog.step == SetupStep.IDLE || message.kind != IncomingKind.MESSAGE) {
+            if (message.kind == IncomingKind.MESSAGE && recognition?.enqueueIfEligible(message, botId) == true) {
+                return
+            }
             val reply = ledger.handle(message, botId)
             if (reply != null) {
                 inbox.completeReply(message, botId, reply)

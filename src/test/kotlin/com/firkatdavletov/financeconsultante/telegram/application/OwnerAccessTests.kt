@@ -60,11 +60,17 @@ class OwnerAccessTests {
             forbidden,
             OwnerAccess(555),
             Clock.systemUTC(),
-            LedgerHandler {
-                _,
-                _,
-                ->
-                error("Unauthorized ledger")
+            object : LedgerHandler {
+                override fun handle(
+                    message: InboxMessage,
+                    botId: Long,
+                ): TelegramReply = error("Unauthorized ledger")
+
+                override fun recognized(
+                    message: InboxMessage,
+                    botId: Long,
+                    proposal: com.firkatdavletov.financeconsultante.ledger.domain.MessageParseResult.RecordTransaction,
+                ): TelegramReply = error("Unauthorized ledger")
             },
         ).processOne(1)
         assertThat(ignored).isTrue()

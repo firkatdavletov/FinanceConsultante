@@ -13,12 +13,19 @@ import com.firkatdavletov.financeconsultante.ledger.domain.TransactionMessagePar
 import java.time.Clock
 import java.util.UUID
 
-fun interface LedgerHandler {
+interface LedgerHandler {
     /** null leaves a settings command to SetupConversation. */
     fun handle(
         message: InboxMessage,
         botId: Long,
     ): TelegramReply?
+
+    /** An AI proposal is never posted directly; it becomes a versioned owner-confirmed draft. */
+    fun recognized(
+        message: InboxMessage,
+        botId: Long,
+        proposal: RecordTransaction,
+    ): TelegramReply
 }
 
 class TelegramLedgerHandler(
@@ -29,6 +36,34 @@ class TelegramLedgerHandler(
     private val categories: CategoryManagement,
     private val corrections: TelegramCorrectionHandler,
 ) : LedgerHandler {
+    override fun recognized(
+        message: InboxMessage,
+        botId: Long,
+        proposal: RecordTransaction,
+    ): TelegramReply {
+        require(access.owns(message.ownerId)) { "Budget access denied" }
+        val owner = operations.owned(message.ownerId) ?: return "Сначала завершите настройку: /start.".reply()
+        val active = drafts.active(owner, botId)
+        val source = source(botId, active?.sourceInboxId ?: message.id)
+        return when (val check = operations.check(owner, proposal, source)) {
+            is ProposalCheck.Pending -> {
+                saveDraft(owner, botId, message.id, active, proposal, check.state, check.reason)
+            }
+
+            is ProposalCheck.Ready -> {
+                saveDraft(
+                    owner,
+                    botId,
+                    message.id,
+                    active,
+                    proposal,
+                    DraftState.READY,
+                    "Распознано через OpenAI. Проверьте данные и подтвердите запись.",
+                )
+            }
+        }
+    }
+
     @Suppress("ReturnCount") // Route commands and reject invalid transport data before proposing money.
     override fun handle(
         message: InboxMessage,

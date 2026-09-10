@@ -1,5 +1,6 @@
 package com.firkatdavletov.financeconsultante.telegram.infrastructure
 
+import com.firkatdavletov.financeconsultante.ai.application.OpenAiRecognitionRouter
 import com.firkatdavletov.financeconsultante.ledger.application.AccountingService
 import com.firkatdavletov.financeconsultante.ledger.application.CategoryManagement
 import com.firkatdavletov.financeconsultante.ledger.application.EntryCorrections
@@ -17,6 +18,7 @@ import com.firkatdavletov.financeconsultante.telegram.application.TelegramDelive
 import com.firkatdavletov.financeconsultante.telegram.application.TelegramInboxProcessor
 import com.firkatdavletov.financeconsultante.telegram.application.TelegramLedgerHandler
 import com.firkatdavletov.financeconsultante.telegram.application.TelegramPoller
+import org.springframework.beans.factory.ObjectProvider
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty
 import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.context.annotation.Bean
@@ -77,7 +79,8 @@ class TelegramConfiguration {
         access: OwnerAccess,
         clock: Clock,
         ledger: LedgerHandler,
-    ): TelegramInboxProcessor = TelegramInboxProcessor(inbox, setup, access, clock, ledger)
+        recognition: ObjectProvider<OpenAiRecognitionRouter>,
+    ): TelegramInboxProcessor = TelegramInboxProcessor(inbox, setup, access, clock, ledger, recognition.ifAvailable)
 
     @Bean
     fun telegramDeliveryWorker(

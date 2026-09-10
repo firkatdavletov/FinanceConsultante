@@ -24,8 +24,9 @@ open class JdbcInboxStore(
             .sql(
                 """
                 SELECT * FROM telegram_inbox WHERE id = (
-                SELECT id FROM telegram_inbox WHERE bot_id = ? AND status = 'RECEIVED' ORDER BY id LIMIT 1
-                ) AND next_attempt_at <= clock_timestamp() FOR UPDATE
+                SELECT id FROM telegram_inbox WHERE bot_id = ? AND status IN ('RECEIVED', 'OPENAI_PENDING')
+                ORDER BY id LIMIT 1
+                ) AND status = 'RECEIVED' AND next_attempt_at <= clock_timestamp() FOR UPDATE
                 """.trimIndent(),
             ).param(botId)
             .query {

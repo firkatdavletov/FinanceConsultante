@@ -2,7 +2,11 @@
 
 Личный Telegram-бот для учёта доходов, расходов и семейного бюджета на Kotlin / Spring Boot.
 
-Реализованы сборка/CI, основа денежного учёта T02, загрузчик курса T02A, настройка бюджета через Telegram T03, parser T04 и сквозная запись операций T05. PostgreSQL хранит проводки, аудит, черновики уточнений, inbox/outbox и задания курсов. Доходы и расходы поддерживают KZT/RUB; основная валюта — KZT, часовой пояс — Asia/Almaty. Telegram поддерживает защищённый long polling, настройку, запись операций, баланс, историю и надёжную очередь ответов. OpenAI и отправка отчётов ещё не реализованы; веб-сервера нет.
+Реализованы сборка/CI, денежный учёт T02–T06 и распознавание неоднозначных сообщений через OpenAI T07.
+PostgreSQL хранит проводки, аудит, черновики, inbox/outbox, задания курсов и очередь распознавания. Доходы
+и расходы поддерживают KZT/RUB; основная валюта — KZT, часовой пояс — Asia/Almaty. Telegram поддерживает
+защищённый long polling, настройку, запись и исправление операций, баланс и историю. AI-предложение всегда
+требует подтверждения владельца; отправка отчётов ещё не реализована, веб-сервера нет.
 
 ## Требования и версии
 
@@ -18,6 +22,7 @@
 | PostgreSQL / Compose и Testcontainers image | 17.11 / `postgres:17.11-alpine` |
 | Flyway | 12.4.0 |
 | PostgreSQL JDBC / HikariCP | 42.7.13 / 7.0.2 |
+| OpenAI Java SDK | 4.61.0 |
 | Testcontainers | 2.0.5 |
 | WireMock | 3.13.2 standalone, только тесты |
 
@@ -70,7 +75,9 @@ java -jar build/libs/FinanceConsultante-0.0.1-SNAPSHOT.jar --spring.profiles.act
 | `test` | Загрузчик курса, Telegram, OpenAI и уведомления выключены; datasource тестовый и задаётся интеграционным набором |
 | `prod` | Обязательны `DATABASE_URL` в формате JDBC, `DATABASE_USERNAME`, `DATABASE_PASSWORD`; интеграции по умолчанию выключены |
 
-Telegram-клиент и все его worker создаются только при `app.telegram.enabled=true`. Флаги `app.openai.enabled` и `app.notifications.enabled` зарезервированы для T07/T09. Ответы на команды Telegram управляются флагом Telegram и не требуют включения будущей рассылки отчётов.
+Telegram-клиент и все его worker создаются только при `app.telegram.enabled=true`. OpenAI-распознавание
+создаётся только при одновременных `TELEGRAM_ENABLED=true` и `OPENAI_ENABLED=true`; при выключенном OpenAI
+обычный локальный учёт не требует API key. Флаг `app.notifications.enabled` зарезервирован для T09.
 
 Загрузчик курса выключен по умолчанию. Для локального запуска задайте ключ только в окружении и включите worker:
 
@@ -97,7 +104,7 @@ docker compose up -d --wait postgres
 ./gradlew bootRun
 ```
 
-Не сохраняйте реальные ключи в `application*.yaml`, Gradle, CI или тестовых фикстурах. Файлы `.env` и `.env.*` исключены из Git, кроме `.env.example`. До реализации соответствующих адаптеров оставьте flags выключенными и поля credentials пустыми.
+Не сохраняйте реальные ключи в `application*.yaml`, Gradle, CI или тестовых фикстурах. Файлы `.env` и `.env.*` исключены из Git, кроме `.env.example`. Неиспользуемые интеграции оставляйте выключенными, а их credentials — пустыми.
 
 ## Telegram: вход и настройка бюджета
 
@@ -200,6 +207,40 @@ Inbox и offset фиксируются одной транзакцией до с
 Миграция V5 добавляет optimistic locking и аудит исправлений, ссылку возврата, персональные правила,
 callback inbox и кнопки outbox. Она сохраняет проводки, ревизии, черновики и готовые ответы V4.
 
+## Распознавание через OpenAI (T07)
+
+Когда локальный parser не понимает свободную фразу или категорию, включённый адаптер отправляет в Responses
+API только текст, местную дату и список разрешённых категорий с направлением. Telegram ID, household/member ID,
+остаток, история и реквизиты в запрос не входят; `store=false` задан явно. Используются строгий Structured
+Output, prompt/schema `transaction-recognition-v1` и точный model ID `gpt-4o-mini-2024-07-18`.
+
+Для включения вместе с Telegram задайте ключ только в окружении:
+
+```bash
+export OPENAI_API_KEY='<локальный ключ>'
+export OPENAI_ENABLED=true
+export TELEGRAM_ENABLED=true
+./gradlew bootRun
+```
+
+Настройки по умолчанию: timeout `10s`, один встроенный retry SDK, не более `256` output tokens и дневной лимит
+`50` request units. Их можно изменить через `OPENAI_REQUEST_TIMEOUT`, `OPENAI_MAX_RETRIES`,
+`OPENAI_MAX_OUTPUT_TOKENS` и `OPENAI_DAILY_REQUEST_LIMIT`. Лимит заранее учитывает исходный вызов и разрешённые
+повторы SDK. Неизвестное/выдуманное поле, refusal, неполный ответ, timeout или исчерпание лимита возвращают
+локальное уточнение и не меняют ledger.
+
+Первая короткая транзакция сохраняет durable job и переводит inbox в `OPENAI_PENDING`; HTTP выполняется без
+DB-транзакции, затем отдельная транзакция валидирует предложение, создаёт версионный `TransactionDraft` и
+готовит outbox. Следующие сообщения не обходят незавершённый AI-job, а истёкший lease можно продолжить после
+рестарта. Даже валидный результат не проводится автоматически: владелец использует показанный
+`/confirm <id> <версия>`. После завершения текст inbox удаляется; в БД остаются model/prompt/schema version,
+безопасные request/response IDs, latency и usage без содержимого запроса/ответа.
+
+Фиксированный синтетический корпус и журнал выбора находятся в
+[`recognition-corpus-v1.json`](src/test/resources/openai/recognition-corpus-v1.json) и
+[`OPENAI_MODEL_EVALUATION.md`](OPENAI_MODEL_EVALUATION.md). Живой платный прогон ещё не выполнялся и должен
+быть выбран явно; production default до этого считается предварительным.
+
 ## Проверки
 
 Основная команда, совпадающая с CI:
@@ -212,8 +253,8 @@ callback inbox и кнопки outbox. Она сохраняет проводк�
 
 | Команда | Назначение |
 | --- | --- |
-| `./gradlew test` | Unit-тесты денег, parser, конвертации, настроек, баланса, Telegram-диалога и доступа; Currencylayer/Telegram через локальный WireMock |
-| `./gradlew integrationTest` | PostgreSQL/Testcontainers: миграции, JDBC, ограничения, аудит, задания курса, Telegram inbox/offset/outbox, lease/retry, rollback, конкуренция и Spring wiring |
+| `./gradlew test` | Unit-тесты денег, parser, OpenAI validator/HTTP-контракта, конвертации, настроек, баланса, Telegram-диалога и доступа; внешние API заменены WireMock |
+| `./gradlew integrationTest` | PostgreSQL/Testcontainers: миграции, JDBC, ограничения, аудит, задания курса и OpenAI, Telegram inbox/offset/outbox, lease/retry, rollback, конкуренция и Spring wiring |
 | `./gradlew ktlintCheck` | Форматирование Kotlin, Gradle Kotlin DSL и всех Kotlin source sets |
 | `./gradlew ktlintFormat` | Применение форматирования; после него снова запустить `check` |
 | `./gradlew detekt` | Статический анализ production-, unit- и integration-кода |
@@ -221,7 +262,7 @@ callback inbox и кнопки outbox. Она сохраняет проводк�
 | `./gradlew check` | Все тесты, ktlint, Detekt и JaCoCo |
 | `./gradlew bootJar` | Исполняемый Spring Boot JAR; сам по себе не запускает все проверки |
 
-Gradle задаёт профиль `test` и выключает четыре флага интеграций через system properties для каждой задачи `Test`: унаследованные из shell переменные включения не активируют Currencylayer, Telegram, OpenAI или отправку уведомлений. При запуске тестов прямо из IDE используйте профиль `test` и отдельную конфигурацию без production-переменных; предпочтителен запуск через Gradle. HTTP-контракты Currencylayer и Telegram проверяются только на локальном WireMock. Telegram-тесты отключают HTTP/2 cleartext в WireMock из-за EOF при h2c upgrade в связке JDK 17 / Jetty; production HTTP-клиент сохраняет стандартное согласование протокола.
+Gradle задаёт профиль `test` и выключает четыре флага интеграций через system properties для каждой задачи `Test`: унаследованные из shell переменные включения не активируют Currencylayer, Telegram, OpenAI или отправку уведомлений. При запуске тестов прямо из IDE используйте профиль `test` и отдельную конфигурацию без production-переменных; предпочтителен запуск через Gradle. HTTP-контракты Currencylayer, Telegram и OpenAI проверяются только на локальном WireMock. Telegram/OpenAI-тесты отключают HTTP/2 cleartext в WireMock из-за EOF при h2c upgrade в связке JDK 17 / Jetty; production HTTP-клиенты сохраняют стандартное согласование протокола.
 
 Для диагностики без Docker можно **явно** выбрать отдельный локальный PostgreSQL 17: `./gradlew check bootJar -PtestPostgresUrl=jdbc:postgresql://127.0.0.1:55432/financeconsultante_test`. Заранее создайте изолированный тестовый кластер с ролью `test_owner`, паролем `synthetic-test-password` и пустой БД `financeconsultante_test`. Допускается только такой localhost URL с явным портом. Тесты применяют миграции и меняют данные/схему этой БД. Это дополнительный режим проверки SQL; он не подтверждает работу Compose/Testcontainers. Без параметра запускается только Testcontainers, без автоматического fallback. CI использует обычный режим Docker.
 

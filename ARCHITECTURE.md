@@ -24,7 +24,11 @@
 
 Факты о совместимости сверены 2026-09-06: [Spring Boot system requirements](https://docs.spring.io/spring-boot/system-requirements.html), [Spring JdbcClient](https://docs.spring.io/spring-framework/reference/data-access/jdbc/core.html#jdbc-JdbcClient), [поддержка PostgreSQL](https://www.postgresql.org/support/versioning/), [Testcontainers PostgreSQL](https://java.testcontainers.org/modules/databases/postgres/). Точные версии новых зависимостей закрепить после проверки сборки; не использовать динамические `+`, snapshot или контейнерный `latest`.
 
-Официальная документация предлагает Java SDK для Responses API; версия SDK и возможности конкретной модели проверяются в T07. `OPENAI_MODEL` задаётся конфигурацией: выбрать доступную компактную модель с поддержкой нужной JSON Schema по качеству на русскоязычных примерах, задержке и стоимости. Более дорогую модель добавлять только при измеримой пользе. Конкретный model ID и результаты проверки зафиксировать при реализации. Источники: [OpenAI SDKs](https://developers.openai.com/api/docs/libraries), [Structured Outputs](https://developers.openai.com/api/docs/guides/structured-outputs).
+В T07 закреплены официальный Java SDK `4.61.0`, Responses API и предварительный точный snapshot
+`gpt-4o-mini-2024-07-18` с поддержкой Structured Outputs. `OPENAI_MODEL` задаётся конфигурацией, но не
+должен быть плавающим alias. Окончательный выбор выполняется по зафиксированному русскоязычному корпусу,
+качеству, задержке и usage; до явно выбранного живого прогона статус модели предварительный. Более дорогую
+модель добавлять только при измеримой пользе. Источники: [OpenAI SDKs](https://developers.openai.com/api/docs/libraries), [Structured Outputs](https://developers.openai.com/api/docs/guides/structured-outputs).
 
 Spring AI можно рассмотреть позднее при появлении нескольких AI-провайдеров. Для текущих двух сценариев дополнительная абстракция не требуется. Redis, Kafka, Kubernetes, vector database и отдельные микросервисы не входят в базовый стек.
 
@@ -134,7 +138,13 @@ Telegram handler преобразует update в команду и предст
 
 В T04 реализован чистый `ledger/domain/TransactionMessageParser`: полное совпадение со строгой грамматикой одной операции, без извлечения подходящего фрагмента из произвольной фразы. Публичный результат — `MessageParseResult` с вариантами `RecordTransaction`, `PurchaseQuestion`, `Command`, `NeedsClarification`. `TransactionCategory` задаёт стабильный ключ начального словаря и направление, не подменяя UUID категории конкретного бюджета. `RecordTransaction` содержит исходный `Money` и `LocalDate`, не оценивает RUB в KZT и не пишет ledger. Неизвестные категории, несовместимое направление, неподдерживаемая валюта, неточная сумма и будущая дата требуют уточнения. Время передаётся через параметр `today` в зоне бюджета; синтаксис и ограничения описаны в README и `/help`. В T05 parser подключён к inbox, а `LedgerOperations` разрешает ключ словаря в категорию конкретного бюджета. Категория создаётся при первом использовании; существующая одноимённая категория сохраняет UUID и статус архивации.
 
-Текущий обработчик T03–T05 не вызывает внешние API: удерживает блокировку строки polling-state, выбирает первый RECEIVED inbox и выполняет настройку либо draft/ledger/audit, outbox и PROCESSED в одной короткой транзакции. Запись операции и чтение текущего итога сериализованы блокировкой счёта; `AccountingService.record` берёт её и при прямом вызове. Отдельный PROCESSING lease здесь не нужен: crash освобождает блокировки и откатывает сообщение в RECEIVED. Ошибка привязана к ID исходного inbox, повтор через 30 секунд, после пяти попыток FAILED и ответ о восстановлении. При появлении вызова AI вне транзакции в T07 добавить lease обработки, сохранив порядок чата. Текст обработанного/окончательно отклонённого inbox удаляется сразу.
+Локальный обработчик удерживает блокировку строки polling-state, выбирает первый доступный inbox и выполняет
+настройку либо draft/ledger/audit, outbox и PROCESSED в одной короткой транзакции. Для OpenAI первая транзакция
+создаёт `openai_recognition_job` и переводит сообщение в `OPENAI_PENDING`; следующий inbox этого бота ждёт,
+сохраняя порядок чата. Worker коротко захватывает job с lease и резервирует дневные request units, выполняет
+HTTP без DB-транзакции, затем атомарно сохраняет usage/статус, draft/fallback, outbox и завершение inbox.
+Просроченный `PROCESSING` lease позволяет продолжить job после crash. Текст обработанного/окончательно
+отклонённого inbox удаляется сразу.
 
 В T05 `TransactionDraft` хранит структурированное предложение, исходный inbox, бюджет/автора, состояние `NEEDS_INPUT` / `READY` / `WAITING_RATE` / `CONFIRMED` / `CANCELLED` и версию. Частичный unique допускает один активный черновик на бота и владельца; составные FK связывают автора и записи с тем же бюджетом. Следующее полное сообщение уточняет черновик и увеличивает версию; `/confirm <id> <версия>` проверяет область доступа и версию. Источник `telegram:<botId>:inbox:<sourceInboxId>` остаётся исходным inbox независимо от числа уточнений. Подтверждение, ledger/audit и outbox фиксируются одной транзакцией; конечное состояние повторно не открывается.
 
