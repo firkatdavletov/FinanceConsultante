@@ -238,8 +238,21 @@ DB-транзакции, затем отдельная транзакция ва
 
 Фиксированный синтетический корпус и журнал выбора находятся в
 [`recognition-corpus-v1.json`](src/test/resources/openai/recognition-corpus-v1.json) и
-[`OPENAI_MODEL_EVALUATION.md`](OPENAI_MODEL_EVALUATION.md). Живой платный прогон ещё не выполнялся и должен
-быть выбран явно; production default до этого считается предварительным.
+[`OPENAI_MODEL_EVALUATION.md`](OPENAI_MODEL_EVALUATION.md). Живой платный прогон завершён 2026-09-10;
+`gpt-4o-mini-2024-07-18` оставлен production default по его результатам.
+
+Для явно разрешённого платного прогона загрузите локальный `.env` и отдельно включите предохранитель задачи:
+
+```bash
+set -a
+source .env
+set +a
+OPENAI_LIVE_EVALUATION=true ./gradlew openAiModelEvaluation
+```
+
+Задача последовательно вызывает тот же production-recognizer для 12 синтетических случаев и сохраняет
+безопасный отчёт без ключа и текстов сообщений в `build/reports/openai/model-evaluation.json`. Она не входит в
+`test` или `check`; Telegram-poller и PostgreSQL для неё не запускаются.
 
 ## Проверки
 

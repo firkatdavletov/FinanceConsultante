@@ -72,6 +72,14 @@ val integrationTest by tasks.registering(Test::class) {
     }
 }
 
+tasks.register<JavaExec>("openAiModelEvaluation") {
+    description = "Runs the explicitly enabled paid OpenAI recognition corpus evaluation."
+    group = LifecycleBasePlugin.VERIFICATION_GROUP
+    dependsOn(tasks.testClasses)
+    classpath = sourceSets.test.get().runtimeClasspath
+    mainClass.set("com.firkatdavletov.financeconsultante.ai.evaluation.OpenAiModelEvaluationKt")
+}
+
 tasks.withType<Test>().configureEach {
     useJUnitPlatform()
     systemProperty("spring.profiles.active", "test")
