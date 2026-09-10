@@ -19,6 +19,10 @@ spring:
     baseline-on-migrate: false
 
 app:
+  recurring:
+    scheduler-enabled: true
+    initial-delay: 5s
+    poll-delay: 1h
   exchange-rates:
     enabled: false
   telegram:

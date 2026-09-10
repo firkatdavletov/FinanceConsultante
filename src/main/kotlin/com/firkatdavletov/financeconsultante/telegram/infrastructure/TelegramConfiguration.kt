@@ -6,6 +6,7 @@ import com.firkatdavletov.financeconsultante.ledger.application.CategoryManageme
 import com.firkatdavletov.financeconsultante.ledger.application.EntryCorrections
 import com.firkatdavletov.financeconsultante.ledger.application.LedgerOperations
 import com.firkatdavletov.financeconsultante.ledger.application.TransactionDraftRepository
+import com.firkatdavletov.financeconsultante.recurring.application.RecurringPlanService
 import com.firkatdavletov.financeconsultante.telegram.application.InboxStore
 import com.firkatdavletov.financeconsultante.telegram.application.LedgerHandler
 import com.firkatdavletov.financeconsultante.telegram.application.OutboxStore
@@ -18,6 +19,7 @@ import com.firkatdavletov.financeconsultante.telegram.application.TelegramDelive
 import com.firkatdavletov.financeconsultante.telegram.application.TelegramInboxProcessor
 import com.firkatdavletov.financeconsultante.telegram.application.TelegramLedgerHandler
 import com.firkatdavletov.financeconsultante.telegram.application.TelegramPoller
+import com.firkatdavletov.financeconsultante.telegram.application.TelegramRecurringHandler
 import org.springframework.beans.factory.ObjectProvider
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty
 import org.springframework.boot.context.properties.EnableConfigurationProperties
@@ -123,6 +125,7 @@ class TelegramStorageConfiguration {
         clock: Clock,
         categories: CategoryManagement,
         corrections: EntryCorrections,
+        recurringPlans: RecurringPlanService,
     ): LedgerHandler =
         TelegramLedgerHandler(
             OwnerAccess(properties.ownerId),
@@ -131,6 +134,7 @@ class TelegramStorageConfiguration {
             clock,
             categories,
             TelegramCorrectionHandler(OwnerAccess(properties.ownerId), operations, corrections, categories, clock),
+            TelegramRecurringHandler(recurringPlans, clock),
         )
 
     @Bean

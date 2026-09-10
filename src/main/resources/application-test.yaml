@@ -1,4 +1,6 @@
 app:
+  recurring:
+    scheduler-enabled: false
   exchange-rates:
     enabled: false
   telegram:

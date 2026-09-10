@@ -35,6 +35,7 @@ class TelegramLedgerHandler(
     private val clock: Clock,
     private val categories: CategoryManagement,
     private val corrections: TelegramCorrectionHandler,
+    private val recurring: TelegramRecurringHandler? = null,
 ) : LedgerHandler {
     override fun recognized(
         message: InboxMessage,
@@ -125,8 +126,9 @@ class TelegramLedgerHandler(
     @Suppress("ReturnCount") // Only ledger commands load the budget; setup keeps its existing route.
     private fun routeCommand(message: InboxMessage, command: MessageParseResult.Command, botId: Long): TelegramReply? {
         corrections.command(message, command, botId)?.let { return it }
-        if (command.name !in COMMANDS) return null
+        if (command.name !in COMMANDS && command.name !in TelegramRecurringHandler.COMMANDS) return null
         val owner = operations.owned(message.ownerId) ?: return "Сначала завершите настройку: /start.".reply()
+        recurring?.command(message, command, owner, botId)?.let { return it }
         return command(command, owner, botId, drafts.active(owner, botId))
     }
 
