@@ -14,6 +14,7 @@ import com.firkatdavletov.financeconsultante.ledger.domain.Member
 import com.firkatdavletov.financeconsultante.recurring.application.PlanChange
 import com.firkatdavletov.financeconsultante.recurring.application.RecurringPlanService
 import com.firkatdavletov.financeconsultante.recurring.domain.RecurrenceFrequency
+import com.firkatdavletov.financeconsultante.shared.domain.Currency
 import com.firkatdavletov.financeconsultante.shared.domain.Money
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.AfterEach
@@ -341,6 +342,63 @@ class RecurringPlanPersistenceTests
             assertThat(matched.receivedAmount).isEqualTo(Money.of("130"))
             assertThat(service.expectedIncomeForecast(owner, LocalDate.parse("2026-09-30"))).isEmpty()
             assertThat(linkCount("expected_income_match")).isEqualTo(1)
+        }
+
+        @Test
+        fun `non KZT plan and linked fact amounts are rejected without ledger changes`() {
+            val rubles = Money.of("100", Currency.RUB)
+            assertThat(
+                service.createRule(
+                    owner,
+                    RecurrenceFrequency.MONTHLY,
+                    today.dayOfMonth,
+                    rubles,
+                    expenseCategory(),
+                    today,
+                ),
+            ).isInstanceOf(PlanChange.Rejected::class.java)
+            assertThat(
+                service.createExpectedIncome(owner, rubles, today, incomeCategory(), today),
+            ).isInstanceOf(PlanChange.Rejected::class.java)
+
+            service.createRule(
+                owner,
+                RecurrenceFrequency.MONTHLY,
+                today.dayOfMonth,
+                Money.of("100"),
+                expenseCategory(),
+                today,
+            )
+            val occurrence = service.overview(owner, today).occurrences.single { it.occurrence.dueOn == today }
+            assertThat(
+                service.pay(
+                    owner,
+                    occurrence.occurrence.id,
+                    occurrence.occurrence.version,
+                    rubles,
+                    today,
+                    "synthetic:recurring:rub",
+                ),
+            ).isInstanceOf(PlanChange.Rejected::class.java)
+
+            val expected =
+                applied(
+                    service.createExpectedIncome(owner, Money.of("100"), today, incomeCategory(), today),
+                ).expectedIncome
+            assertThat(
+                service.receiveExpectedIncome(
+                    owner,
+                    expected.id,
+                    expected.version,
+                    rubles,
+                    today,
+                    "synthetic:expected:rub",
+                ),
+            ).isInstanceOf(PlanChange.Rejected::class.java)
+
+            assertThat(accounting.currentBalance(owner.householdId, owner.memberId).amount).isEqualTo(Money.of("0"))
+            assertThat(linkCount("recurring_occurrence_payment")).isZero()
+            assertThat(linkCount("expected_income_match")).isZero()
         }
 
         private fun expenseCategory(): UUID = setup.categories.single { it.kind == CategoryKind.EXPENSE }.id
