@@ -41,3 +41,7 @@ app:
     poll-delay: 1s
   notifications:
     enabled: false
+    initial-delay: 5s
+    poll-delay: 1m
+    lease-duration: 2m
+    retry-delay: 30s

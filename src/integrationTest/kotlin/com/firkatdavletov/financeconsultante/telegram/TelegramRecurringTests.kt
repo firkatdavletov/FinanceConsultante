@@ -113,6 +113,41 @@ class TelegramRecurringTests
             assertThat(count("ledger_entry")).isEqualTo(2)
         }
 
+        @Test
+        fun `today command returns deterministic budget estimate without OpenAI`() {
+            receive("/today")
+
+            assertThat(reply()).contains(
+                "Бюджет на 2026-09-06",
+                "Учётный баланс: 0.00 KZT",
+                "Дневной лимит: 0.00 KZT",
+                "Оценка: свободных средств нет",
+                "ожидаемые доходы не считаются полученными",
+            )
+            assertThat(count("daily_budget_snapshot")).isEqualTo(1)
+
+            receive("/today лишнее")
+            assertThat(reply()).isEqualTo("Формат: /today")
+        }
+
+        @Test
+        fun `today command marks unfinished setup as insufficient data`() {
+            val household =
+                jdbc.queryForObject(
+                    "SELECT household_id FROM member WHERE telegram_user_id = ?",
+                    UUID::class.java,
+                    OWNER,
+                )
+            jdbc.update("DELETE FROM category WHERE household_id = ?", household)
+            jdbc.update("DELETE FROM account WHERE household_id = ?", household)
+            jdbc.update("DELETE FROM member WHERE household_id = ?", household)
+            jdbc.update("DELETE FROM household WHERE id = ?", household)
+
+            receive("/today")
+
+            assertThat(reply()).contains("Данных недостаточно", "Лимит не рассчитан", "/start")
+        }
+
         private fun retrieveBalance(): String {
             receive("/balance")
             return reply()

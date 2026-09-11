@@ -142,7 +142,7 @@ open class JdbcSetupStore(
         jdbc
             .sql(
                 """
-                UPDATE household SET report_time = ?, cash_reserve = ?
+                UPDATE household SET report_time = ?, cash_reserve = ?, settings_version = settings_version + 1
                 WHERE id = (SELECT household_id FROM member WHERE telegram_user_id = ?)
                 """.trimIndent(),
             ).params(settings.reportTime, settings.cashReserve.amount, ownerId)

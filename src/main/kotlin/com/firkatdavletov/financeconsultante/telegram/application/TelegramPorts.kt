@@ -87,6 +87,7 @@ data class OutboxDelivery(
     val token: UUID,
     val buttons: List<ReplyButton> = emptyList(),
     val callbackQueryId: String? = null,
+    val reportJobId: UUID? = null,
 )
 
 data class OwnedSettings(

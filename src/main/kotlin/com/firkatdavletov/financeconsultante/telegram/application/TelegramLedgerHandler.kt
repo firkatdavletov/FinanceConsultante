@@ -1,5 +1,7 @@
 package com.firkatdavletov.financeconsultante.telegram.application
 
+import com.firkatdavletov.financeconsultante.budget.application.BudgetMessages
+import com.firkatdavletov.financeconsultante.budget.application.BudgetReportService
 import com.firkatdavletov.financeconsultante.ledger.application.CategoryManagement
 import com.firkatdavletov.financeconsultante.ledger.application.LedgerOperations
 import com.firkatdavletov.financeconsultante.ledger.application.OwnedLedger
@@ -36,6 +38,7 @@ class TelegramLedgerHandler(
     private val categories: CategoryManagement,
     private val corrections: TelegramCorrectionHandler,
     private val recurring: TelegramRecurringHandler? = null,
+    private val budgetReports: BudgetReportService? = null,
 ) : LedgerHandler {
     override fun recognized(
         message: InboxMessage,
@@ -127,7 +130,13 @@ class TelegramLedgerHandler(
     private fun routeCommand(message: InboxMessage, command: MessageParseResult.Command, botId: Long): TelegramReply? {
         corrections.command(message, command, botId)?.let { return it }
         if (command.name !in COMMANDS && command.name !in TelegramRecurringHandler.COMMANDS) return null
-        val owner = operations.owned(message.ownerId) ?: return "Сначала завершите настройку: /start.".reply()
+        val owner =
+            operations.owned(message.ownerId)
+                ?: return if (command.name == "/today") {
+                    BudgetMessages.incomplete().reply()
+                } else {
+                    "Сначала завершите настройку: /start.".reply()
+                }
         recurring?.command(message, command, owner, botId)?.let { return it }
         return command(command, owner, botId, drafts.active(owner, botId))
     }
@@ -147,6 +156,15 @@ class TelegramLedgerHandler(
                         ).reply()
                 } else {
                     "Формат: /balance".reply()
+                }
+            }
+
+            "/today" -> {
+                if (command.arguments.isEmpty()) {
+                    budgetReports?.let { BudgetMessages.daily(it.today(owner)) }?.reply()
+                        ?: "Оценка бюджета временно недоступна.".reply()
+                } else {
+                    "Формат: /today".reply()
                 }
             }
 
@@ -281,7 +299,7 @@ class TelegramLedgerHandler(
     ): String = "telegram:$botId:inbox:$inboxId"
 
     companion object {
-        private val COMMANDS = setOf("/balance", "/history", "/draft", "/confirm", "/cancel")
+        private val COMMANDS = setOf("/balance", "/today", "/history", "/draft", "/confirm", "/cancel")
         private val CONFIRM = Regex("([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}) ([0-9]+)")
     }
 }
