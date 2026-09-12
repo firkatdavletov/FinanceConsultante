@@ -38,7 +38,8 @@ internal object SetupMessages {
                 "Начальный остаток: ${current.openingBalance.amount.toPlainString()} KZT; дата: " +
                 "${current.startedOn}.\n" +
                 "Время отчётов: ${current.reportTime}. Резерв: ${current.cashReserve.amount.toPlainString()} KZT.\n" +
-                "/today — текущий дневной лимит; утренние отчёты отправляются при включённых уведомлениях."
+                "/today — дневной лимит; /report week|month — аналитика; " +
+                "периодические отчёты отправляются при включённых уведомлениях."
         }
 
     const val MENU = "/opening — остаток и дата; /report_time — время отчётов; /reserve — резерв; /cancel — отмена."
@@ -61,6 +62,7 @@ internal object SetupMessages {
             "дробных знака. " +
             "Будущие даты и вопросы о покупке требуют уточнения. " +
             "Однозначные операции записываются сразу. /balance — баланс; /today — дневной лимит и оценка; " +
+            "/report week и /report month — аналитика текущего сопоставимого периода; " +
             "/history — последние 10 записей и следующая страница. " +
             "/draft — сохранённое уточнение; /confirm <id> <версия> — подтвердить; " +
             "/cancel — отменить черновик. " +

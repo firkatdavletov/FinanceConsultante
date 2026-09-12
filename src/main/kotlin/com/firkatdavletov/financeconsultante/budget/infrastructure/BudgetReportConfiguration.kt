@@ -1,5 +1,7 @@
 package com.firkatdavletov.financeconsultante.budget.infrastructure
 
+import com.firkatdavletov.financeconsultante.analytics.application.AnalyticsReportCoordinator
+import com.firkatdavletov.financeconsultante.analytics.application.AnalyticsReportWorker
 import com.firkatdavletov.financeconsultante.budget.application.DailyReportCoordinator
 import com.firkatdavletov.financeconsultante.budget.application.DailyReportWorker
 import com.firkatdavletov.financeconsultante.telegram.infrastructure.TelegramProperties
@@ -58,6 +60,24 @@ class BudgetReportConfiguration {
 
     @Bean
     fun dailyReportScheduler(worker: DailyReportWorker): DailyReportScheduler = DailyReportScheduler(worker)
+
+    @Bean
+    fun analyticsReportWorker(
+        telegram: TelegramProperties,
+        notifications: NotificationProperties,
+        coordinator: AnalyticsReportCoordinator,
+    ): AnalyticsReportWorker =
+        AnalyticsReportWorker(
+            telegram.botId,
+            telegram.ownerId,
+            coordinator,
+            notifications.leaseDuration,
+            notifications.retryDelay,
+        )
+
+    @Bean
+    fun analyticsReportScheduler(worker: AnalyticsReportWorker): AnalyticsReportScheduler =
+        AnalyticsReportScheduler(worker)
 }
 
 class DailyReportScheduler(
@@ -78,5 +98,26 @@ class DailyReportScheduler(
 
     companion object {
         private val logger = LoggerFactory.getLogger(DailyReportScheduler::class.java)
+    }
+}
+
+class AnalyticsReportScheduler(
+    private val worker: AnalyticsReportWorker,
+) {
+    @Scheduled(
+        initialDelayString = "\${app.notifications.initial-delay:PT5S}",
+        fixedDelayString = "\${app.notifications.poll-delay:PT1M}",
+    )
+    @Suppress("TooGenericExceptionCaught") // A durable job is retried without logging financial report text.
+    fun tick() {
+        try {
+            worker.runOnce()
+        } catch (failure: RuntimeException) {
+            logger.error("Analytics report tick failed ({})", failure.javaClass.simpleName)
+        }
+    }
+
+    companion object {
+        private val logger = LoggerFactory.getLogger(AnalyticsReportScheduler::class.java)
     }
 }

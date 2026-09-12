@@ -4,6 +4,7 @@ import com.firkatdavletov.financeconsultante.budget.application.DailyReportJob
 import com.firkatdavletov.financeconsultante.budget.application.DailyReportJobRepository
 import com.firkatdavletov.financeconsultante.budget.application.DailyReportRecipient
 import com.firkatdavletov.financeconsultante.budget.application.DailyReportStatus
+import com.firkatdavletov.financeconsultante.budget.application.ReportType
 import com.firkatdavletov.financeconsultante.ledger.application.OwnedLedger
 import org.springframework.jdbc.core.simple.JdbcClient
 import org.springframework.stereotype.Repository
@@ -19,6 +20,7 @@ import java.util.UUID
 
 @Repository
 @Transactional(propagation = Propagation.MANDATORY)
+@Suppress("TooManyFunctions") // Durable queue transitions stay together and share the same SQL invariants.
 class JdbcDailyReportJobRepository(
     private val jdbc: JdbcClient,
 ) : DailyReportJobRepository {
@@ -52,10 +54,10 @@ class JdbcDailyReportJobRepository(
             .sql(
                 """
                 INSERT INTO daily_report_job(
-                    id, household_id, member_id, recipient_id, bot_id, period_start, scheduled_for,
+                    id, household_id, member_id, recipient_id, bot_id, report_type, period_start, scheduled_for,
                     catch_up_until, status, attempts, next_attempt_at, created_at, updated_at
                 ) VALUES (
-                    :id, :household, :member, :recipient, :bot, :date, :scheduled,
+                    :id, :household, :member, :recipient, :bot, :reportType, :date, :scheduled,
                     :catchUp, 'SCHEDULED', 0, :scheduled, :now, :now
                 ) ON CONFLICT (household_id, recipient_id, report_type, period_start) DO UPDATE SET
                     scheduled_for = EXCLUDED.scheduled_for,
@@ -69,6 +71,7 @@ class JdbcDailyReportJobRepository(
             .param("member", job.owner.memberId)
             .param("recipient", job.owner.ownerId)
             .param("bot", job.botId)
+            .param("reportType", job.reportType.name)
             .param("date", job.date)
             .param("scheduled", offset(job.scheduledFor))
             .param("catchUp", offset(job.catchUpUntil))
@@ -78,13 +81,26 @@ class JdbcDailyReportJobRepository(
     override fun markExpired(
         botId: Long,
         now: Instant,
+    ): List<DailyReportJob> = markExpired(botId, now, periodic = false)
+
+    override fun markPeriodicExpired(
+        botId: Long,
+        now: Instant,
+    ): List<DailyReportJob> = markExpired(botId, now, periodic = true)
+
+    private fun markExpired(
+        botId: Long,
+        now: Instant,
+        periodic: Boolean,
     ): List<DailyReportJob> {
+        val typeCondition = if (periodic) "report_type IN ('WEEKLY', 'MONTHLY')" else "report_type = 'DAILY'"
         jdbc
             .sql(
                 """
                 UPDATE daily_report_job SET status = 'FAILED', lease_token = NULL, lease_until = NULL,
                     updated_at = :now
                 WHERE bot_id = :bot AND status = 'PROCESSING' AND attempts >= 5 AND lease_until <= :now
+                    AND $typeCondition
                 """.trimIndent(),
             ).param("bot", botId)
             .param("now", offset(now))
@@ -96,6 +112,7 @@ class JdbcDailyReportJobRepository(
                     UPDATE daily_report_job SET status = 'SKIPPED', lease_token = NULL, lease_until = NULL,
                         updated_at = :now
                     WHERE bot_id = :bot AND status IN ('SCHEDULED', 'PROCESSING') AND catch_up_until < :now
+                        AND $typeCondition
                     RETURNING *
                 )
                 SELECT expired.*, a.accounting_started_at FROM expired
@@ -112,14 +129,29 @@ class JdbcDailyReportJobRepository(
         botId: Long,
         now: Instant,
         leaseDuration: Duration,
-    ): DailyReportJob? =
-        jdbc
+    ): DailyReportJob? = claim(botId, now, leaseDuration, periodic = false)
+
+    override fun claimPeriodic(
+        botId: Long,
+        now: Instant,
+        leaseDuration: Duration,
+    ): DailyReportJob? = claim(botId, now, leaseDuration, periodic = true)
+
+    private fun claim(
+        botId: Long,
+        now: Instant,
+        leaseDuration: Duration,
+        periodic: Boolean,
+    ): DailyReportJob? {
+        val typeCondition = if (periodic) "report_type IN ('WEEKLY', 'MONTHLY')" else "report_type = 'DAILY'"
+        return jdbc
             .sql(
                 """
                 WITH candidate AS (
                     SELECT id FROM daily_report_job
                     WHERE bot_id = :bot AND scheduled_for <= :now AND next_attempt_at <= :now
                         AND catch_up_until >= :now AND attempts < 5
+                        AND $typeCondition
                         AND (status = 'SCHEDULED' OR (status = 'PROCESSING' AND lease_until <= :now))
                     ORDER BY scheduled_for, id LIMIT 1 FOR UPDATE SKIP LOCKED
                 ), claimed AS (
@@ -137,6 +169,7 @@ class JdbcDailyReportJobRepository(
             .query { row, _ -> mapJob(row) }
             .optional()
             .orElse(null)
+    }
 
     override fun lock(job: DailyReportJob): DailyReportJob? =
         jdbc
@@ -241,6 +274,7 @@ class JdbcDailyReportJobRepository(
             DailyReportStatus.valueOf(row.getString("status")),
             row.getInt("attempts"),
             row.getObject("lease_token", UUID::class.java),
+            ReportType.valueOf(row.getString("report_type")),
         )
 
     private fun offset(instant: Instant): OffsetDateTime = instant.atOffset(ZoneOffset.UTC)

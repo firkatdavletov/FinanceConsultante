@@ -195,11 +195,12 @@ class BudgetReportPersistenceTests
             assertThat(reportStatus()).isEqualTo("QUEUED")
             assertThat(count("telegram_outbox")).isEqualTo(1)
             assertThat(
-                jdbc.queryForObject(
-                    "SELECT scheduled_for FROM daily_report_job WHERE household_id = ?",
-                    java.time.OffsetDateTime::class.java,
-                    owner.householdId,
-                )?.toInstant(),
+                jdbc
+                    .queryForObject(
+                        "SELECT scheduled_for FROM daily_report_job WHERE household_id = ?",
+                        java.time.OffsetDateTime::class.java,
+                        owner.householdId,
+                    )?.toInstant(),
             ).isEqualTo(Instant.parse("2026-09-06T03:00:00Z"))
 
             val first = checkNotNull(outbox.claim(BOT))

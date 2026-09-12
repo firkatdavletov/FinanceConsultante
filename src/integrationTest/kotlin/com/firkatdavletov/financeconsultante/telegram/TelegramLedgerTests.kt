@@ -356,6 +356,26 @@ class TelegramLedgerTests
         }
 
         @Test
+        fun `week and month report commands return bounded factual analytics`() {
+            receive("зарплата 1000")
+            receive("продукты 250")
+
+            receive("/report week")
+            assertThat(reply()).contains(
+                "Текущий недельный отчёт",
+                "Доходы: 1000.00 KZT",
+                "Чистые расходы: 250.00 KZT",
+                "Начальный остаток, черновики, ожидаемые доходы и планы не включены",
+            )
+            assertThat(reply().length).isLessThanOrEqualTo(4096)
+
+            receive("/report month")
+            assertThat(reply()).contains("Текущий месячный отчёт", "Продукты: 250.00 KZT")
+            receive("/report year")
+            assertThat(reply()).contains("Формат: /report week или /report month")
+        }
+
+        @Test
         fun `unauthorized input and direct handler access cannot read or change ledger`() {
             val forbidden =
                 IncomingUpdate(++updateId, IncomingMessage(999, 999, "private", false, "зарплата 10", clock.instant()))

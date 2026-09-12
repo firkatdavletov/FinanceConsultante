@@ -1,5 +1,8 @@
 package com.firkatdavletov.financeconsultante.telegram.application
 
+import com.firkatdavletov.financeconsultante.analytics.application.AnalyticsMessages
+import com.firkatdavletov.financeconsultante.analytics.application.AnalyticsReportService
+import com.firkatdavletov.financeconsultante.analytics.domain.AnalyticsPeriod
 import com.firkatdavletov.financeconsultante.budget.application.BudgetMessages
 import com.firkatdavletov.financeconsultante.budget.application.BudgetReportService
 import com.firkatdavletov.financeconsultante.ledger.application.CategoryManagement
@@ -39,6 +42,7 @@ class TelegramLedgerHandler(
     private val corrections: TelegramCorrectionHandler,
     private val recurring: TelegramRecurringHandler? = null,
     private val budgetReports: BudgetReportService? = null,
+    private val analyticsReports: AnalyticsReportService? = null,
 ) : LedgerHandler {
     override fun recognized(
         message: InboxMessage,
@@ -141,6 +145,7 @@ class TelegramLedgerHandler(
         return command(command, owner, botId, drafts.active(owner, botId))
     }
 
+    @Suppress("CyclomaticComplexMethod") // The command table keeps each independent Telegram route explicit.
     private fun command(
         command: MessageParseResult.Command,
         owner: OwnedLedger,
@@ -166,6 +171,10 @@ class TelegramLedgerHandler(
                 } else {
                     "Формат: /today".reply()
                 }
+            }
+
+            "/report" -> {
+                report(command.arguments, owner)
             }
 
             "/history" -> {
@@ -204,6 +213,20 @@ class TelegramLedgerHandler(
         } else {
             LedgerMessages.history(operations.history(owner, before))
         }
+    }
+
+    private fun report(
+        arguments: String,
+        owner: OwnedLedger,
+    ): TelegramReply {
+        val period =
+            when (arguments) {
+                "week" -> AnalyticsPeriod.WEEK
+                "month" -> AnalyticsPeriod.MONTH
+                else -> return "Формат: /report week или /report month.".reply()
+            }
+        return analyticsReports?.let { AnalyticsMessages.report(it.current(owner, period)).reply() }
+            ?: "Аналитика временно недоступна.".reply()
     }
 
     private fun propose(
@@ -299,7 +322,7 @@ class TelegramLedgerHandler(
     ): String = "telegram:$botId:inbox:$inboxId"
 
     companion object {
-        private val COMMANDS = setOf("/balance", "/today", "/history", "/draft", "/confirm", "/cancel")
+        private val COMMANDS = setOf("/balance", "/today", "/report", "/history", "/draft", "/confirm", "/cancel")
         private val CONFIRM = Regex("([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}) ([0-9]+)")
     }
 }

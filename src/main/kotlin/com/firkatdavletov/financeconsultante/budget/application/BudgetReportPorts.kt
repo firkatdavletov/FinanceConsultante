@@ -31,6 +31,12 @@ enum class DailyReportStatus {
     FAILED,
 }
 
+enum class ReportType {
+    DAILY,
+    WEEKLY,
+    MONTHLY,
+}
+
 data class DailyReportJob(
     val id: UUID,
     val owner: OwnedLedger,
@@ -41,6 +47,7 @@ data class DailyReportJob(
     val status: DailyReportStatus,
     val attempts: Int,
     val leaseToken: UUID? = null,
+    val reportType: ReportType = ReportType.DAILY,
 )
 
 interface BudgetReportRepository {
@@ -76,7 +83,18 @@ interface DailyReportJobRepository {
         now: Instant,
     ): List<DailyReportJob>
 
+    fun markPeriodicExpired(
+        botId: Long,
+        now: Instant,
+    ): List<DailyReportJob>
+
     fun claim(
+        botId: Long,
+        now: Instant,
+        leaseDuration: Duration,
+    ): DailyReportJob?
+
+    fun claimPeriodic(
         botId: Long,
         now: Instant,
         leaseDuration: Duration,

@@ -1,6 +1,7 @@
 package com.firkatdavletov.financeconsultante.telegram.infrastructure
 
 import com.firkatdavletov.financeconsultante.ai.application.OpenAiRecognitionRouter
+import com.firkatdavletov.financeconsultante.analytics.application.AnalyticsReportService
 import com.firkatdavletov.financeconsultante.budget.application.BudgetReportService
 import com.firkatdavletov.financeconsultante.ledger.application.AccountingService
 import com.firkatdavletov.financeconsultante.ledger.application.CategoryManagement
@@ -128,6 +129,7 @@ class TelegramStorageConfiguration {
         corrections: EntryCorrections,
         recurringPlans: RecurringPlanService,
         budgetReports: BudgetReportService,
+        analyticsReports: AnalyticsReportService,
     ): LedgerHandler =
         TelegramLedgerHandler(
             OwnerAccess(properties.ownerId),
@@ -138,6 +140,7 @@ class TelegramStorageConfiguration {
             TelegramCorrectionHandler(OwnerAccess(properties.ownerId), operations, corrections, categories, clock),
             TelegramRecurringHandler(recurringPlans, clock),
             budgetReports,
+            analyticsReports,
         )
 
     @Bean
