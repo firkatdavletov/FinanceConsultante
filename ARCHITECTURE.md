@@ -36,6 +36,14 @@ Spring AI можно рассмотреть позднее при появлен
 
 **Рекомендация для первого размещения — Railway: постоянно работающий контейнер приложения и отдельный PostgreSQL-сервис с постоянным томом.** Платформа поддерживает развёртывание Spring Boot и Dockerfile; это сокращает подготовку окружения. Перед запуском проверить доступность региона, оплаты, резервных копий и ограничения выбранного тарифа. Источник: [Railway Spring Boot](https://docs.railway.com/guides/spring-boot).
 
+Для T11 выбран GitHub-connected Railway service без public domain и app-volume: один экземпляр long-polling
+приложения в том же регионе, что private PostgreSQL. Railway Serverless выключен, readiness включает DB,
+deployment overlap равен нулю, а draining превышает Spring/Telegram shutdown timeout. Railway service settings
+задаются в dashboard: прежний `railway.json` deprecated для новых services. Источники:
+[GitHub autodeploy](https://docs.railway.com/deployments/github-autodeploys),
+[healthchecks](https://docs.railway.com/deployments/healthchecks),
+[Config as Code deprecation](https://docs.railway.com/config-as-code).
+
 | Вариант | Когда выбирать | Что учесть |
 | --- | --- | --- |
 | Railway | Нужен быстрый старт с небольшой эксплуатационной нагрузкой | Обеспечить работу без засыпания, один активный poller, постоянный том БД, backup и лимит расходов |
@@ -258,7 +266,13 @@ claim с `DAILY` по типу. Готовый числовой текст и `a
 
 В production: один активный poller даже во время rolling deploy (DB lease/lock либо гарантированное отсутствие перекрытия), graceful shutdown, приватный доступ к БД, внутренний healthcheck и закрытые диагностические Actuator endpoints. Метрики: ошибки обработки, возраст старейшего inbox/outbox, задержка отчётов, время/ошибки API и usage. Не использовать персональные идентификаторы как labels метрик.
 
-Ежедневный backup хранится вне рабочего тома БД; начальная политика — 14 дней хранения и шифрование. Целевые RPO ≤ 24 часов и RTO ≤ 4 часов проверяются восстановлением в отдельное окружение в T11; до проверки это цели, не гарантии. Ошибка backup должна быть видна. Срок хранения сырого обработанного inbox-payload ограничить настройкой (предложение: 7 дней); финансовые записи, аудит и минимальные ключи идемпотентности сохраняются независимо от удаления текста.
+Ежедневный backup хранится вне рабочего тома БД; начальная политика — 14 дней хранения и client-side encryption
+через публичный `age` recipient, приватный identity не поступает на Railway. Основной вариант — S3-compatible
+bucket и отдельный cron image с `pg_dump`; Railway volume backup/PITR дополняют, но не заменяют переносимый dump.
+Это существенно, поскольку Railway Bucket пока не поддерживает server-side encryption и lifecycle rules.
+Целевые RPO ≤ 24 часов и RTO ≤ 4 часов проверяются восстановлением в отдельное окружение в T11; до проверки это
+цели, не гарантии. Ошибка backup завершает cron non-zero и должна вызывать уведомление. Обработанный inbox text
+удаляется сразу, а финансовые записи, аудит и минимальные ключи идемпотентности сохраняются.
 
 ## 9. Code style
 

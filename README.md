@@ -369,9 +369,25 @@ Gradle задаёт профиль `test` и выключает четыре ф�
 
 ## CI
 
-[GitHub Actions workflow](.github/workflows/ci.yml) запускается на push, pull request и вручную: устанавливает Java 17, использует Wrapper, проверяет Docker, выполняет `clean check bootJar`, сохраняет отчёты и JAR. Production-секреты не требуются. Публикация и deploy не выполняются.
+[GitHub Actions workflow](.github/workflows/ci.yml) запускается для push в `main`, pull request и вручную:
+устанавливает Java 17, использует Wrapper, проверяет Docker, выполняет `clean check bootJar`, сохраняет отчёты/JAR
+и собирает deployment image из корневого `Dockerfile`. Production-секреты не требуются. Публикация и deploy
+самим workflow не выполняются; Railway может ждать его успеха через Wait for CI.
 
-Для этого локального проекта Git remote пока не настроен. Workflow начнёт выполняться после размещения репозитория в GitHub с включёнными Actions; успешная локальная сборка не является наблюдавшимся запуском GitHub Actions.
+Git remote `origin` указывает на GitHub. Успешная локальная сборка не является наблюдавшимся запуском GitHub
+Actions или Railway deployment.
+
+## Развёртывание на Railway (T11)
+
+Проект подготовлен к сборке Railway из GitHub: приложение запускается в non-root контейнере на точном Java 17
+runtime, слушает предоставленный `PORT`, имеет DB-aware readiness, graceful shutdown и приватные Prometheus
+метрики очередей. Отдельный GitHub-root `ops/backup` создаёт зашифрованные `age` logical dumps и удаляет объекты
+старше 14 дней.
+
+Полная последовательность создания app/PostgreSQL, reference variables, секретов, Wait for CI, singleton poller,
+backup, smoke, restore drill, RPO/RTO и cost limits описана в
+[`docs/RAILWAY_DEPLOYMENT.md`](docs/RAILWAY_DEPLOYMENT.md). Подготовленные файлы не означают, что Railway-услуги
+уже подключены или T11 завершена.
 
 ## Документация проекта
 
@@ -379,3 +395,4 @@ Gradle задаёт профиль `test` и выключает четыре ф�
 - [PLANS.md](PLANS.md) — задачи и критерии готовности.
 - [ARCHITECTURE.md](ARCHITECTURE.md) — архитектура, code style и финансовые правила.
 - [AGENTS.md](AGENTS.md) — инструкции Codex и ссылки на ролевые навыки.
+- [docs/RAILWAY_DEPLOYMENT.md](docs/RAILWAY_DEPLOYMENT.md) — подробный production deploy/runbook для Railway.

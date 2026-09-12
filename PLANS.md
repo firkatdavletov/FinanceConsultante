@@ -258,6 +258,21 @@ Currencylayer API не вызывались.
 
 **Проверка:** `check`, `bootJar`, сборка и локальный запуск контейнера, smoke в отдельном тестовом чате, restore drill. Отправки и размещение выполнять в рамках отдельного поручения на релиз; подготовленные конфиги сами по себе не означают разрешение на подключение платной услуги. Если инфраструктура ещё не предоставлена, оставить внешние критерии открытыми, не называть релиз состоявшимся.
 
+**Подготовлено 2026-09-12:** добавлен multi-stage Dockerfile на точном Temurin 17.0.20+8 с non-root
+UID/GID 10001, healthcheck и container-aware JVM memory limit. Spring Boot слушает Railway `PORT`, явно использует
+graceful shutdown и DB-aware readiness; наружу разрешены только health и Prometheus, без подробностей health.
+Добавлены низкокардинальные метрики Telegram inbox/outbox, report, exchange-rate и OpenAI job без финансовых и
+персональных labels. CI для `main` собирает deployment image после `check`.
+
+В `ops/backup` подготовлен отдельный PostgreSQL 17.11 cron image: portable `pg_dump` шифруется публичным
+`age` recipient до S3 upload, plaintext удаляется, объекты старше 14 дней очищаются, а каждый этап даёт безопасный
+наблюдаемый статус. `restore-check.sql` сверяет миграции, числа критичных строк и детерминированный баланс.
+Подробный GitHub → Railway runbook описывает private PostgreSQL references, один app replica, выключенный
+Serverless, Wait for CI, secrets, smoke, backup/PITR, restore drill, RPO/RTO и cost limits.
+
+Фактический Railway deploy, GitHub Actions для этого изменения, Telegram/OpenAI/Currencylayer smoke, backup upload
+и restore drill пока не выполнены; T11 остаётся `TODO` до прохождения внешней приёмки.
+
 ## T12 — Накопления и цели
 
 **Сделать:** `/goals`: сумма цели, срок, приоритет, выделенные деньги и пополнение/снятие резерва. Подключить G в расчёт лимита; оценивать требуемый темп накоплений по оставшейся сумме и сроку. Развести защищённый резерв E, реальные накопления G и будущий план взносов.

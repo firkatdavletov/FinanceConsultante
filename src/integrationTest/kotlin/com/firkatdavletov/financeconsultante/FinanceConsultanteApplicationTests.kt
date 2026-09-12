@@ -3,6 +3,7 @@ package com.firkatdavletov.financeconsultante
 import com.firkatdavletov.financeconsultante.exchange.application.ExchangeRateWorker
 import com.firkatdavletov.financeconsultante.telegram.application.TelegramDeliveryWorker
 import com.firkatdavletov.financeconsultante.telegram.application.TelegramPoller
+import io.micrometer.core.instrument.MeterRegistry
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
@@ -14,6 +15,7 @@ class FinanceConsultanteApplicationTests
     constructor(
         private val environment: Environment,
         private val applicationContext: ApplicationContext,
+        private val meterRegistry: MeterRegistry,
     ) : PostgresIntegrationTest() {
         @Test
         fun `context starts with external integrations disabled`() {
@@ -25,5 +27,18 @@ class FinanceConsultanteApplicationTests
             assertThat(applicationContext.getBeansOfType(ExchangeRateWorker::class.java)).isEmpty()
             assertThat(applicationContext.getBeansOfType(TelegramPoller::class.java)).isEmpty()
             assertThat(applicationContext.getBeansOfType(TelegramDeliveryWorker::class.java)).isEmpty()
+        }
+
+        @Test
+        fun `operational gauges query the migrated schema without exposing identifiers`() {
+            val gauges =
+                meterRegistry.meters
+                    .filter { it.id.name.startsWith("financeconsultante.") }
+                    .map { meterRegistry.find(it.id.name).gauge() }
+
+            assertThat(gauges).hasSize(11).doesNotContainNull()
+            assertThat(gauges.map { checkNotNull(it).value() }).allMatch { it.isFinite() && it >= 0 }
+            assertThat(gauges.flatMap { checkNotNull(it).id.tags }.map { it.key })
+                .doesNotContain("owner", "telegram_id", "household", "member")
         }
     }

@@ -1,6 +1,8 @@
 spring:
   application:
     name: FinanceConsultante
+  lifecycle:
+    timeout-per-shutdown-phase: 45s
   profiles:
     default: local
   datasource:
@@ -18,7 +20,36 @@ spring:
     validate-on-migrate: true
     baseline-on-migrate: false
 
+server:
+  port: ${PORT:8080}
+  shutdown: graceful
+
+management:
+  endpoints:
+    access:
+      default: none
+    web:
+      exposure:
+        include: "health,prometheus"
+  endpoint:
+    health:
+      access: read-only
+      probes:
+        enabled: true
+      show-components: never
+      show-details: never
+      group:
+        readiness:
+          include: "readinessState,db"
+    prometheus:
+      access: read-only
+  metrics:
+    tags:
+      application: ${spring.application.name}
+
 app:
+  operations:
+    metrics-enabled: true
   recurring:
     scheduler-enabled: true
     initial-delay: 5s
