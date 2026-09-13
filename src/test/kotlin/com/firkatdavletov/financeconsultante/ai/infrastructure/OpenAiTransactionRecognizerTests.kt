@@ -13,8 +13,11 @@ import com.github.tomakehurst.wiremock.client.WireMock.post
 import com.github.tomakehurst.wiremock.client.WireMock.postRequestedFor
 import com.github.tomakehurst.wiremock.client.WireMock.urlEqualTo
 import com.github.tomakehurst.wiremock.core.WireMockConfiguration.options
+import com.openai.errors.OpenAIIoException
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
+import java.io.InterruptedIOException
+import java.net.SocketException
 import java.time.Duration
 import java.time.LocalDate
 import java.util.UUID
@@ -101,6 +104,14 @@ class OpenAiTransactionRecognizerTests {
                 client.close()
             }
         }
+    }
+
+    @Test
+    fun `SDK deadline cancellation is classified as timeout before its closed socket`() {
+        val interrupted = InterruptedIOException("timeout").apply { initCause(SocketException("Socket closed")) }
+        val failure = OpenAIIoException("Request failed", interrupted)
+
+        assertThat(classifyOpenAiFailure(failure)).isEqualTo("timeout")
     }
 
     @Test

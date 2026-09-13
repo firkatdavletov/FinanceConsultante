@@ -15,6 +15,7 @@ import com.openai.client.OpenAIClient
 import com.openai.models.responses.Response
 import com.openai.models.responses.ResponseCreateParams
 import com.openai.models.responses.StructuredResponseCreateParams
+import java.io.InterruptedIOException
 import java.util.Locale
 import java.util.concurrent.TimeUnit
 
@@ -49,7 +50,7 @@ class OpenAiTransactionRecognizer(
                 )
             }
         } catch (failure: RuntimeException) {
-            failure(classify(failure), started)
+            failure(classifyOpenAiFailure(failure), started)
         }
     }
 
@@ -91,22 +92,6 @@ class OpenAiTransactionRecognizer(
                     }.orElse(emptyList())
             }.singleOrNull()
 
-    private fun classify(failure: RuntimeException): String {
-        val names =
-            generateSequence<Throwable>(failure) { current -> current.cause }
-                .map { it.javaClass.simpleName.lowercase(Locale.ROOT) }
-                .toList()
-        return when {
-            names.any { "timeout" in it } -> "timeout"
-            names.any { "ratelimit" in it } -> "rate_limit"
-            names.any { "invaliddata" in it } -> "invalid_response"
-            names.any { "json" in it || "parse" in it || "mapping" in it } -> "invalid_json"
-            names.any { "permission" in it || "authentication" in it } -> "credentials"
-            names.any { "connection" in it || it == "ioexception" || "socket" in it } -> "network"
-            else -> "provider_error"
-        }
-    }
-
     private fun failure(
         code: String,
         started: Long,
@@ -117,6 +102,20 @@ class OpenAiTransactionRecognizer(
 
     companion object {
         private const val MAX_MESSAGE_LENGTH = 512
+    }
+}
+
+internal fun classifyOpenAiFailure(failure: RuntimeException): String {
+    val failures = generateSequence<Throwable>(failure) { current -> current.cause }.toList()
+    val names = failures.map { it.javaClass.simpleName.lowercase(Locale.ROOT) }
+    return when {
+        failures.any { it is InterruptedIOException } || names.any { "timeout" in it } -> "timeout"
+        names.any { "ratelimit" in it } -> "rate_limit"
+        names.any { "invaliddata" in it } -> "invalid_response"
+        names.any { "json" in it || "parse" in it || "mapping" in it } -> "invalid_json"
+        names.any { "permission" in it || "authentication" in it } -> "credentials"
+        names.any { "connection" in it || it == "ioexception" || "socket" in it } -> "network"
+        else -> "provider_error"
     }
 }
 
