@@ -17,6 +17,10 @@ class FinanceConsultanteApplicationTests
         private val applicationContext: ApplicationContext,
         private val meterRegistry: MeterRegistry,
     ) : PostgresIntegrationTest() {
+        private companion object {
+            const val OPERATIONAL_GAUGE_COUNT = 11
+        }
+
         @Test
         fun `context starts with external integrations disabled`() {
             assertThat(environment.activeProfiles).containsExactly("test")
@@ -36,7 +40,7 @@ class FinanceConsultanteApplicationTests
                     .filter { it.id.name.startsWith("financeconsultante.") }
                     .map { meterRegistry.find(it.id.name).gauge() }
 
-            assertThat(gauges).hasSize(11).doesNotContainNull()
+            assertThat(gauges).hasSize(OPERATIONAL_GAUGE_COUNT).doesNotContainNull()
             assertThat(gauges.map { checkNotNull(it).value() }).allMatch { it.isFinite() && it >= 0 }
             assertThat(gauges.flatMap { checkNotNull(it).id.tags }.map { it.key })
                 .doesNotContain("owner", "telegram_id", "household", "member")
