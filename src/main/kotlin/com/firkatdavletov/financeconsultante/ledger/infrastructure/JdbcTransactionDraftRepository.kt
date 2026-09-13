@@ -25,8 +25,19 @@ class JdbcTransactionDraftRepository(
     override fun active(
         owner: OwnedLedger,
         botId: Long,
+    ): List<TransactionDraft> =
+        query(
+            owner,
+            botId,
+            "AND state IN ('NEEDS_INPUT', 'READY', 'WAITING_RATE') ORDER BY source_inbox_id",
+        ).query(MAPPER)
+            .list()
+
+    override fun needsInput(
+        owner: OwnedLedger,
+        botId: Long,
     ): TransactionDraft? =
-        query(owner, botId, "AND state IN ('NEEDS_INPUT', 'READY', 'WAITING_RATE')")
+        query(owner, botId, "AND state = 'NEEDS_INPUT'")
             .query(MAPPER)
             .optional()
             .orElse(null)

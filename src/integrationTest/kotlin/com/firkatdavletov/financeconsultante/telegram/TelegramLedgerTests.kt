@@ -205,10 +205,9 @@ class TelegramLedgerTests
 
         @Test
         fun `stale version cancellation and foreign draft cannot post`() {
-            receive("кофе 10")
-            receive("продукты 10")
-            val stale = confirmation()
-            receive("продукты 20")
+            receive("продукты 10 2026-08-31")
+            val stale = draftCommand()
+            receive("продукты 20 2026-09-01")
             val latest = confirmation()
             receive(stale)
             assertThat(reply()).contains("устарело")
@@ -216,7 +215,7 @@ class TelegramLedgerTests
             assertThat(reply()).contains("недоступен")
             receive("/cancel")
             receive(latest)
-            assertThat(reply()).contains("устарело")
+            assertThat(reply()).contains("уже отменён")
             assertThat(count("ledger_entry")).isZero()
             receive("продукты 30")
             assertThat(count("ledger_entry")).isEqualTo(1)
@@ -544,6 +543,15 @@ class TelegramLedgerTests
                 jdbc.queryForObject(
                     "SELECT '/confirm ' || id || ' ' || version FROM transaction_draft WHERE state IN " +
                         "('READY', 'WAITING_RATE')",
+                    String::class.java,
+                ),
+            )
+
+        private fun draftCommand(): String =
+            checkNotNull(
+                jdbc.queryForObject(
+                    "SELECT '/confirm ' || id || ' ' || version FROM transaction_draft WHERE state IN " +
+                        "('NEEDS_INPUT', 'READY', 'WAITING_RATE')",
                     String::class.java,
                 ),
             )

@@ -40,6 +40,11 @@ interface TransactionDraftRepository {
     fun active(
         owner: OwnedLedger,
         botId: Long,
+    ): List<TransactionDraft>
+
+    fun needsInput(
+        owner: OwnedLedger,
+        botId: Long,
     ): TransactionDraft?
 
     fun find(

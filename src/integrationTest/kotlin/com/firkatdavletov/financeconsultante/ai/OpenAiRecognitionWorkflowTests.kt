@@ -22,6 +22,7 @@ import com.firkatdavletov.financeconsultante.telegram.TelegramTestConfiguration
 import com.firkatdavletov.financeconsultante.telegram.TelegramTestConfiguration.Companion.BOT
 import com.firkatdavletov.financeconsultante.telegram.TelegramTestConfiguration.Companion.OWNER
 import com.firkatdavletov.financeconsultante.telegram.application.InboxStore
+import com.firkatdavletov.financeconsultante.telegram.application.IncomingKind
 import com.firkatdavletov.financeconsultante.telegram.application.IncomingMessage
 import com.firkatdavletov.financeconsultante.telegram.application.IncomingUpdate
 import com.firkatdavletov.financeconsultante.telegram.application.LedgerHandler
@@ -156,9 +157,99 @@ class OpenAiRecognitionWorkflowTests
                 jdbc.queryForObject("SELECT count(*) FROM telegram_inbox WHERE text IS NOT NULL", Long::class.java),
             ).isZero()
 
-            receive(confirmation())
+            receive("/confirm")
             assertThat(count("ledger_entry")).isEqualTo(1)
             assertThat(worker(provider).runOnce()).isEqualTo(RecognitionRunResult.IDLE)
+        }
+
+        @Test
+        @Suppress("LongMethod") // Reproduces the complete reported interaction and both callback outcomes.
+        fun `independent AI expenses keep separate drafts with buttons while local expense records immediately`() {
+            receive("/category_add expense отдых-и-развлечения")
+            receive("/category_add expense кафе-и-рестораны")
+            val provider =
+                TransactionRecognitionProvider { input ->
+                    val leisure = input.message.startsWith("Отдых", ignoreCase = true)
+                    val categoryName = if (leisure) "отдых-и-развлечения" else "кафе-и-рестораны"
+                    val amount = if (leisure) "1297.5" else "11900"
+                    val category = input.categories.single { it.name == categoryName }
+                    RecognitionResponse.Success(
+                        RecognitionObservation(
+                            RecognitionCandidate(
+                                RecognitionIntent.RECORD_TRANSACTION,
+                                RecognitionOperationType.EXPENSE,
+                                amount,
+                                RecognitionCurrency.KZT,
+                                category.id.toString(),
+                                "2026-09-06",
+                                categoryName,
+                                false,
+                            ),
+                            "req_${category.id}",
+                            "resp_${category.id}",
+                            RecognitionUsage(20, 10),
+                            5,
+                        ),
+                    )
+                }
+
+            receive("Отдых 1297.5")
+            assertThat(worker(provider).runOnce()).isEqualTo(RecognitionRunResult.COMPLETED)
+            receive("Кафе 11900")
+            assertThat(worker(provider).runOnce()).isEqualTo(RecognitionRunResult.COMPLETED)
+
+            assertThat(count("transaction_draft")).isEqualTo(2)
+            assertThat(
+                jdbc.queryForList(
+                    "SELECT category_name FROM transaction_draft WHERE state = 'READY' ORDER BY source_inbox_id",
+                    String::class.java,
+                ),
+            ).containsExactly("отдых-и-развлечения", "кафе-и-рестораны")
+            assertThat(
+                jdbc.queryForObject("SELECT count(DISTINCT id) FROM transaction_draft", Long::class.java),
+            ).isEqualTo(2)
+            assertThat(jdbc.queryForObject("SELECT max(version) FROM transaction_draft", Long::class.java)).isZero()
+
+            receive("/confirm")
+            assertThat(reply()).contains("Выберите черновик", "Незавершённые черновики: 2")
+            assertThat(count("ledger_entry")).isZero()
+
+            receive("Продукты 6710")
+            assertThat(count("ledger_entry")).isEqualTo(1)
+            assertThat(
+                jdbc.queryForObject("SELECT amount_kzt::text FROM ledger_entry", String::class.java),
+            ).isEqualTo("6710.00")
+            assertThat(count("transaction_draft")).isEqualTo(2)
+
+            receive("/draft")
+            assertThat(reply()).contains("отдых-и-развлечения", "кафе-и-рестораны")
+            assertThat(
+                jdbc.queryForObject(
+                    "SELECT buttons::text FROM telegram_outbox ORDER BY id DESC LIMIT 1",
+                    String::class.java,
+                ),
+            ).contains("dc:", "du:", "dx:", "✅ Записать 1", "✏️ Уточнить 2", "❌ Отменить 2")
+
+            val confirmLeisure = draftAction("dc", "отдых-и-развлечения")
+            receiveCallback(confirmLeisure)
+            assertThat(reply()).contains("Записано", "1297.50 KZT")
+            assertThat(count("ledger_entry")).isEqualTo(2)
+            receiveCallback(confirmLeisure)
+            assertThat(reply()).contains("Уже записано", "Повторного изменения баланса нет")
+            assertThat(count("ledger_entry")).isEqualTo(2)
+
+            receiveCallback(draftAction("du", "кафе-и-рестораны"))
+            assertThat(reply()).contains("Выбран черновик для уточнения", "версия 1")
+            receive("/expense 11900 кафе-и-рестораны")
+            assertThat(reply()).contains("кафе-и-рестораны", "версия 2")
+            assertThat(count("transaction_draft")).isEqualTo(2)
+            assertThat(count("ledger_entry")).isEqualTo(2)
+
+            receiveCallback(draftAction("dx", "кафе-и-рестораны"))
+            assertThat(reply()).contains("Черновик отменён")
+            assertThat(count("ledger_entry")).isEqualTo(2)
+            receive("/draft")
+            assertThat(reply()).contains("Незавершённых черновиков нет")
         }
 
         @Test
@@ -287,12 +378,40 @@ class OpenAiRecognitionWorkflowTests
             assertThat(tx.execute { processor.processOne(BOT) }).isTrue()
         }
 
-        private fun confirmation(): String =
+        private fun receiveCallback(data: String) {
+            val lease = checkNotNull(polls.claim(BOT))
+            val id = ++updateId
+            val message =
+                IncomingMessage(
+                    OWNER,
+                    OWNER,
+                    "private",
+                    false,
+                    data,
+                    kind = IncomingKind.CALLBACK,
+                    callbackQueryId = "query_$id",
+                    messageId = id,
+                )
+            assertThat(polls.accept(lease, listOf(IncomingUpdate(id, message)), access)).isTrue()
+            assertThat(tx.execute { processor.processOne(BOT) }).isTrue()
+        }
+
+        private fun draftAction(
+            action: String,
+            category: String,
+        ): String =
             checkNotNull(
                 jdbc.queryForObject(
-                    "SELECT '/confirm ' || id || ' ' || version FROM transaction_draft WHERE state = 'READY'",
+                    "SELECT ? || ':' || id || ':' || version FROM transaction_draft WHERE category_name = ?",
                     String::class.java,
+                    action,
+                    category,
                 ),
+            )
+
+        private fun reply(): String =
+            checkNotNull(
+                jdbc.queryForObject("SELECT text FROM telegram_outbox ORDER BY id DESC LIMIT 1", String::class.java),
             )
 
         private fun count(table: String): Long =

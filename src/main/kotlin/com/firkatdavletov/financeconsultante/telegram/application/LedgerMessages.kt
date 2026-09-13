@@ -12,6 +12,8 @@ import com.firkatdavletov.financeconsultante.shared.domain.Money
 import com.firkatdavletov.financeconsultante.telegram.domain.ACCOUNTING_ZONE
 
 object LedgerMessages {
+    const val DRAFT_PAGE_SIZE = 5
+
     fun balance(balance: Balance): String =
         "Учётный баланс: ${money(balance.amount)}" +
             (if (balance.amount.amount.signum() < 0) " (отрицательный)" else "") +
@@ -31,18 +33,77 @@ object LedgerMessages {
             EntryButtons.actions(entry),
         )
 
-    fun draft(draft: TransactionDraft): TelegramReply =
+    fun draft(
+        draft: TransactionDraft,
+        notice: String? = null,
+    ): TelegramReply =
+        TelegramReply(
+            buildString {
+                notice?.let { append("$it\n") }
+                append(draftText(draft))
+                append("\nБаланс не изменён.")
+            },
+            draftButtons(draft),
+        )
+
+    @Suppress("ReturnCount") // Empty and invalid pages are distinct user recovery responses.
+    fun drafts(
+        drafts: List<TransactionDraft>,
+        page: Int = 1,
+        notice: String? = null,
+    ): TelegramReply {
+        if (drafts.isEmpty()) return "Незавершённых черновиков нет.".reply()
+        val pages = (drafts.size + DRAFT_PAGE_SIZE - 1) / DRAFT_PAGE_SIZE
+        if (page !in 1..pages) return "Страница черновиков недоступна. Формат: /draft [страница].".reply()
+        val offset = (page - 1) * DRAFT_PAGE_SIZE
+        val items = drafts.drop(offset).take(DRAFT_PAGE_SIZE)
+        val text =
+            buildString {
+                notice?.let { append("$it\n") }
+                append("Незавершённые черновики: ${drafts.size}. Баланс не изменён.\n")
+                items.forEachIndexed { index, draft ->
+                    append("\n${offset + index + 1}. ")
+                    append(draftText(draft))
+                    append("\n")
+                }
+                append("\nСтраница $page из $pages.")
+                if (page < pages) append(" Далее: /draft ${page + 1}")
+            }
+        return TelegramReply(
+            text,
+            items.flatMapIndexed { index, draft -> draftButtons(draft, offset + index + 1) },
+        )
+    }
+
+    private fun draftText(draft: TransactionDraft): String =
         buildString {
-            append("Черновик ${draft.id}, версия ${draft.version}. Баланс не изменён.\n")
+            append("Черновик ${draft.id}, версия ${draft.version}.\n")
             draft.proposal?.let {
                 append("${it.occurredOn}: ${it.category.displayName}, ${money(it.amount)}.\n")
             }
             append(draft.reason)
             if (draft.state == DraftState.READY || draft.state == DraftState.WAITING_RATE) {
-                append("\n/confirm ${draft.id} ${draft.version}")
+                append("\nНажмите «Записать» или используйте: /confirm ${draft.id} ${draft.version}")
+            } else {
+                append("\nНажмите «Уточнить» и отправьте одну операцию целиком.")
             }
-            append("\nДля уточнения отправьте одну операцию целиком. /draft — показать; /cancel — отменить черновик.")
-        }.reply()
+            append("\nОтменить этот черновик: /cancel ${draft.id} ${draft.version}")
+        }
+
+    private fun draftButtons(
+        draft: TransactionDraft,
+        number: Int? = null,
+    ): List<ReplyButton> {
+        val suffix = "${draft.id}:${draft.version}"
+        val label = number?.let { " $it" } ?: ""
+        val actions = mutableListOf<ReplyButton>()
+        if (draft.state != DraftState.NEEDS_INPUT) {
+            actions += ReplyButton("✅ Записать$label", "dc:$suffix")
+        }
+        actions += ReplyButton("✏️ Уточнить$label", "du:$suffix")
+        actions += ReplyButton("❌ Отменить$label", "dx:$suffix")
+        return actions
+    }
 
     fun history(items: List<HistoryItem>): TelegramReply {
         if (items.isEmpty()) return "История пуста. /history — с начала.".reply()
