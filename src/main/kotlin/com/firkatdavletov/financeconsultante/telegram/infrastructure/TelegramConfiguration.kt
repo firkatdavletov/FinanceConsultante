@@ -3,6 +3,7 @@ package com.firkatdavletov.financeconsultante.telegram.infrastructure
 import com.firkatdavletov.financeconsultante.ai.application.OpenAiRecognitionRouter
 import com.firkatdavletov.financeconsultante.analytics.application.AnalyticsReportService
 import com.firkatdavletov.financeconsultante.budget.application.BudgetReportService
+import com.firkatdavletov.financeconsultante.goals.application.SavingsGoalService
 import com.firkatdavletov.financeconsultante.ledger.application.AccountingService
 import com.firkatdavletov.financeconsultante.ledger.application.CategoryManagement
 import com.firkatdavletov.financeconsultante.ledger.application.EntryCorrections
@@ -18,6 +19,7 @@ import com.firkatdavletov.financeconsultante.telegram.application.SetupStore
 import com.firkatdavletov.financeconsultante.telegram.application.TelegramClient
 import com.firkatdavletov.financeconsultante.telegram.application.TelegramCorrectionHandler
 import com.firkatdavletov.financeconsultante.telegram.application.TelegramDeliveryWorker
+import com.firkatdavletov.financeconsultante.telegram.application.TelegramGoalsHandler
 import com.firkatdavletov.financeconsultante.telegram.application.TelegramInboxProcessor
 import com.firkatdavletov.financeconsultante.telegram.application.TelegramLedgerHandler
 import com.firkatdavletov.financeconsultante.telegram.application.TelegramPoller
@@ -128,6 +130,7 @@ class TelegramStorageConfiguration {
         categories: CategoryManagement,
         corrections: EntryCorrections,
         recurringPlans: RecurringPlanService,
+        savingsGoals: SavingsGoalService,
         budgetReports: BudgetReportService,
         analyticsReports: AnalyticsReportService,
     ): LedgerHandler =
@@ -139,6 +142,7 @@ class TelegramStorageConfiguration {
             categories,
             TelegramCorrectionHandler(OwnerAccess(properties.ownerId), operations, corrections, categories, clock),
             TelegramRecurringHandler(recurringPlans, clock),
+            TelegramGoalsHandler(savingsGoals, clock),
             budgetReports,
             analyticsReports,
         )

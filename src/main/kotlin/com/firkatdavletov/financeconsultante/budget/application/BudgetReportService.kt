@@ -5,6 +5,7 @@ import com.firkatdavletov.financeconsultante.budget.domain.BudgetCalculator
 import com.firkatdavletov.financeconsultante.budget.domain.BudgetEstimate
 import com.firkatdavletov.financeconsultante.budget.domain.DailyBudgetSnapshot
 import com.firkatdavletov.financeconsultante.budget.domain.DailyBudgetView
+import com.firkatdavletov.financeconsultante.goals.application.SavingsGoalService
 import com.firkatdavletov.financeconsultante.ledger.application.AccountingService
 import com.firkatdavletov.financeconsultante.ledger.application.OwnedLedger
 import com.firkatdavletov.financeconsultante.recurring.application.RecurringPlanService
@@ -26,6 +27,7 @@ class BudgetReportService(
     private val repository: BudgetReportRepository,
     private val accounting: AccountingService,
     private val recurring: RecurringPlanService,
+    private val goals: SavingsGoalService,
     private val clock: Clock,
 ) {
     @Suppress("ReturnCount") // Snapshot creation and invalidation are distinct terminal outcomes.
@@ -76,7 +78,7 @@ class BudgetReportService(
                 balance,
                 obligations,
                 settings.protectedReserve,
-                Money.of(BigDecimal.ZERO),
+                goals.totalAllocated(owner),
                 date,
             ),
         )

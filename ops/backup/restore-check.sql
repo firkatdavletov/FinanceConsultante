@@ -9,6 +9,12 @@ SELECT 'ledger_entries', count(*)::text FROM ledger_entry
 UNION ALL
 SELECT 'entry_revisions', count(*)::text FROM entry_revision
 UNION ALL
+SELECT 'savings_goals', count(*)::text FROM savings_goal
+UNION ALL
+SELECT 'savings_goal_allocations', count(*)::text FROM savings_goal_allocation
+UNION ALL
+SELECT 'goal_contribution_plans', count(*)::text FROM goal_contribution_plan
+UNION ALL
 SELECT 'telegram_idempotency_keys', count(*)::text FROM telegram_inbox
 UNION ALL
 SELECT 'report_jobs', count(*)::text FROM daily_report_job
