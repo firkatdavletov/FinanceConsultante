@@ -2,6 +2,7 @@ package com.firkatdavletov.financeconsultante.telegram.infrastructure
 
 import com.firkatdavletov.financeconsultante.ai.application.OpenAiRecognitionRouter
 import com.firkatdavletov.financeconsultante.analytics.application.AnalyticsReportService
+import com.firkatdavletov.financeconsultante.analytics.application.BudgetForecastService
 import com.firkatdavletov.financeconsultante.budget.application.BudgetReportService
 import com.firkatdavletov.financeconsultante.goals.application.SavingsGoalService
 import com.firkatdavletov.financeconsultante.ledger.application.AccountingService
@@ -19,6 +20,7 @@ import com.firkatdavletov.financeconsultante.telegram.application.SetupStore
 import com.firkatdavletov.financeconsultante.telegram.application.TelegramClient
 import com.firkatdavletov.financeconsultante.telegram.application.TelegramCorrectionHandler
 import com.firkatdavletov.financeconsultante.telegram.application.TelegramDeliveryWorker
+import com.firkatdavletov.financeconsultante.telegram.application.TelegramForecastHandler
 import com.firkatdavletov.financeconsultante.telegram.application.TelegramGoalsHandler
 import com.firkatdavletov.financeconsultante.telegram.application.TelegramInboxProcessor
 import com.firkatdavletov.financeconsultante.telegram.application.TelegramLedgerHandler
@@ -133,6 +135,7 @@ class TelegramStorageConfiguration {
         savingsGoals: SavingsGoalService,
         budgetReports: BudgetReportService,
         analyticsReports: AnalyticsReportService,
+        forecasts: BudgetForecastService,
     ): LedgerHandler =
         TelegramLedgerHandler(
             OwnerAccess(properties.ownerId),
@@ -145,6 +148,7 @@ class TelegramStorageConfiguration {
             TelegramGoalsHandler(savingsGoals, clock),
             budgetReports,
             analyticsReports,
+            TelegramForecastHandler(forecasts),
         )
 
     @Bean

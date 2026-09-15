@@ -44,6 +44,7 @@ class TelegramLedgerHandler(
     private val goals: TelegramGoalsHandler? = null,
     private val budgetReports: BudgetReportService? = null,
     private val analyticsReports: AnalyticsReportService? = null,
+    private val forecast: TelegramForecastHandler? = null,
 ) : LedgerHandler {
     private val draftHandler = TelegramDraftHandler(operations, drafts)
 
@@ -191,6 +192,11 @@ class TelegramLedgerHandler(
                 report(command.arguments, owner)
             }
 
+            TelegramForecastHandler.COMMAND -> {
+                forecast?.command(command.arguments, owner)
+                    ?: "Прогноз временно недоступен.".reply()
+            }
+
             "/history" -> {
                 history(command.arguments, owner)
             }
@@ -284,6 +290,8 @@ class TelegramLedgerHandler(
     ): String = "telegram:$botId:inbox:$inboxId"
 
     companion object {
-        private val COMMANDS = setOf("/balance", "/today", "/report", "/history") + TelegramDraftHandler.COMMANDS
+        private val COMMANDS =
+            setOf("/balance", "/today", "/report", "/history", TelegramForecastHandler.COMMAND) +
+                TelegramDraftHandler.COMMANDS
     }
 }

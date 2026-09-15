@@ -38,7 +38,7 @@ internal object SetupMessages {
                 "Начальный остаток: ${current.openingBalance.amount.toPlainString()} KZT; дата: " +
                 "${current.startedOn}.\n" +
                 "Время отчётов: ${current.reportTime}. Резерв: ${current.cashReserve.amount.toPlainString()} KZT.\n" +
-                "/today — дневной лимит; /report week|month — аналитика; " +
+                "/today — дневной лимит; /forecast — прогноз на 30 дней; /report week|month — аналитика; " +
                 "периодические отчёты отправляются при включённых уведомлениях."
         }
 
@@ -62,6 +62,7 @@ internal object SetupMessages {
             "дробных знака. " +
             "Будущие даты и вопросы о покупке требуют уточнения. " +
             "Однозначные операции записываются сразу. /balance — баланс; /today — дневной лимит и оценка; " +
+            "/forecast [лимит KZT в день] — прогноз по датам на 30 дней; " +
             "/report week и /report month — аналитика текущего сопоставимого периода; " +
             "/history — последние 10 записей и следующая страница. " +
             "/draft [страница] — незавершённые черновики; /confirm — подтвердить единственный черновик; " +

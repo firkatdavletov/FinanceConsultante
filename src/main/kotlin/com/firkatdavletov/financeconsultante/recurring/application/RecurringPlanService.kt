@@ -192,6 +192,14 @@ class RecurringPlanService(
         return Money.of(total, Currency.KZT)
     }
 
+    /** Materializes deterministic plan occurrences before a projection reads its horizon. */
+    fun ensureOccurrences(
+        owner: OwnedLedger,
+        throughInclusive: LocalDate,
+    ) {
+        generate(owner.householdId, throughInclusive)
+    }
+
     fun createExpectedIncome(
         owner: OwnedLedger,
         amount: Money,
