@@ -31,6 +31,16 @@ data class ForecastContribution(
     }
 }
 
+data class ForecastPurchase(
+    val date: LocalDate,
+    val amount: Money,
+    val goalId: UUID? = null,
+) {
+    init {
+        require(amount.currency == Currency.KZT && amount.amount.signum() > 0)
+    }
+}
+
 data class ForecastGoal(
     val id: UUID,
     val name: String,
@@ -59,6 +69,7 @@ data class BudgetForecastInput(
     val cashFlows: List<ForecastCashFlow> = emptyList(),
     val goals: List<ForecastGoal> = emptyList(),
     val horizonDays: Int = BudgetForecastCalculator.HORIZON_DAYS,
+    val purchase: ForecastPurchase? = null,
 ) {
     init {
         require(currentBalance.currency == Currency.KZT)
@@ -94,7 +105,11 @@ data class ForecastDay(
     val expectedIncome: Money,
     val obligations: Money,
     val variableSpending: Money,
+    val purchase: Money,
     val closingBalance: Money,
+    val goalFunding: Money,
+    val goalReserve: Money,
+    val goalAllocations: Map<UUID, Money>,
 )
 
 enum class GoalReachability {
@@ -142,6 +157,12 @@ object BudgetForecastCalculator {
     fun calculate(input: BudgetForecastInput): BudgetForecast {
         val endDate = input.startDate.plusDays(input.horizonDays.toLong() - 1)
         require(input.cashFlows.all { it.date <= endDate }) { "Cash flow falls outside forecast horizon" }
+        input.purchase?.let { purchase ->
+            require(purchase.date in input.startDate..endDate) { "Purchase falls outside forecast horizon" }
+            require(purchase.goalId == null || input.goals.any { it.id == purchase.goalId }) {
+                "Purchase goal is not part of the forecast"
+            }
+        }
         val spending = spending(input)
         val base = scenario(input, endDate, spending.baseDaily, incomeDelayDays = 0)
         val cautious = scenario(input, endDate, spending.cautiousDaily, CAUTIOUS_INCOME_DELAY_DAYS)
@@ -218,7 +239,16 @@ object BudgetForecastCalculator {
                 val datedFlows = flows[date].orEmpty()
                 val income = total(datedFlows, ForecastCashFlowType.EXPECTED_INCOME)
                 val obligations = total(datedFlows, ForecastCashFlowType.OBLIGATION)
-                balance = balance.add(income).subtract(obligations).subtract(dailySpending.amount)
+                val purchase = input.purchase?.takeIf { it.date == date }
+                val purchaseAmount = purchase?.amount?.amount ?: BigDecimal.ZERO
+                balance =
+                    balance
+                        .add(income)
+                        .subtract(obligations)
+                        .subtract(dailySpending.amount)
+                        .subtract(purchaseAmount)
+                val goalFunding = applyGoalFunding(purchase, projectedAllocations)
+                totalAllocated = totalAllocated.subtract(goalFunding)
                 val contributions =
                     input.goals
                         .sortedWith(compareBy(ForecastGoal::priority, ForecastGoal::deadline, ForecastGoal::id))
@@ -250,7 +280,11 @@ object BudgetForecastCalculator {
                     Money.of(income),
                     Money.of(obligations),
                     dailySpending,
+                    Money.of(purchaseAmount),
                     Money.of(balance),
+                    Money.of(goalFunding),
+                    Money.of(totalAllocated),
+                    projectedAllocations.mapValues { Money.of(it.value) },
                 )
             }
         val goals =
@@ -277,6 +311,17 @@ object BudgetForecastCalculator {
         flows: List<ForecastCashFlow>,
         type: ForecastCashFlowType,
     ): BigDecimal = flows.filter { it.type == type }.sumOf { it.amount.amount }
+
+    private fun applyGoalFunding(
+        purchase: ForecastPurchase?,
+        projectedAllocations: MutableMap<UUID, BigDecimal>,
+    ): BigDecimal {
+        val goalId = purchase?.goalId ?: return BigDecimal.ZERO
+        val allocated = checkNotNull(projectedAllocations[goalId])
+        val funded = purchase.amount.amount.min(allocated)
+        projectedAllocations[goalId] = allocated.subtract(funded)
+        return funded
+    }
 
     private fun goalForecast(
         goal: ForecastGoal,

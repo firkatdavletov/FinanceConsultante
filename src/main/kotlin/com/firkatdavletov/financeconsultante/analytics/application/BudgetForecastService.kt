@@ -61,10 +61,17 @@ class BudgetForecastService(
     fun forecast(
         owner: OwnedLedger,
         manualDailySpending: Money? = null,
-    ): BudgetForecast {
+    ): BudgetForecast = BudgetForecastCalculator.calculate(projection(owner, manualDailySpending))
+
+    fun projection(
+        owner: OwnedLedger,
+        manualDailySpending: Money? = null,
+        horizonDays: Int = BudgetForecastCalculator.HORIZON_DAYS,
+    ): BudgetForecastInput {
+        require(horizonDays > 0)
         val asOf = clock.instant().truncatedTo(ChronoUnit.MICROS)
         val today = asOf.atZone(ACCOUNTING_ZONE).toLocalDate()
-        val endExclusive = today.plusDays(BudgetForecastCalculator.HORIZON_DAYS.toLong())
+        val endExclusive = today.plusDays(horizonDays.toLong())
         val account = requireNotNull(repository.account(owner, asOf)) { "Budget access denied" }
         recurring.ensureOccurrences(owner, endExclusive.minusDays(1))
         val historyStart = maxOf(today.minusDays(BudgetForecastCalculator.HISTORY_DAYS.toLong()), startedOn(owner))
@@ -79,8 +86,9 @@ class BudgetForecastService(
                 manualDailySpending,
                 repository.cashFlows(owner.householdId, today, endExclusive),
                 repository.goals(owner.householdId, today, endExclusive.minusDays(1)),
+                horizonDays,
             )
-        return BudgetForecastCalculator.calculate(input)
+        return input
     }
 
     private fun startedOn(owner: OwnedLedger): LocalDate = owner.startedAt.atZone(ACCOUNTING_ZONE).toLocalDate()

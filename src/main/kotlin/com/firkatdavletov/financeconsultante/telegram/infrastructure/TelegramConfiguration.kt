@@ -1,5 +1,6 @@
 package com.firkatdavletov.financeconsultante.telegram.infrastructure
 
+import com.firkatdavletov.financeconsultante.advice.application.PurchaseAdviceService
 import com.firkatdavletov.financeconsultante.ai.application.OpenAiRecognitionRouter
 import com.firkatdavletov.financeconsultante.analytics.application.AnalyticsReportService
 import com.firkatdavletov.financeconsultante.analytics.application.BudgetForecastService
@@ -25,6 +26,7 @@ import com.firkatdavletov.financeconsultante.telegram.application.TelegramGoalsH
 import com.firkatdavletov.financeconsultante.telegram.application.TelegramInboxProcessor
 import com.firkatdavletov.financeconsultante.telegram.application.TelegramLedgerHandler
 import com.firkatdavletov.financeconsultante.telegram.application.TelegramPoller
+import com.firkatdavletov.financeconsultante.telegram.application.TelegramPurchaseHandler
 import com.firkatdavletov.financeconsultante.telegram.application.TelegramRecurringHandler
 import org.springframework.beans.factory.ObjectProvider
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty
@@ -136,6 +138,7 @@ class TelegramStorageConfiguration {
         budgetReports: BudgetReportService,
         analyticsReports: AnalyticsReportService,
         forecasts: BudgetForecastService,
+        purchaseAdvice: PurchaseAdviceService,
     ): LedgerHandler =
         TelegramLedgerHandler(
             OwnerAccess(properties.ownerId),
@@ -149,6 +152,7 @@ class TelegramStorageConfiguration {
             budgetReports,
             analyticsReports,
             TelegramForecastHandler(forecasts),
+            TelegramPurchaseHandler(purchaseAdvice),
         )
 
     @Bean

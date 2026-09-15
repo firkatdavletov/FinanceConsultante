@@ -45,6 +45,7 @@ class TelegramLedgerHandler(
     private val budgetReports: BudgetReportService? = null,
     private val analyticsReports: AnalyticsReportService? = null,
     private val forecast: TelegramForecastHandler? = null,
+    private val purchase: TelegramPurchaseHandler? = null,
 ) : LedgerHandler {
     private val draftHandler = TelegramDraftHandler(operations, drafts)
 
@@ -99,11 +100,8 @@ class TelegramLedgerHandler(
         val owner = operations.owned(message.ownerId) ?: return "Сначала завершите настройку: /start.".reply()
         val parsed = TransactionMessageParser(categories.dictionary(message.ownerId)).parse(message.text, today)
         if (parsed == MessageParseResult.PurchaseQuestion) {
-            return (
-                "Вопрос о покупке не записан как расход. Анализ покупок появится позже. " +
-                    "Для фактической траты: /expense <сумма> <категория>." +
-                    if (drafts.active(owner, botId).isNotEmpty()) " Есть незавершённые черновики: /draft." else ""
-            ).reply()
+            return purchase?.question(message.text, owner, today)
+                ?: "Анализ покупок временно недоступен. Используйте /purchase.".reply()
         }
         val clarification = drafts.needsInput(owner, botId)
         if (sentAt == null || sentAt > clock.instant()) {
@@ -158,6 +156,11 @@ class TelegramLedgerHandler(
                 }
         recurring?.command(message, command, owner, botId)?.let { return it }
         goals?.command(message, command, owner, botId)?.let { return it }
+        if (command.name == TelegramPurchaseHandler.COMMAND) {
+            val today = (message.sentAt ?: clock.instant()).atZone(LedgerOperations.ZONE).toLocalDate()
+            return purchase?.command(command.arguments, owner, today)
+                ?: "Анализ покупок временно недоступен.".reply()
+        }
         return command(command, owner, botId)
     }
 
@@ -291,7 +294,14 @@ class TelegramLedgerHandler(
 
     companion object {
         private val COMMANDS =
-            setOf("/balance", "/today", "/report", "/history", TelegramForecastHandler.COMMAND) +
+            setOf(
+                "/balance",
+                "/today",
+                "/report",
+                "/history",
+                TelegramForecastHandler.COMMAND,
+                TelegramPurchaseHandler.COMMAND,
+            ) +
                 TelegramDraftHandler.COMMANDS
     }
 }

@@ -162,7 +162,11 @@ class TransactionMessageParser(
         private val COMMAND = Regex("/[a-z][a-z0-9_]*")
         private val HORIZONTAL_SPACE = Regex("[ \\t\\u00a0\\u202f]+")
         private val LINE_BREAK = Regex("[\\r\\n\\u000b\\u000c\\u0085\\u2028\\u2029]")
-        private val PURCHASE_INTENT = Regex("(?:^| )(?:купить|покупать|покупку|покупке|покупки)(?: |[?]|$)")
+        private val PURCHASE_INTENT =
+            Regex(
+                "(?:^| )(?:купить|покупать|покупку|покупке|покупки|приобрести|приобретать|позволить|потянуть)" +
+                    "(?: |[?]|$)",
+            )
         private val DATE_TOKEN = Regex("сегодня|вчера|завтра|[0-9]{4}-[0-9]{2}-[0-9]{2}|[0-9]{2}\\.[0-9]{2}\\.[0-9]{4}")
         private val ISO_DATE = DateTimeFormatter.ISO_LOCAL_DATE
         private val RUSSIAN_DATE = DateTimeFormatter.ofPattern("dd.MM.uuuu").withResolverStyle(ResolverStyle.STRICT)
