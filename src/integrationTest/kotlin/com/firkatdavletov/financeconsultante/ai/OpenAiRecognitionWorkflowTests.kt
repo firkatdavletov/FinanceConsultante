@@ -182,7 +182,7 @@ class OpenAiRecognitionWorkflowTests
                                 RecognitionCurrency.KZT,
                                 category.id.toString(),
                                 "2026-09-06",
-                                categoryName,
+                                if (leisure) "отдых" else "кафе",
                                 false,
                             ),
                             "req_${category.id}",

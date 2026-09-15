@@ -12,10 +12,12 @@ import com.firkatdavletov.financeconsultante.recurring.domain.RecurringOccurrenc
 import com.firkatdavletov.financeconsultante.recurring.domain.RecurringRule
 import com.firkatdavletov.financeconsultante.shared.domain.Currency
 import com.firkatdavletov.financeconsultante.shared.domain.Money
+import org.springframework.jdbc.core.SqlParameterValue
 import org.springframework.jdbc.core.simple.JdbcClient
 import org.springframework.stereotype.Repository
 import org.springframework.transaction.annotation.Propagation
 import org.springframework.transaction.annotation.Transactional
+import java.sql.Types
 import java.time.Instant
 import java.time.LocalDate
 import java.time.OffsetDateTime
@@ -35,8 +37,8 @@ class JdbcRecurringPlanRepository(
                     """
                     INSERT INTO recurring_rule(
                         id, household_id, member_id, category_id, frequency, schedule_value, amount, currency,
-                        starts_on, active, version, created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        starts_on, active, version, created_at, updated_at, normalized_description
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """.trimIndent(),
                 ).params(
                     rule.id,
@@ -52,6 +54,7 @@ class JdbcRecurringPlanRepository(
                     rule.version,
                     offset(rule.createdAt),
                     offset(rule.updatedAt),
+                    SqlParameterValue(Types.VARCHAR, rule.normalizedDescription),
                 ).update() == 1,
         ) { "Recurring rule was not inserted" }
     }
@@ -419,6 +422,7 @@ class JdbcRecurringPlanRepository(
             row.getLong("version"),
             instant(row, "created_at"),
             instant(row, "updated_at"),
+            row.getString("normalized_description"),
         )
 
     private fun mapOccurrence(row: java.sql.ResultSet): RecurringOccurrence =

@@ -48,5 +48,6 @@ internal object LedgerRowMapper : RowMapper<LedgerEntry> {
             version = row.getLong("version"),
             modifiedAt = row.getObject("modified_at", OffsetDateTime::class.java).toInstant(),
             refundOf = row.getObject("refund_of", UUID::class.java),
+            normalizedDescription = row.getString("normalized_description"),
         )
 }

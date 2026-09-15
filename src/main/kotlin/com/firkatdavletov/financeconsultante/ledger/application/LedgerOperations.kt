@@ -83,6 +83,7 @@ class LedgerOperations(
                 proposal.amount,
                 occurredAt,
                 source,
+                proposal.normalizedDescription,
             ),
         )
     }

@@ -1,6 +1,7 @@
 package com.firkatdavletov.financeconsultante.ai.domain
 
 import com.firkatdavletov.financeconsultante.ledger.domain.Direction
+import com.firkatdavletov.financeconsultante.ledger.domain.ExpenseDescriptionNormalizer
 import com.firkatdavletov.financeconsultante.ledger.domain.MessageParseResult.RecordTransaction
 import com.firkatdavletov.financeconsultante.ledger.domain.TransactionCategory
 import com.firkatdavletov.financeconsultante.shared.domain.Currency
@@ -88,11 +89,19 @@ class RecognitionValidator {
         val category = input.categories.singleOrNull { it.id == categoryId } ?: return invalid("category")
         if (category.direction != direction) return invalid("category_direction")
         if (candidate.description.length > MAX_DESCRIPTION_LENGTH) return invalid("description")
+        val description =
+            if (candidate.description.isBlank()) {
+                null
+            } else {
+                ExpenseDescriptionNormalizer.grounded(candidate.description, input.message)
+                    ?: return invalid("invented_description")
+            }
         return RecognitionValidation.Valid(
             RecordTransaction(
                 amount,
                 TransactionCategory(category.id.toString(), category.name, category.direction, category.id),
                 date,
+                description,
             ),
         )
     }

@@ -25,6 +25,7 @@ data class RecordEntry(
     val amount: Money,
     val occurredAt: Instant,
     val sourceKey: String,
+    val normalizedDescription: String? = null,
 )
 
 data class RecordResult(
@@ -87,6 +88,7 @@ class AccountingService(
                 createdAt = now,
                 sourceKey = command.sourceKey,
                 exchangeRate = rate,
+                normalizedDescription = command.normalizedDescription,
             )
         return if (ledger.insert(entry)) {
             RecordResult(entry, true)

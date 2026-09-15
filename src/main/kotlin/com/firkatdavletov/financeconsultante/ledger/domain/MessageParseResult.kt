@@ -10,11 +10,16 @@ sealed interface MessageParseResult {
         val amount: Money,
         val category: TransactionCategory,
         val occurredOn: LocalDate,
+        val normalizedDescription: String? = null,
     ) : MessageParseResult {
         val direction: Direction get() = category.direction
 
         init {
             amount.requirePositive()
+            require(
+                normalizedDescription == null ||
+                    ExpenseDescriptionNormalizer.normalize(normalizedDescription) == normalizedDescription,
+            ) { "Transaction description must be normalized" }
         }
     }
 

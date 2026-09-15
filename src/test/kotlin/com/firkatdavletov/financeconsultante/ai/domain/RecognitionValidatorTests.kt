@@ -43,6 +43,7 @@ class RecognitionValidatorTests {
         assertThat(proposal.amount.amount).isEqualByComparingTo("1500.50")
         assertThat(proposal.category.id).isEqualTo(groceries.id)
         assertThat(proposal.occurredOn).isEqualTo("2026-09-09")
+        assertThat(proposal.normalizedDescription).isEqualTo("продуктов")
     }
 
     @Test
@@ -89,6 +90,17 @@ class RecognitionValidatorTests {
         assertThat(
             validator.validate(dollars, candidate("20", groceries.id.toString(), "2026-09-10")),
         ).isEqualTo(RecognitionValidation.Invalid("currency"))
+    }
+
+    @Test
+    fun `invented subscription description is not retained`() {
+        val result =
+            validator.validate(
+                input,
+                candidate("1500.50", groceries.id.toString(), "2026-09-09").copy(description = "netflix"),
+            )
+
+        assertThat(result).isEqualTo(RecognitionValidation.Invalid("invented_description"))
     }
 
     private fun candidate(

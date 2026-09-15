@@ -136,7 +136,12 @@ class TransactionMessageParser(
             }
 
             else -> {
-                RecordTransaction(amount, category, date)
+                RecordTransaction(
+                    amount,
+                    category,
+                    date,
+                    ExpenseDescriptionNormalizer.normalize(match.groups["category"]?.value.orEmpty()),
+                )
             }
         }
     }

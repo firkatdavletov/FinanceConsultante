@@ -54,6 +54,16 @@ app:
     scheduler-enabled: true
     initial-delay: 5s
     poll-delay: 1h
+    analysis:
+      minimum-occurrences: 3
+      lookback-days: 400
+      weekly-interval-days: 7
+      weekly-tolerance-days: 1
+      monthly-interval-days: 30
+      monthly-tolerance-days: 4
+      amount-tolerance-percent: 20
+      price-increase-percent: 5
+      allowed-skipped-periods: 1
   exchange-rates:
     enabled: false
   telegram:

@@ -27,6 +27,7 @@ data class RecurringRule(
     val version: Long = 0,
     val createdAt: Instant,
     val updatedAt: Instant = createdAt,
+    val normalizedDescription: String? = null,
 ) {
     init {
         amount.requirePositive()
@@ -38,6 +39,11 @@ data class RecurringRule(
             },
         ) { "Invalid recurrence schedule" }
         require(version >= 0 && updatedAt >= createdAt) { "Invalid recurring rule version" }
+        require(
+            normalizedDescription == null ||
+                com.firkatdavletov.financeconsultante.ledger.domain.ExpenseDescriptionNormalizer
+                    .normalize(normalizedDescription) == normalizedDescription,
+        ) { "Recurring description must be normalized" }
     }
 
     fun dueDatesThrough(throughInclusive: LocalDate): List<LocalDate> {

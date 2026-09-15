@@ -38,6 +38,7 @@ data class LedgerEntry(
     val version: Long = 0,
     val modifiedAt: Instant = createdAt,
     val refundOf: UUID? = null,
+    val normalizedDescription: String? = null,
 ) {
     init {
         originalAmount.requirePositive()
@@ -58,6 +59,10 @@ data class LedgerEntry(
         require(SOURCE_PATTERN.matches(sourceKey)) { "Invalid financial source key" }
         require(refundOf == null || (direction == Direction.EXPENSE_REFUND && refundOf != id))
         require(version >= 0) { "Invalid entry version" }
+        require(
+            normalizedDescription == null ||
+                ExpenseDescriptionNormalizer.normalize(normalizedDescription) == normalizedDescription,
+        ) { "Ledger description must be normalized" }
         when (originalAmount.currency) {
             Currency.KZT -> {
                 require(exchangeRate == null && originalAmount == amountKzt) { "Invalid KZT valuation" }

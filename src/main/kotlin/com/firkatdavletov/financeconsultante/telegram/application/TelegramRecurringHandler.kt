@@ -2,9 +2,15 @@ package com.firkatdavletov.financeconsultante.telegram.application
 
 import com.firkatdavletov.financeconsultante.ledger.application.OwnedLedger
 import com.firkatdavletov.financeconsultante.ledger.domain.MessageParseResult.Command
+import com.firkatdavletov.financeconsultante.recurring.application.CandidateAnalysis
+import com.firkatdavletov.financeconsultante.recurring.application.CandidateDecision
+import com.firkatdavletov.financeconsultante.recurring.application.ForecastChange
 import com.firkatdavletov.financeconsultante.recurring.application.IncomeReceipt
 import com.firkatdavletov.financeconsultante.recurring.application.PaymentReceipt
 import com.firkatdavletov.financeconsultante.recurring.application.PlanChange
+import com.firkatdavletov.financeconsultante.recurring.application.PriceIncreaseAnalysis
+import com.firkatdavletov.financeconsultante.recurring.application.RecurringExpenseAnalysis
+import com.firkatdavletov.financeconsultante.recurring.application.RecurringExpenseAnalysisService
 import com.firkatdavletov.financeconsultante.recurring.application.RecurringOverview
 import com.firkatdavletov.financeconsultante.recurring.application.RecurringPlanService
 import com.firkatdavletov.financeconsultante.recurring.application.RecurringRuleView
@@ -31,6 +37,7 @@ import java.util.UUID
 class TelegramRecurringHandler(
     private val service: RecurringPlanService,
     private val clock: Clock,
+    private val analysis: RecurringExpenseAnalysisService? = null,
 ) {
     fun command(
         message: InboxMessage,
@@ -62,6 +69,21 @@ class TelegramRecurringHandler(
         when {
             parts.isEmpty() -> {
                 recurringOverview(service.overview(owner, today), today)
+            }
+
+            parts.size == 1 && parts[0] == "analyze" -> {
+                analysis?.let { renderAnalysis(it.analyze(owner)) }
+                    ?: "Анализ постоянных расходов временно недоступен.".reply()
+            }
+
+            parts.size == 3 && parts[0] == "accept" -> {
+                val target = versioned(parts) ?: return RECURRING_HELP.reply()
+                renderCandidateDecision(analysis?.accept(owner, target.first, target.second))
+            }
+
+            parts.size == 3 && parts[0] == "reject" -> {
+                val target = versioned(parts) ?: return RECURRING_HELP.reply()
+                renderCandidateDecision(analysis?.reject(owner, target.first, target.second))
             }
 
             parts.size == 5 && parts[0] == "add" && parts[1] == "monthly" -> {
@@ -290,6 +312,135 @@ class TelegramRecurringHandler(
             }
         }
 
+    private fun renderCandidateDecision(decision: CandidateDecision?): TelegramReply =
+        when (decision) {
+            null -> {
+                "Анализ постоянных расходов временно недоступен.".reply()
+            }
+
+            is CandidateDecision.Unavailable -> {
+                decision.message.reply()
+            }
+
+            CandidateDecision.Rejected -> {
+                (
+                    "Предложение отклонено. Эта связка описания, категории и периода " +
+                        "не будет предлагаться повторно."
+                ).reply()
+            }
+
+            is CandidateDecision.Accepted -> {
+                (
+                    "Кандидат подтверждён владельцем. " +
+                        "${ruleLine(decision.rule)} Конкретные обязательства созданы без списания денег."
+                ).reply()
+            }
+        }
+
+    private fun renderAnalysis(result: RecurringExpenseAnalysis): TelegramReply =
+        buildString {
+            appendLine("Анализ постоянных расходов с ${result.historyStart}:")
+            if (result.candidates.isEmpty() && result.priceIncreases.isEmpty()) {
+                if (result.observationCount < result.requiredOccurrences) {
+                    appendLine(
+                        "Недостаточно новой подходящей истории: найдено ${result.observationCount}, " +
+                            "нужно не менее ${result.requiredOccurrences} проведённых расходов.",
+                    )
+                } else {
+                    appendLine("Новых объяснимых кандидатов и подтверждённого роста платежей нет.")
+                }
+                append("Случайные совпадения не создают обязательств; отклонённые предложения не повторяются.")
+                return@buildString
+            }
+            result.candidates.forEachIndexed { index, candidate ->
+                if (index > 0) appendLine()
+                appendCandidate(candidate)
+            }
+            result.priceIncreases.forEach { increase ->
+                appendLine()
+                appendPriceIncrease(increase)
+            }
+            appendLine()
+            append("Анализ ничего не записал в ledger и не создал правило без команды accept.")
+        }.take(TELEGRAM_LIMIT).reply()
+
+    private fun StringBuilder.appendCandidate(analysis: CandidateAnalysis) {
+        val view = analysis.candidate
+        val candidate = view.candidate
+        appendLine(
+            "Кандидат ${candidate.id} v${candidate.version}: «${candidate.normalizedDescription}», " +
+                "${view.categoryName}, ${frequency(candidate.frequency)}, " +
+                "${candidate.suggestedAmount.amount.toPlainString()} KZT.",
+        )
+        appendLine(
+            "Основание: ${view.evidence.size} операции — " +
+                view.evidence.joinToString("; ") {
+                    "${it.occurredOn} ${it.amount.amount.toPlainString()} KZT (${it.entryId})"
+                } + ".",
+        )
+        appendLine(
+            "Причина: одинаковые нормализованное описание и категория; интервалы " +
+                view.evidence
+                    .zipWithNext { first, second ->
+                        java.time.temporal.ChronoUnit.DAYS
+                            .between(first.occurredOn, second.occurredOn)
+                    }.joinToString("/") + " дней; суммы укладываются в настроенный допуск.",
+        )
+        analysis.previousTypicalAmount?.let {
+            appendLine(
+                "Рост по фактам: ${it.amount.toPlainString()} → " +
+                    "${view.evidence.last().amount.amount.toPlainString()} KZT; процент не предполагается.",
+            )
+        }
+        appendLine(forecast("Если расход прекратится", analysis.cancellationForecast))
+        append(
+            "Подтвердить: /recurring accept ${candidate.id} ${candidate.version}; " +
+                "отклонить: /recurring reject ${candidate.id} ${candidate.version}.",
+        )
+    }
+
+    private fun StringBuilder.appendPriceIncrease(analysis: PriceIncreaseAnalysis) {
+        val increase = analysis.increase
+        appendLine(
+            "Рост существующего правила ${increase.rule.id} v${increase.rule.version}, ${analysis.categoryName}: " +
+                "${increase.previousTypicalAmount.amount.toPlainString()} → " +
+                "${increase.latestAmount.amount.toPlainString()} KZT.",
+        )
+        appendLine(
+            "Основание: " +
+                increase.evidence.joinToString("; ") {
+                    "${it.dueOn} ${it.amount.amount.toPlainString()} KZT (обязательство ${it.occurrenceId})"
+                } + ".",
+        )
+        appendLine(forecast("Если изменить будущую сумму", analysis.updateForecast))
+        appendLine(forecast("Если отключить будущие платежи", analysis.cancellationForecast))
+        append(
+            "Изменить: /recurring amount ${increase.rule.id} ${increase.rule.version} " +
+                "${increase.latestAmount.amount.toPlainString()}; отключить: " +
+                "/recurring deactivate ${increase.rule.id} ${increase.rule.version}.",
+        )
+    }
+
+    private fun forecast(
+        label: String,
+        change: ForecastChange?,
+    ): String =
+        if (change == null) {
+            "$label: для пересчёта 30-дневного прогноза нужно не менее 14 завершённых дней истории."
+        } else {
+            "$label: конец 30-дневного прогноза базовый " +
+                "${change.baselineBaseEnding.amount.toPlainString()} → " +
+                "${change.changedBaseEnding.amount.toPlainString()} KZT; осторожный " +
+                "${change.baselineCautiousEnding.amount.toPlainString()} → " +
+                "${change.changedCautiousEnding.amount.toPlainString()} KZT."
+        }
+
+    private fun frequency(value: RecurrenceFrequency): String =
+        when (value) {
+            RecurrenceFrequency.MONTHLY -> "примерно ежемесячно"
+            RecurrenceFrequency.WEEKLY -> "примерно еженедельно"
+        }
+
     private fun ruleLine(view: RecurringRuleView): String {
         val rule = view.rule
         val schedule =
@@ -400,7 +551,9 @@ class TelegramRecurringHandler(
         private const val CATEGORY_HELP = "Нужен UUID активной категории из /categories."
         private const val WEEKDAY_HELP = "День недели: пн, вт, ср, чт, пт, сб или вс."
         private const val RECURRING_HELP =
-            "Добавить: /recurring add monthly <1..31> <сумма KZT> <ID категории> или " +
+            "Анализ: /recurring analyze; подтвердить: /recurring accept <ID кандидата> <версия>; " +
+                "отклонить: /recurring reject <ID кандидата> <версия>. " +
+                "Добавить: /recurring add monthly <1..31> <сумма KZT> <ID категории> или " +
                 "/recurring add weekly <пн..вс> <сумма KZT> <ID категории>. " +
                 "Изменить сумму: /recurring amount <ID> <версия> <сумма>. " +
                 "Отключить правило: /recurring deactivate <ID> <версия>. " +
@@ -418,6 +571,7 @@ class TelegramRecurringHandler(
         private val AMOUNT = Regex("[0-9]+(?:[.,][0-9]{1,2})?")
         private val DATE = Regex("[0-9]{4}-[0-9]{2}-[0-9]{2}")
         private val UUID_PATTERN = Regex("[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}")
+        private const val TELEGRAM_LIMIT = 4096
         private val WEEKDAYS =
             listOf(
                 "понедельник",

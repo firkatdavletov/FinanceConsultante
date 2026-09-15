@@ -100,11 +100,12 @@ class JdbcLedgerRepository(
                     INSERT INTO ledger_entry (
                         id, household_id, account_id, accounting_started_at, category_id, direction,
                         original_amount, original_currency, amount_kzt, occurred_at, rub_kzt,
-                        status, version, source_key, actor_id, created_at, modified_at, refund_of
+                        status, version, source_key, actor_id, created_at, modified_at, refund_of,
+                        normalized_description
                     ) VALUES (
                         :id, :household, :account, :start, :category, :direction,
                         :original, :currency, :kzt, :occurred, :rate,
-                        :status, :version, :source, :actor, :created, :modified, :refund
+                        :status, :version, :source, :actor, :created, :modified, :refund, :description
                     ) ON CONFLICT (household_id, source_key) DO NOTHING
                     """.trimIndent(),
                 ).param("id", entry.id)
@@ -125,6 +126,7 @@ class JdbcLedgerRepository(
                 .param("created", entry.createdAt.atOffset(ZoneOffset.UTC))
                 .param("modified", entry.modifiedAt.atOffset(ZoneOffset.UTC))
                 .param("refund", entry.refundOf)
+                .param("description", entry.normalizedDescription)
                 .update()
         if (inserted == 0) return false
         jdbc

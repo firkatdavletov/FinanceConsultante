@@ -16,9 +16,13 @@ data class ForecastCashFlow(
     val date: LocalDate,
     val type: ForecastCashFlowType,
     val amount: Money,
+    val recurringRuleId: UUID? = null,
+    val adjustable: Boolean = false,
 ) {
     init {
         require(amount.currency == Currency.KZT && amount.amount.signum() > 0)
+        require(type == ForecastCashFlowType.OBLIGATION || recurringRuleId == null)
+        require(!adjustable || recurringRuleId != null)
     }
 }
 

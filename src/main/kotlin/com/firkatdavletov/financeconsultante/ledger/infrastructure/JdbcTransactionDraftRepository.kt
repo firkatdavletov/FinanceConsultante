@@ -80,13 +80,16 @@ class JdbcTransactionDraftRepository(
                     """
                     INSERT INTO transaction_draft (
                         id, household_id, member_id, owner_id, bot_id, source_inbox_id, state, version,
-                        amount, currency, category_key, occurred_on, reason, entry_id, category_name, category_direction, category_id
+                        amount, currency, category_key, occurred_on, reason, entry_id, category_name, category_direction,
+                        category_id, normalized_description
                     ) VALUES (:id, :household, :member, :owner, :bot, :source, :state, :version,
-                        :amount, :currency, :category, :date, :reason, :entry, :name, :direction, :categoryId)
+                        :amount, :currency, :category, :date, :reason, :entry, :name, :direction, :categoryId, :description)
                     ON CONFLICT (id) DO UPDATE SET state = EXCLUDED.state, version = EXCLUDED.version,
                         amount = EXCLUDED.amount, currency = EXCLUDED.currency, category_key = EXCLUDED.category_key,
                         category_name = EXCLUDED.category_name, category_direction = EXCLUDED.category_direction,
-                        category_id = EXCLUDED.category_id, occurred_on = EXCLUDED.occurred_on, reason = EXCLUDED.reason, entry_id = EXCLUDED.entry_id
+                        category_id = EXCLUDED.category_id, occurred_on = EXCLUDED.occurred_on,
+                        reason = EXCLUDED.reason, entry_id = EXCLUDED.entry_id,
+                        normalized_description = EXCLUDED.normalized_description
                     WHERE transaction_draft.version = EXCLUDED.version - 1
                         AND transaction_draft.state IN ('NEEDS_INPUT', 'READY', 'WAITING_RATE')
                         AND transaction_draft.household_id = EXCLUDED.household_id
@@ -113,6 +116,7 @@ class JdbcTransactionDraftRepository(
                 .param("direction", draft.proposal?.direction?.name)
                 .param("categoryId", draft.proposal?.category?.id)
                 .param("date", draft.proposal?.occurredOn)
+                .param("description", draft.proposal?.normalizedDescription)
                 .param("reason", draft.reason)
                 .param("entry", draft.entryId)
                 .update()
@@ -137,6 +141,7 @@ class JdbcTransactionDraftRepository(
                                 row.getObject("category_id", UUID::class.java),
                             ),
                             row.getObject("occurred_on", LocalDate::class.java),
+                            row.getString("normalized_description"),
                         )
                     },
                     row.getString("reason"),

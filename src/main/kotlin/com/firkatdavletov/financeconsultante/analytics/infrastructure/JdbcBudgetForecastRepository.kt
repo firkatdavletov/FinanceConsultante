@@ -73,6 +73,8 @@ class JdbcBudgetForecastRepository(
                     row.getObject("flow_date", LocalDate::class.java),
                     ForecastCashFlowType.valueOf(row.getString("flow_type")),
                     Money.of(row.getBigDecimal("amount")),
+                    row.getObject("recurring_rule_id", UUID::class.java),
+                    row.getBoolean("adjustable"),
                 )
             }.list()
 
@@ -155,6 +157,12 @@ class JdbcBudgetForecastRepository(
                     WHEN l.direction = 'EXPENSE' AND NOT EXISTS (
                         SELECT 1 FROM recurring_occurrence_payment p
                         WHERE p.household_id = l.household_id AND p.ledger_entry_id = l.id
+                    ) AND NOT EXISTS (
+                        SELECT 1 FROM recurring_expense_candidate_evidence ce
+                        JOIN recurring_expense_candidate c
+                            ON c.household_id = ce.household_id AND c.id = ce.candidate_id
+                        WHERE ce.household_id = l.household_id AND ce.ledger_entry_id = l.id
+                            AND c.status = 'ACCEPTED'
                     ) THEN l.amount_kzt
                     WHEN l.direction = 'EXPENSE_REFUND' AND EXISTS (
                         SELECT 1 FROM ledger_entry original
@@ -162,6 +170,13 @@ class JdbcBudgetForecastRepository(
                             AND NOT EXISTS (
                                 SELECT 1 FROM recurring_occurrence_payment p
                                 WHERE p.household_id = original.household_id AND p.ledger_entry_id = original.id
+                            )
+                            AND NOT EXISTS (
+                                SELECT 1 FROM recurring_expense_candidate_evidence ce
+                                JOIN recurring_expense_candidate c
+                                    ON c.household_id = ce.household_id AND c.id = ce.candidate_id
+                                WHERE ce.household_id = original.household_id
+                                    AND ce.ledger_entry_id = original.id AND c.status = 'ACCEPTED'
                             )
                     ) THEN -l.amount_kzt
                     ELSE 0
@@ -177,7 +192,10 @@ class JdbcBudgetForecastRepository(
             WITH obligations AS (
                 SELECT GREATEST(o.due_on, :start::date) AS flow_date, 'OBLIGATION' AS flow_type,
                     GREATEST(o.planned_amount - COALESCE(SUM(l.amount_kzt)
-                        FILTER (WHERE l.status = 'POSTED'), 0), 0) AS amount
+                        FILTER (WHERE l.status = 'POSTED'), 0), 0) AS amount,
+                    o.rule_id AS recurring_rule_id,
+                    o.due_on >= :start::date
+                        AND COUNT(l.id) FILTER (WHERE l.status = 'POSTED') = 0 AS adjustable
                 FROM recurring_occurrence o
                 LEFT JOIN recurring_occurrence_payment p
                     ON p.household_id = o.household_id AND p.occurrence_id = o.id
@@ -186,7 +204,8 @@ class JdbcBudgetForecastRepository(
                 WHERE o.household_id = :household AND o.status = 'SCHEDULED' AND o.due_on < :end
                 GROUP BY o.id
             ), incomes AS (
-                SELECT e.due_on AS flow_date, 'EXPECTED_INCOME' AS flow_type, e.planned_amount AS amount
+                SELECT e.due_on AS flow_date, 'EXPECTED_INCOME' AS flow_type, e.planned_amount AS amount,
+                    NULL::uuid AS recurring_rule_id, FALSE AS adjustable
                 FROM expected_income e
                 WHERE e.household_id = :household AND e.status = 'SCHEDULED'
                     AND e.due_on >= :start AND e.due_on < :end
@@ -197,9 +216,9 @@ class JdbcBudgetForecastRepository(
                             AND l.status = 'POSTED'
                     )
             )
-            SELECT flow_date, flow_type, amount FROM obligations WHERE amount > 0
+            SELECT flow_date, flow_type, amount, recurring_rule_id, adjustable FROM obligations WHERE amount > 0
             UNION ALL
-            SELECT flow_date, flow_type, amount FROM incomes
+            SELECT flow_date, flow_type, amount, recurring_rule_id, adjustable FROM incomes
             ORDER BY flow_date, flow_type
             """.trimIndent()
 

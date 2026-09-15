@@ -44,6 +44,7 @@ class RecurringPlanService(
         amount: Money,
         categoryId: UUID,
         startsOn: LocalDate,
+        normalizedDescription: String? = null,
     ): PlanChange<RecurringRuleView> {
         planAmountError(amount)?.let { return PlanChange.Rejected(it) }
         category(owner, categoryId, CategoryKind.EXPENSE)?.let { return PlanChange.Rejected(it) }
@@ -64,6 +65,7 @@ class RecurringPlanService(
                 amount,
                 startsOn,
                 createdAt = now,
+                normalizedDescription = normalizedDescription,
             )
         plans.insertRule(rule)
         generate(rule, horizon(startsOn), now)
