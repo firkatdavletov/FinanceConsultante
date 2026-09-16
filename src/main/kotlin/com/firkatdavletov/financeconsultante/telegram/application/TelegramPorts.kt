@@ -68,8 +68,25 @@ data class IncomingMessage(
 
 enum class IncomingKind { MESSAGE, CALLBACK, EDITED }
 
+data class BotCommand(
+    val command: String,
+    val description: String,
+) {
+    init {
+        require(COMMAND_PATTERN.matches(command)) { "Invalid Telegram bot command" }
+        require(description.length in 1..MAX_DESCRIPTION_LENGTH) { "Invalid Telegram bot command description" }
+    }
+
+    private companion object {
+        val COMMAND_PATTERN = Regex("[a-z0-9_]{1,32}")
+        const val MAX_DESCRIPTION_LENGTH = 256
+    }
+}
+
 interface TelegramClient {
     fun getUpdates(offset: Long): List<IncomingUpdate>
+
+    fun configureMenu(commands: List<BotCommand>)
 
     fun sendMessage(
         chatId: Long,

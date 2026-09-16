@@ -4,6 +4,7 @@ import com.firkatdavletov.financeconsultante.telegram.application.InboxProcessin
 import com.firkatdavletov.financeconsultante.telegram.application.InboxStore
 import com.firkatdavletov.financeconsultante.telegram.application.TelegramDeliveryWorker
 import com.firkatdavletov.financeconsultante.telegram.application.TelegramInboxProcessor
+import com.firkatdavletov.financeconsultante.telegram.application.TelegramMenuRegistrar
 import com.firkatdavletov.financeconsultante.telegram.application.TelegramPoller
 import org.slf4j.LoggerFactory
 import org.springframework.scheduling.annotation.Scheduled
@@ -13,8 +14,16 @@ class TelegramScheduler(
     private val poller: TelegramPoller,
     private val processor: TelegramInboxProcessor,
     private val delivery: TelegramDeliveryWorker,
+    private val menu: TelegramMenuRegistrar,
     private val inbox: InboxStore,
 ) {
+    @Scheduled(
+        initialDelayString = "\${app.telegram.menu-registration-initial-delay:PT0S}",
+        fixedDelayString = "\${app.telegram.menu-registration-delay:PT1M}",
+        scheduler = "telegramTaskScheduler",
+    )
+    fun registerMenu() = safely("menu") { menu.registerOnce() }
+
     @Scheduled(fixedDelayString = "\${app.telegram.poll-delay:PT1S}", scheduler = "telegramTaskScheduler")
     fun poll() = safely("poll") { poller.pollOnce() }
 

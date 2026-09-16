@@ -29,6 +29,7 @@ import com.firkatdavletov.financeconsultante.telegram.application.TelegramForeca
 import com.firkatdavletov.financeconsultante.telegram.application.TelegramGoalsHandler
 import com.firkatdavletov.financeconsultante.telegram.application.TelegramInboxProcessor
 import com.firkatdavletov.financeconsultante.telegram.application.TelegramLedgerHandler
+import com.firkatdavletov.financeconsultante.telegram.application.TelegramMenuRegistrar
 import com.firkatdavletov.financeconsultante.telegram.application.TelegramPoller
 import com.firkatdavletov.financeconsultante.telegram.application.TelegramPurchaseHandler
 import com.firkatdavletov.financeconsultante.telegram.application.TelegramRecurringHandler
@@ -108,13 +109,17 @@ class TelegramConfiguration {
     ): TelegramDeliveryWorker = TelegramDeliveryWorker(properties.botId, access, client, store)
 
     @Bean
+    fun telegramMenuRegistrar(client: TelegramClient): TelegramMenuRegistrar = TelegramMenuRegistrar(client)
+
+    @Bean
     fun telegramScheduler(
         properties: TelegramProperties,
         poller: TelegramPoller,
         processor: TelegramInboxProcessor,
         delivery: TelegramDeliveryWorker,
+        menu: TelegramMenuRegistrar,
         inbox: InboxStore,
-    ): TelegramScheduler = TelegramScheduler(properties.botId, poller, processor, delivery, inbox)
+    ): TelegramScheduler = TelegramScheduler(properties.botId, poller, processor, delivery, menu, inbox)
 
     @Bean
     fun telegramTaskScheduler(): ThreadPoolTaskScheduler =

@@ -1,6 +1,7 @@
 package com.firkatdavletov.financeconsultante.telegram.infrastructure
 
 import com.firkatdavletov.financeconsultante.telegram.application.TelegramFailure
+import com.firkatdavletov.financeconsultante.telegram.application.TelegramMenuRegistrar
 import com.github.tomakehurst.wiremock.WireMockServer
 import com.github.tomakehurst.wiremock.client.WireMock.aResponse
 import com.github.tomakehurst.wiremock.client.WireMock.equalToJson
@@ -92,6 +93,36 @@ class RestTelegramClientTests {
         server.verify(
             postRequestedFor(urlEqualTo("/bot$token/sendMessage"))
                 .withRequestBody(equalToJson("""{"chat_id":555,"text":"<b>Тест & текст</b>"}""")),
+        )
+    }
+
+    @Test
+    fun `menu registration uses private command scope and commands button`() {
+        stub("setMyCommands", """{"ok":true,"result":true}""")
+        stub("setChatMenuButton", """{"ok":true,"result":true}""")
+
+        client().configureMenu(TelegramMenuRegistrar.COMMANDS)
+
+        server.verify(
+            postRequestedFor(urlEqualTo("/bot$token/setMyCommands")).withRequestBody(
+                equalToJson(
+                    """
+                    {
+                      "commands": [
+                        {"command":"balance","description":"Баланс и обороты"},
+                        {"command":"today","description":"Лимит и оценка на сегодня"},
+                        {"command":"recurring","description":"Регулярные платежи"},
+                        {"command":"expected","description":"Ожидаемые доходы"}
+                      ],
+                      "scope":{"type":"all_private_chats"}
+                    }
+                    """,
+                ),
+            ),
+        )
+        server.verify(
+            postRequestedFor(urlEqualTo("/bot$token/setChatMenuButton"))
+                .withRequestBody(equalToJson("""{"menu_button":{"type":"commands"}}""")),
         )
     }
 

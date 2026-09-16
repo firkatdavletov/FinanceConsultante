@@ -3,6 +3,7 @@ package com.firkatdavletov.financeconsultante.telegram
 import com.firkatdavletov.financeconsultante.PostgresIntegrationTest
 import com.firkatdavletov.financeconsultante.telegram.TelegramTestConfiguration.Companion.BOT
 import com.firkatdavletov.financeconsultante.telegram.TelegramTestConfiguration.Companion.OWNER
+import com.firkatdavletov.financeconsultante.telegram.application.BotCommand
 import com.firkatdavletov.financeconsultante.telegram.application.IncomingMessage
 import com.firkatdavletov.financeconsultante.telegram.application.IncomingUpdate
 import com.firkatdavletov.financeconsultante.telegram.application.OutboxStore
@@ -256,6 +257,8 @@ class TelegramPersistenceTests
                 object : TelegramClient {
                     override fun getUpdates(offset: Long): List<IncomingUpdate> = error("Unexpected polling")
 
+                    override fun configureMenu(commands: List<BotCommand>) = error("Unexpected menu registration")
+
                     override fun answerCallback(queryId: String) = Unit
 
                     override fun sendMessage(
@@ -286,6 +289,8 @@ class TelegramPersistenceTests
                         offsets += offset
                         return if (offset == 0L) listOf(update(10, "/help")) else emptyList()
                     }
+
+                    override fun configureMenu(commands: List<BotCommand>) = error("Unexpected menu registration")
 
                     override fun answerCallback(queryId: String) = Unit
 
@@ -424,6 +429,8 @@ created_at, source_key)
                 object : TelegramClient {
                     override fun getUpdates(offset: Long): List<IncomingUpdate> =
                         throw TelegramFailure("api_429", Duration.ofSeconds(41))
+
+                    override fun configureMenu(commands: List<BotCommand>) = error("Unexpected menu registration")
 
                     override fun answerCallback(queryId: String) = Unit
 

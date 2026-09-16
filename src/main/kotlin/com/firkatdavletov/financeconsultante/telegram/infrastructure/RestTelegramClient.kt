@@ -3,6 +3,7 @@ package com.firkatdavletov.financeconsultante.telegram.infrastructure
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties
 import com.fasterxml.jackson.annotation.JsonInclude
 import com.fasterxml.jackson.annotation.JsonProperty
+import com.firkatdavletov.financeconsultante.telegram.application.BotCommand
 import com.firkatdavletov.financeconsultante.telegram.application.IncomingKind
 import com.firkatdavletov.financeconsultante.telegram.application.IncomingMessage
 import com.firkatdavletov.financeconsultante.telegram.application.IncomingUpdate
@@ -22,6 +23,21 @@ class RestTelegramClient(
     private val client: RestClient,
     private val properties: TelegramProperties,
 ) : TelegramClient {
+    override fun configureMenu(commands: List<BotCommand>) {
+        require(commands.size in 1..MAX_COMMANDS)
+        expectTrue(
+            "setMyCommands",
+            mapOf(
+                "commands" to commands,
+                "scope" to mapOf("type" to "all_private_chats"),
+            ),
+        )
+        expectTrue(
+            "setChatMenuButton",
+            mapOf("menu_button" to mapOf("type" to "commands")),
+        )
+    }
+
     override fun getUpdates(offset: Long): List<IncomingUpdate> {
         val updates =
             request(
@@ -85,6 +101,19 @@ class RestTelegramClient(
             mapOf("callback_query_id" to queryId),
             object : ParameterizedTypeReference<BotResponse<Boolean>>() {},
         )
+    }
+
+    private fun expectTrue(
+        method: String,
+        payload: Any,
+    ) {
+        val accepted =
+            request(
+                method,
+                payload,
+                object : ParameterizedTypeReference<BotResponse<Boolean>>() {},
+            )
+        if (!accepted) throw TelegramFailure("rejected_result")
     }
 
     override fun sendMessage(
@@ -217,6 +246,7 @@ class RestTelegramClient(
     )
 
     companion object {
+        private const val MAX_COMMANDS = 100
         private const val MAX_CALLBACK_BYTES = 64
         private const val MAX_QUERY_LENGTH = 256
         const val MAX_TEXT_LENGTH = 4096
