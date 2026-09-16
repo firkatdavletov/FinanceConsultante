@@ -1,5 +1,6 @@
 package com.firkatdavletov.financeconsultante.ledger.application
 
+import com.firkatdavletov.financeconsultante.access.domain.MemberRole
 import com.firkatdavletov.financeconsultante.exchange.application.ExchangeRateJobRepository
 import com.firkatdavletov.financeconsultante.ledger.domain.Direction
 import com.firkatdavletov.financeconsultante.ledger.domain.EntryChange
@@ -32,6 +33,7 @@ data class EntryTarget(
     val memberId: UUID,
     val entryId: UUID,
     val version: Long,
+    val role: MemberRole = MemberRole.OWNER,
 )
 
 @Service
@@ -46,7 +48,8 @@ class EntryCorrections(
     fun selected(target: EntryTarget): LedgerEntry? {
         if (budgets.findOwnedAccount(target.householdId, target.memberId, lock = true) == null) return null
         return ledger.find(target.householdId, target.entryId)?.takeIf {
-            it.version == target.version && it.status == EntryStatus.POSTED
+            it.version == target.version && it.status == EntryStatus.POSTED &&
+                (target.role == MemberRole.OWNER || it.actorId == target.memberId)
         }
     }
 

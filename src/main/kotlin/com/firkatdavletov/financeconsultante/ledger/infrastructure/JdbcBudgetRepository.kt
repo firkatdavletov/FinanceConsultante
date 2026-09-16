@@ -29,7 +29,7 @@ class JdbcBudgetRepository(
                 setup.household.reportTime,
             ).update()
         jdbc
-            .sql("INSERT INTO member (id, household_id, telegram_user_id) VALUES (?, ?, ?)")
+            .sql("INSERT INTO member (id, household_id, telegram_user_id, reports_enabled) VALUES (?, ?, ?, TRUE)")
             .params(setup.owner.id, setup.household.id, setup.owner.telegramUserId)
             .update()
         jdbc
@@ -63,7 +63,7 @@ class JdbcBudgetRepository(
             .sql(
                 """
                 SELECT a.* FROM account a JOIN member m ON m.household_id = a.household_id
-                WHERE a.household_id = :household AND m.id = :member AND m.role = 'OWNER'
+                WHERE a.household_id = :household AND m.id = :member AND m.revoked_at IS NULL
                 ${if (lock) "FOR UPDATE OF a" else ""}
                 """.trimIndent(),
             ).param("household", householdId)

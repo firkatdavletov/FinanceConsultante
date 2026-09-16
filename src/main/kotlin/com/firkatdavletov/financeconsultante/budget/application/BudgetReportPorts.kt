@@ -1,5 +1,6 @@
 package com.firkatdavletov.financeconsultante.budget.application
 
+import com.firkatdavletov.financeconsultante.access.domain.MemberRole
 import com.firkatdavletov.financeconsultante.budget.domain.DailyBudgetSnapshot
 import com.firkatdavletov.financeconsultante.ledger.application.OwnedLedger
 import com.firkatdavletov.financeconsultante.shared.domain.Money
@@ -20,6 +21,7 @@ data class DailyReportRecipient(
     val ownerId: Long,
     val reportTime: LocalTime,
     val accountingStartedAt: Instant,
+    val role: MemberRole = MemberRole.OWNER,
 )
 
 enum class DailyReportStatus {

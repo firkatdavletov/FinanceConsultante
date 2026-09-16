@@ -1,5 +1,7 @@
 package com.firkatdavletov.financeconsultante.telegram.infrastructure
 
+import com.firkatdavletov.financeconsultante.access.application.FamilyBudgetAccess
+import com.firkatdavletov.financeconsultante.access.application.FamilyBudgetService
 import com.firkatdavletov.financeconsultante.advice.application.PurchaseAdviceService
 import com.firkatdavletov.financeconsultante.ai.application.OpenAiRecognitionRouter
 import com.firkatdavletov.financeconsultante.analytics.application.AnalyticsReportService
@@ -22,6 +24,7 @@ import com.firkatdavletov.financeconsultante.telegram.application.SetupStore
 import com.firkatdavletov.financeconsultante.telegram.application.TelegramClient
 import com.firkatdavletov.financeconsultante.telegram.application.TelegramCorrectionHandler
 import com.firkatdavletov.financeconsultante.telegram.application.TelegramDeliveryWorker
+import com.firkatdavletov.financeconsultante.telegram.application.TelegramFamilyHandler
 import com.firkatdavletov.financeconsultante.telegram.application.TelegramForecastHandler
 import com.firkatdavletov.financeconsultante.telegram.application.TelegramGoalsHandler
 import com.firkatdavletov.financeconsultante.telegram.application.TelegramInboxProcessor
@@ -73,7 +76,10 @@ class TelegramConfiguration {
     }
 
     @Bean
-    fun telegramOwnerAccess(properties: TelegramProperties): OwnerAccess = OwnerAccess(properties.ownerId)
+    fun telegramOwnerAccess(
+        properties: TelegramProperties,
+        families: FamilyBudgetAccess,
+    ): OwnerAccess = OwnerAccess(properties.ownerId, families)
 
     @Bean
     fun telegramPoller(
@@ -128,7 +134,8 @@ class TelegramConfiguration {
 class TelegramStorageConfiguration {
     @Bean
     fun ledgerHandler(
-        properties: TelegramProperties,
+        access: OwnerAccess,
+        families: FamilyBudgetService,
         operations: LedgerOperations,
         drafts: TransactionDraftRepository,
         clock: Clock,
@@ -143,18 +150,19 @@ class TelegramStorageConfiguration {
         purchaseAdvice: PurchaseAdviceService,
     ): LedgerHandler =
         TelegramLedgerHandler(
-            OwnerAccess(properties.ownerId),
+            access,
             operations,
             drafts,
             clock,
             categories,
-            TelegramCorrectionHandler(OwnerAccess(properties.ownerId), operations, corrections, categories, clock),
+            TelegramCorrectionHandler(access, operations, corrections, categories, clock),
             TelegramRecurringHandler(recurringPlans, clock, recurringAnalysis),
             TelegramGoalsHandler(savingsGoals, clock),
             budgetReports,
             analyticsReports,
             TelegramForecastHandler(forecasts),
             TelegramPurchaseHandler(purchaseAdvice),
+            TelegramFamilyHandler(families),
         )
 
     @Bean

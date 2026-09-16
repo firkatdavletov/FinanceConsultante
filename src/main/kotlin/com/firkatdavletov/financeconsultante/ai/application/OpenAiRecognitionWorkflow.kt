@@ -81,7 +81,7 @@ class OpenAiRecognitionWorker(
                 dailyRequestLimit,
             ) ?: return RecognitionRunResult.IDLE
         val response =
-            if (!access.owns(job.message.ownerId)) {
+            if (!access.canProcess(job.message.ownerId, job.message.memberId)) {
                 RecognitionResponse.Failure("access_revoked", 0)
             } else if (job.networkAllowed) {
                 val sentAt = checkNotNull(job.message.sentAt)
@@ -102,7 +102,7 @@ class OpenAiRecognitionWorker(
         job: RecognitionJob,
         response: RecognitionResponse,
     ): RecognitionRunResult {
-        if (!access.owns(job.message.ownerId)) {
+        if (!access.canProcess(job.message.ownerId, job.message.memberId)) {
             inbox.complete(job.message, job.botId, null)
             jobs.complete(
                 job,

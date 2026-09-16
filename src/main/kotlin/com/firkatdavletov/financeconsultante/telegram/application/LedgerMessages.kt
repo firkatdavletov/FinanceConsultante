@@ -2,6 +2,7 @@ package com.firkatdavletov.financeconsultante.telegram.application
 
 import com.firkatdavletov.financeconsultante.ledger.application.HistoryItem
 import com.firkatdavletov.financeconsultante.ledger.application.LedgerOperations
+import com.firkatdavletov.financeconsultante.ledger.application.OwnedLedger
 import com.firkatdavletov.financeconsultante.ledger.domain.Balance
 import com.firkatdavletov.financeconsultante.ledger.domain.Direction
 import com.firkatdavletov.financeconsultante.ledger.domain.DraftState
@@ -105,18 +106,28 @@ object LedgerMessages {
         return actions
     }
 
-    fun history(items: List<HistoryItem>): TelegramReply {
+    fun history(
+        items: List<HistoryItem>,
+        requester: OwnedLedger? = null,
+    ): TelegramReply {
         if (items.isEmpty()) return "История пуста. /history — с начала.".reply()
         val page = items.take(LedgerOperations.HISTORY_PAGE_SIZE)
         val text =
             "Последние записи (по порядку добавления):\n" +
-                page.joinToString("\n") { "${it.sequence}. ${line(it.entry, it.category)}" } +
+                page.joinToString("\n") {
+                    "${it.sequence}. ${line(it.entry, it.category)}" +
+                        (it.actorTelegramUserId?.let { actor -> " Автор: Telegram ID $actor." } ?: "")
+                } +
                 if (items.size > page.size) "\nДалее: /history ${page.last().sequence}" else "\nКонец истории."
         return TelegramReply(
             text,
-            page.filter { it.entry.status == EntryStatus.POSTED }.map {
-                ReplyButton("Запись ${it.sequence}", "entry:${it.entry.id}:${it.entry.version}")
-            },
+            page
+                .filter {
+                    it.entry.status == EntryStatus.POSTED &&
+                        (requester == null || requester.canManageHousehold || it.entry.actorId == requester.memberId)
+                }.map {
+                    ReplyButton("Запись ${it.sequence}", "entry:${it.entry.id}:${it.entry.version}")
+                },
         )
     }
 

@@ -39,6 +39,9 @@ class TelegramGoalsHandler(
         if (command.name !in COMMANDS) return null
         val today = messageDate(message) ?: return "Дата сообщения неизвестна. Повторите команду.".reply()
         val parts = command.arguments.split(' ').filter(String::isNotEmpty)
+        if (parts.isNotEmpty() && !owner.canManageHousehold) {
+            return "Общие цели меняет только OWNER; просмотр: /goals.".reply()
+        }
         return when {
             parts.isEmpty() -> {
                 renderOverview(service.overview(owner, today))

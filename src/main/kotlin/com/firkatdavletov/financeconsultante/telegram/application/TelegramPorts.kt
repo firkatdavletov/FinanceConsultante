@@ -1,5 +1,7 @@
 package com.firkatdavletov.financeconsultante.telegram.application
 
+import com.firkatdavletov.financeconsultante.access.application.FamilyBudgetAccess
+import com.firkatdavletov.financeconsultante.access.domain.MemberRole
 import com.firkatdavletov.financeconsultante.telegram.domain.BudgetSettings
 import com.firkatdavletov.financeconsultante.telegram.domain.SetupDialog
 import java.time.Duration
@@ -8,6 +10,7 @@ import java.util.UUID
 
 class OwnerAccess(
     private val ownerId: Long,
+    private val families: FamilyBudgetAccess? = null,
 ) {
     init {
         require(ownerId > 0)
@@ -18,9 +21,32 @@ class OwnerAccess(
         chatId: Long?,
         chatType: String?,
         isBot: Boolean,
-    ): Boolean = userId == ownerId && chatId == ownerId && chatType == "private" && !isBot
+    ): Boolean =
+        userId != null && userId == chatId && chatType == "private" && !isBot &&
+            (owns(userId) || families?.canReceive(userId) == true)
 
     fun owns(userId: Long): Boolean = userId == ownerId
+
+    fun canProcess(
+        userId: Long,
+        memberId: UUID?,
+    ): Boolean = owns(userId) || families?.canProcess(userId, memberId) == true
+
+    fun canDeliver(
+        userId: Long,
+        memberId: UUID?,
+        report: Boolean,
+    ): Boolean =
+        if (memberId == null) {
+            owns(userId)
+        } else {
+            families?.canDeliver(userId, memberId, report) ?: owns(userId)
+        }
+
+    fun canConfigure(
+        userId: Long,
+        memberId: UUID?,
+    ): Boolean = owns(userId) || memberId?.let { families?.activeMember(userId, it)?.role } == MemberRole.OWNER
 }
 
 data class IncomingUpdate(
@@ -78,6 +104,7 @@ data class InboxMessage(
     val kind: IncomingKind = IncomingKind.MESSAGE,
     val callbackQueryId: String? = null,
     val messageId: Long? = null,
+    val memberId: UUID? = null,
 )
 
 data class OutboxDelivery(
@@ -88,6 +115,7 @@ data class OutboxDelivery(
     val buttons: List<ReplyButton> = emptyList(),
     val callbackQueryId: String? = null,
     val reportJobId: UUID? = null,
+    val memberId: UUID? = null,
 )
 
 data class OwnedSettings(

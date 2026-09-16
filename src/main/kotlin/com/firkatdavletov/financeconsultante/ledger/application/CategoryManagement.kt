@@ -104,6 +104,7 @@ class CategoryManagement(
         kind: CategoryKind,
     ): String {
         val owner = owner(ownerId)
+        if (!owner.canManageHousehold) return OWNER_ONLY
         if (!validName(name)) return NAME_HELP
         val categories = categories(ownerId)
         if (categories.size >= MAX_ITEMS) return "Достигнут предел 100 категорий. Используйте существующие."
@@ -117,7 +118,9 @@ class CategoryManagement(
         id: UUID,
         archived: Boolean,
     ): String {
-        val changed = repository.archive(owner(ownerId).householdId, id, archived)
+        val owner = owner(ownerId)
+        if (!owner.canManageHousehold) return OWNER_ONLY
+        val changed = repository.archive(owner.householdId, id, archived)
         return if (!changed) {
             "Категория недоступна."
         } else if (archived) {
@@ -134,6 +137,7 @@ class CategoryManagement(
         name: String,
     ): String {
         val owner = owner(ownerId)
+        if (!owner.canManageHousehold) return OWNER_ONLY
         if (!validName(name)) return NAME_HELP
         if (categories(ownerId).any { it.id != id && it.name.equals(name, true) }) {
             return "Название уже используется."
@@ -153,6 +157,7 @@ class CategoryManagement(
         keyword: String,
     ): String {
         val owner = owner(ownerId)
+        if (!owner.canManageHousehold) return OWNER_ONLY
         if (!validName(keyword)) return NAME_HELP
         val rules = repository.rules(owner.householdId)
         if (rules.size >= MAX_ITEMS && rules.none { it.keyword == keyword }) return "Достигнут предел 100 правил."
@@ -169,7 +174,9 @@ class CategoryManagement(
         ownerId: Long,
         keyword: String,
     ): String {
-        repository.deleteRule(owner(ownerId).householdId, keyword)
+        val owner = owner(ownerId)
+        if (!owner.canManageHousehold) return OWNER_ONLY
+        repository.deleteRule(owner.householdId, keyword)
         return "Правило удалено. /rules"
     }
 
@@ -184,5 +191,6 @@ class CategoryManagement(
         private const val NAME_HELP =
             "Название: одно слово строчными русскими/латинскими буквами, " +
                 "до 50 знаков; допустим дефис."
+        private const val OWNER_ONLY = "Категориями и правилами управляет только OWNER."
     }
 }

@@ -25,7 +25,7 @@ class JdbcAnalyticsReportRepository(
                 SELECT EXISTS (
                     SELECT 1 FROM member m JOIN account a ON a.household_id = m.household_id
                     WHERE m.household_id = :household AND m.id = :member AND m.telegram_user_id = :owner
-                        AND m.role = 'OWNER' AND a.accounting_started_at = :started
+                        AND m.revoked_at IS NULL AND a.accounting_started_at = :started
                 )
                 """.trimIndent(),
             ).param("household", owner.householdId)

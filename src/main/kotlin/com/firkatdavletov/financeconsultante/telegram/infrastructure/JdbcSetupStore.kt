@@ -51,7 +51,7 @@ open class JdbcSetupStore(
                     SELECT h.report_time, h.cash_reserve, a.opening_balance, a.accounting_started_at
                     FROM member m JOIN household h ON h.id = m.household_id JOIN account a ON
                     a.household_id = h.id
-                    WHERE m.telegram_user_id = ? AND m.role = 'OWNER' FOR UPDATE OF a, h
+                    WHERE m.telegram_user_id = ? AND m.role = 'OWNER' AND m.revoked_at IS NULL FOR UPDATE OF a, h, m
                     """.trimIndent(),
                 ).param(ownerId)
                 .query { row, _ ->

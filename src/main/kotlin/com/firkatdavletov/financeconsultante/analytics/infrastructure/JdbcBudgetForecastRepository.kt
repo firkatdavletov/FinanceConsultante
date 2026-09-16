@@ -146,7 +146,7 @@ class JdbcBudgetForecastRepository(
             JOIN member m ON m.household_id = h.id
             LEFT JOIN ledger_entry l ON l.household_id = h.id AND l.occurred_at <= :asOf
             WHERE h.id = :household AND m.id = :member AND m.telegram_user_id = :owner
-                AND m.role = 'OWNER' AND a.accounting_started_at = :started
+                AND m.revoked_at IS NULL AND a.accounting_started_at = :started
             GROUP BY a.opening_balance, h.cash_reserve
             """.trimIndent()
 

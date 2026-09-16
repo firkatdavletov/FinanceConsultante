@@ -31,7 +31,7 @@ class JdbcSavingsGoalRepository(
                 SELECT h.cash_reserve FROM household h
                 JOIN account a ON a.household_id = h.id
                 JOIN member m ON m.household_id = h.id
-                WHERE h.id = :household AND m.id = :member AND m.role = 'OWNER'
+                WHERE h.id = :household AND m.id = :member AND m.revoked_at IS NULL
                 FOR UPDATE OF a, h
                 """.trimIndent(),
             ).param("household", owner.householdId)

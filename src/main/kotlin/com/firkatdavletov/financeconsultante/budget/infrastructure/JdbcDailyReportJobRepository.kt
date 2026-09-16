@@ -1,5 +1,6 @@
 package com.firkatdavletov.financeconsultante.budget.infrastructure
 
+import com.firkatdavletov.financeconsultante.access.domain.MemberRole
 import com.firkatdavletov.financeconsultante.budget.application.DailyReportJob
 import com.firkatdavletov.financeconsultante.budget.application.DailyReportJobRepository
 import com.firkatdavletov.financeconsultante.budget.application.DailyReportRecipient
@@ -28,12 +29,15 @@ class JdbcDailyReportJobRepository(
         jdbc
             .sql(
                 """
-                SELECT h.id AS household_id, m.id AS member_id, m.telegram_user_id, h.report_time,
-                    a.accounting_started_at
-                FROM household h JOIN member m ON m.household_id = h.id AND m.role = 'OWNER'
+                SELECT h.id AS household_id, recipient.id AS member_id, recipient.telegram_user_id,
+                    recipient.role, h.report_time, a.accounting_started_at
+                FROM member owner
+                JOIN household h ON h.id = owner.household_id
+                JOIN member recipient ON recipient.household_id = h.id
+                    AND recipient.revoked_at IS NULL AND recipient.reports_enabled
                 JOIN account a ON a.household_id = h.id
-                WHERE m.telegram_user_id = ?
-                ORDER BY h.id
+                WHERE owner.telegram_user_id = ? AND owner.role = 'OWNER' AND owner.revoked_at IS NULL
+                ORDER BY recipient.telegram_user_id
                 """.trimIndent(),
             ).param(ownerId)
             .query { row, _ ->
@@ -43,6 +47,7 @@ class JdbcDailyReportJobRepository(
                     row.getLong("telegram_user_id"),
                     row.getObject("report_time", LocalTime::class.java),
                     row.getObject("accounting_started_at", OffsetDateTime::class.java).toInstant(),
+                    MemberRole.valueOf(row.getString("role")),
                 )
             }.list()
 
@@ -59,7 +64,7 @@ class JdbcDailyReportJobRepository(
                 ) VALUES (
                     :id, :household, :member, :recipient, :bot, :reportType, :date, :scheduled,
                     :catchUp, 'SCHEDULED', 0, :scheduled, :now, :now
-                ) ON CONFLICT (household_id, recipient_id, report_type, period_start) DO UPDATE SET
+                ) ON CONFLICT (household_id, member_id, report_type, period_start) DO UPDATE SET
                     scheduled_for = EXCLUDED.scheduled_for,
                     catch_up_until = EXCLUDED.catch_up_until,
                     next_attempt_at = EXCLUDED.scheduled_for,
@@ -94,6 +99,7 @@ class JdbcDailyReportJobRepository(
         periodic: Boolean,
     ): List<DailyReportJob> {
         val typeCondition = if (periodic) "report_type IN ('WEEKLY', 'MONTHLY')" else "report_type = 'DAILY'"
+        failIneligibleJobs(botId, now)
         jdbc
             .sql(
                 """
@@ -115,8 +121,10 @@ class JdbcDailyReportJobRepository(
                         AND $typeCondition
                     RETURNING *
                 )
-                SELECT expired.*, a.accounting_started_at FROM expired
+                SELECT expired.*, a.accounting_started_at, m.role FROM expired
                 JOIN account a ON a.household_id = expired.household_id
+                JOIN member m ON m.id = expired.member_id AND m.household_id = expired.household_id
+                    AND m.telegram_user_id = expired.recipient_id AND m.revoked_at IS NULL AND m.reports_enabled
                 ORDER BY expired.period_start, expired.id
                 """.trimIndent(),
             ).param("bot", botId)
@@ -144,6 +152,7 @@ class JdbcDailyReportJobRepository(
         periodic: Boolean,
     ): DailyReportJob? {
         val typeCondition = if (periodic) "report_type IN ('WEEKLY', 'MONTHLY')" else "report_type = 'DAILY'"
+        failIneligibleJobs(botId, now)
         return jdbc
             .sql(
                 """
@@ -159,8 +168,10 @@ class JdbcDailyReportJobRepository(
                         lease_token = :token, lease_until = :leaseUntil, updated_at = :now
                     FROM candidate WHERE job.id = candidate.id RETURNING job.*
                 )
-                SELECT claimed.*, a.accounting_started_at FROM claimed
+                SELECT claimed.*, a.accounting_started_at, m.role FROM claimed
                 JOIN account a ON a.household_id = claimed.household_id
+                JOIN member m ON m.id = claimed.member_id AND m.household_id = claimed.household_id
+                    AND m.telegram_user_id = claimed.recipient_id AND m.revoked_at IS NULL AND m.reports_enabled
                 """.trimIndent(),
             ).param("bot", botId)
             .param("now", offset(now))
@@ -175,8 +186,10 @@ class JdbcDailyReportJobRepository(
         jdbc
             .sql(
                 """
-                SELECT job.*, a.accounting_started_at FROM daily_report_job job
+                SELECT job.*, a.accounting_started_at, m.role FROM daily_report_job job
                 JOIN account a ON a.household_id = job.household_id
+                JOIN member m ON m.id = job.member_id AND m.household_id = job.household_id
+                    AND m.telegram_user_id = job.recipient_id AND m.revoked_at IS NULL AND m.reports_enabled
                 WHERE job.id = ? AND job.status = 'PROCESSING' AND job.lease_token = ? FOR UPDATE OF job
                 """.trimIndent(),
             ).params(job.id, checkNotNull(job.leaseToken))
@@ -194,11 +207,11 @@ class JdbcDailyReportJobRepository(
             jdbc
                 .sql(
                     """
-                    INSERT INTO telegram_outbox(report_job_id, bot_id, owner_id, text)
-                    VALUES (?, ?, ?, ?)
+                    INSERT INTO telegram_outbox(report_job_id, bot_id, owner_id, text, member_id)
+                    VALUES (?, ?, ?, ?, ?)
                     ON CONFLICT (report_job_id) WHERE report_job_id IS NOT NULL DO NOTHING
                     """.trimIndent(),
-                ).params(job.id, job.botId, job.owner.ownerId, text)
+                ).params(job.id, job.botId, job.owner.ownerId, text, job.owner.memberId)
                 .update() == 1,
         ) { "Daily report outbox item already exists" }
         check(
@@ -222,11 +235,11 @@ class JdbcDailyReportJobRepository(
         jdbc
             .sql(
                 """
-                INSERT INTO telegram_outbox(report_job_id, bot_id, owner_id, text, next_attempt_at)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO telegram_outbox(report_job_id, bot_id, owner_id, text, next_attempt_at, member_id)
+                VALUES (?, ?, ?, ?, ?, ?)
                 ON CONFLICT (report_job_id) WHERE report_job_id IS NOT NULL DO NOTHING
                 """.trimIndent(),
-            ).params(job.id, job.botId, job.owner.ownerId, text, offset(now))
+            ).params(job.id, job.botId, job.owner.ownerId, text, offset(now), job.owner.memberId)
             .update()
     }
 
@@ -258,6 +271,25 @@ class JdbcDailyReportJobRepository(
             .update()
     }
 
+    private fun failIneligibleJobs(
+        botId: Long,
+        now: Instant,
+    ) {
+        jdbc
+            .sql(
+                """
+                UPDATE daily_report_job job SET status = 'FAILED', lease_token = NULL, lease_until = NULL,
+                    updated_at = :now
+                WHERE job.bot_id = :bot AND job.status IN ('SCHEDULED', 'PROCESSING') AND NOT EXISTS (
+                    SELECT 1 FROM member m WHERE m.id = job.member_id AND m.household_id = job.household_id
+                        AND m.telegram_user_id = job.recipient_id AND m.revoked_at IS NULL AND m.reports_enabled
+                )
+                """.trimIndent(),
+            ).param("bot", botId)
+            .param("now", offset(now))
+            .update()
+    }
+
     private fun mapJob(row: java.sql.ResultSet): DailyReportJob =
         DailyReportJob(
             row.getObject("id", UUID::class.java),
@@ -266,6 +298,7 @@ class JdbcDailyReportJobRepository(
                 row.getObject("member_id", UUID::class.java),
                 row.getLong("recipient_id"),
                 row.getObject("accounting_started_at", OffsetDateTime::class.java).toInstant(),
+                MemberRole.valueOf(row.getString("role")),
             ),
             row.getLong("bot_id"),
             row.getObject("period_start", LocalDate::class.java),

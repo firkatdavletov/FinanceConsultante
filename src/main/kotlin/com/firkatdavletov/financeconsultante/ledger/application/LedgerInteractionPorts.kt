@@ -1,5 +1,6 @@
 package com.firkatdavletov.financeconsultante.ledger.application
 
+import com.firkatdavletov.financeconsultante.access.domain.MemberRole
 import com.firkatdavletov.financeconsultante.ledger.domain.Category
 import com.firkatdavletov.financeconsultante.ledger.domain.LedgerEntry
 import com.firkatdavletov.financeconsultante.ledger.domain.TransactionCategory
@@ -12,12 +13,16 @@ data class OwnedLedger(
     val memberId: UUID,
     val ownerId: Long,
     val startedAt: Instant,
-)
+    val role: MemberRole = MemberRole.OWNER,
+) {
+    val canManageHousehold: Boolean get() = role == MemberRole.OWNER
+}
 
 data class HistoryItem(
     val sequence: Long,
     val category: String,
     val entry: LedgerEntry,
+    val actorTelegramUserId: Long? = null,
 )
 
 interface LedgerInteractionRepository {

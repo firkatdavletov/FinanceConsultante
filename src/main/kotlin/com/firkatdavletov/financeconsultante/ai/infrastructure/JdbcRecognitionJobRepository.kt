@@ -42,13 +42,15 @@ class JdbcRecognitionJobRepository(
                     SELECT :id, :inbox, :bot, :owner, member.household_id, member.id,
                         :prompt, :schema, :model
                     FROM member
-                    WHERE member.telegram_user_id = :owner
+                    WHERE member.telegram_user_id = :owner AND member.revoked_at IS NULL
+                        AND (:member IS NULL OR member.id = :member)
                     ON CONFLICT (inbox_id) DO NOTHING
                     """.trimIndent(),
                 ).param("id", UUID.randomUUID())
                 .param("inbox", message.id)
                 .param("bot", botId)
                 .param("owner", message.ownerId)
+                .param("member", message.memberId)
                 .param("prompt", promptVersion)
                 .param("schema", schemaVersion)
                 .param("model", modelId)
@@ -215,6 +217,7 @@ class JdbcRecognitionJobRepository(
                             IncomingKind.valueOf(result.getString("event_kind")),
                             result.getString("callback_query_id"),
                             result.getObject("telegram_message_id", Long::class.javaObjectType),
+                            result.getObject("member_id", UUID::class.java),
                         ),
                         result.getLong("bot_id"),
                         result.getObject("household_id", UUID::class.java),

@@ -1,5 +1,6 @@
 package com.firkatdavletov.financeconsultante.telegram.application
 
+import com.firkatdavletov.financeconsultante.access.domain.MemberRole
 import com.firkatdavletov.financeconsultante.ledger.application.CategoryManagement
 import com.firkatdavletov.financeconsultante.ledger.application.CorrectionResult
 import com.firkatdavletov.financeconsultante.ledger.application.EntryCorrections
@@ -30,7 +31,7 @@ class TelegramCorrectionHandler(
         message: InboxMessage,
         botId: Long,
     ): TelegramReply {
-        require(access.owns(message.ownerId)) { "Budget access denied" }
+        require(access.canProcess(message.ownerId, message.memberId)) { "Budget access denied" }
         val parts = message.text.split(':')
         if (parts.size != 3 || parts[0] !in CALLBACKS) return "Кнопка недоступна. /history".reply()
         val target = target(message.ownerId, parts.drop(1)) ?: return EntryCorrections.STALE.reply()
@@ -68,12 +69,17 @@ class TelegramCorrectionHandler(
         command: Command,
         botId: Long,
     ): TelegramReply? {
-        require(access.owns(message.ownerId)) { "Budget access denied" }
+        require(access.canProcess(message.ownerId, message.memberId)) { "Budget access denied" }
         if (command.name !in COMMANDS) return null
         if (operations.owned(message.ownerId) == null) return "Сначала завершите настройку: /start.".reply()
         val parts = command.arguments.split(' ').filter { it.isNotEmpty() }
         return if (command.name in CATEGORY_COMMANDS) {
-            categoryHandler.handle(message.ownerId, command.name, parts).reply()
+            val owner = checkNotNull(operations.owned(message.ownerId))
+            if (!owner.canManageHousehold) {
+                "Категориями и правилами управляет только OWNER.".reply()
+            } else {
+                categoryHandler.handle(message.ownerId, command.name, parts).reply()
+            }
         } else {
             entryCommand(message, command.name, parts, botId)
         }
@@ -114,7 +120,9 @@ class TelegramCorrectionHandler(
         if (change != null) {
             val changed = corrections.change(target, change, source)
             val reply = result(changed, message.ownerId)
-            return if (change is EntryChange.Category && changed is CorrectionResult.Updated) {
+            return if (
+                change is EntryChange.Category && changed is CorrectionResult.Updated && target.role == MemberRole.OWNER
+            ) {
                 reply.copy(
                     text =
                         reply.text +
@@ -170,7 +178,7 @@ class TelegramCorrectionHandler(
         val id = uuid(parts[0]) ?: return null
         val version = parts[1].toLongOrNull()?.takeIf { it >= 0 } ?: return null
         val owner = operations.owned(ownerId) ?: return null
-        return EntryTarget(owner.householdId, owner.memberId, id, version)
+        return EntryTarget(owner.householdId, owner.memberId, id, version, owner.role)
     }
 
     private fun result(

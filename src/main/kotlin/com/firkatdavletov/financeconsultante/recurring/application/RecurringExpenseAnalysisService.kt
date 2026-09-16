@@ -87,6 +87,7 @@ class RecurringExpenseAnalysisService(
     private val clock: Clock,
 ) {
     fun analyze(owner: OwnedLedger): RecurringExpenseAnalysis {
+        require(owner.canManageHousehold) { "Budget owner access required" }
         val today = today()
         val historyStart = maxOf(startedOn(owner), today.minusDays(policy.lookbackDays.toLong()))
         val observations = repository.observations(owner.householdId, historyStart, today.plusDays(1))
@@ -141,6 +142,7 @@ class RecurringExpenseAnalysisService(
         candidateId: UUID,
         version: Long,
     ): CandidateDecision {
+        require(owner.canManageHousehold) { "Budget owner access required" }
         val view =
             repository.findCandidate(owner.householdId, candidateId, lock = true)
                 ?: return CandidateDecision.Unavailable(STALE_CANDIDATE)
@@ -216,6 +218,7 @@ class RecurringExpenseAnalysisService(
         candidateId: UUID,
         version: Long,
     ): CandidateDecision {
+        require(owner.canManageHousehold) { "Budget owner access required" }
         val candidate = repository.findCandidate(owner.householdId, candidateId, lock = true)?.candidate
         return if (
             candidate == null ||

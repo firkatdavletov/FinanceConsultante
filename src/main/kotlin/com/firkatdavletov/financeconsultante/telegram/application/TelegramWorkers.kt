@@ -45,7 +45,7 @@ open class TelegramInboxProcessor(
     open fun processOne(botId: Long): Boolean {
         val message = inbox.next(botId) ?: return false
         try {
-            if (access.owns(message.ownerId)) {
+            if (access.canProcess(message.ownerId, message.memberId)) {
                 process(message, botId)
             } else {
                 inbox.complete(message, botId, null)
@@ -56,10 +56,15 @@ open class TelegramInboxProcessor(
         return true
     }
 
+    @Suppress("ReturnCount") // Setup, member commands, and recognition each terminate the inbox exactly once.
     private fun process(
         message: InboxMessage,
         botId: Long,
     ) {
+        if (!access.canConfigure(message.ownerId, message.memberId)) {
+            processMember(message, botId)
+            return
+        }
         val dialog = setup.dialog(message.ownerId)
         val current = setup.settings(message.ownerId)
         if (dialog.step == SetupStep.IDLE || message.kind != IncomingKind.MESSAGE) {
@@ -84,6 +89,37 @@ open class TelegramInboxProcessor(
         setup.saveDialog(message.ownerId, decision.dialog)
         inbox.complete(message, botId, decision.reply)
     }
+
+    private fun processMember(
+        message: InboxMessage,
+        botId: Long,
+    ) {
+        if (
+            message.memberId != null && message.kind == IncomingKind.MESSAGE &&
+            recognition?.enqueueIfEligible(message, botId) == true
+        ) {
+            return
+        }
+        val reply =
+            if (message.kind == IncomingKind.MESSAGE && message.text.trim() == "/help") {
+                MEMBER_HELP.reply()
+            } else {
+                ledger.handle(message, botId)
+            }
+                ?: (
+                    "Команда доступна только OWNER. Доступ MEMBER: /family, /help, /balance, /history, " +
+                        "/today, /report, /forecast, /purchase и /goals для просмотра."
+                ).reply()
+        inbox.completeReply(message, botId, reply)
+    }
+
+    private companion object {
+        const val MEMBER_HELP =
+            "Роль MEMBER: /family — участники и права; /balance, /history, /today, /report, /forecast, " +
+                "/purchase, /recurring и /goals — общий бюджет. Добавляйте доходы и расходы обычным форматом; " +
+                "исправлять, отменять и подтверждать можно только свои записи и черновики. " +
+                "Настройки, участники, категории, планы и общие цели доступны только OWNER."
+    }
 }
 
 class TelegramDeliveryWorker(
@@ -94,7 +130,7 @@ class TelegramDeliveryWorker(
 ) {
     fun deliverOne() {
         val delivery = outbox.claim(botId) ?: return
-        if (!access.owns(delivery.ownerId)) {
+        if (!access.canDeliver(delivery.ownerId, delivery.memberId, delivery.reportJobId != null)) {
             outbox.failed(delivery, TelegramFailure("access_revoked", permanent = true))
             return
         }

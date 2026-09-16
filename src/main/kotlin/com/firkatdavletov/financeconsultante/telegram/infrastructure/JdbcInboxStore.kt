@@ -41,6 +41,7 @@ open class JdbcInboxStore(
                     IncomingKind.valueOf(row.getString("event_kind")),
                     row.getString("callback_query_id"),
                     row.getObject("telegram_message_id", Long::class.javaObjectType),
+                    row.getObject("member_id", java.util.UUID::class.java),
                 )
             }.optional()
             .orElse(null)
@@ -56,10 +57,17 @@ open class JdbcInboxStore(
             jdbc
                 .sql(
                     """
-                    INSERT INTO telegram_outbox (inbox_id, bot_id, owner_id, text) VALUES (?, ?, ?, ?)
-                    ON CONFLICT (inbox_id) DO NOTHING
+                    INSERT INTO telegram_outbox (inbox_id, bot_id, owner_id, text, member_id)
+                    SELECT :inbox, :bot, :owner, :text, COALESCE(
+                        :member,
+                        (SELECT id FROM member WHERE telegram_user_id = :owner AND revoked_at IS NULL)
+                    ) ON CONFLICT (inbox_id) DO NOTHING
                     """.trimIndent(),
-                ).params(message.id, botId, message.ownerId, reply)
+                ).param("inbox", message.id)
+                .param("bot", botId)
+                .param("owner", message.ownerId)
+                .param("text", reply)
+                .param("member", message.memberId)
                 .update()
         }
         jdbc
@@ -105,10 +113,10 @@ open class JdbcInboxStore(
         jdbc
             .sql(
                 """
-                INSERT INTO telegram_outbox (inbox_id, bot_id, owner_id, text)
+                INSERT INTO telegram_outbox (inbox_id, bot_id, owner_id, text, member_id)
                 SELECT id, bot_id, owner_id, 'Не удалось обработать сообщение. Повторите команду
                 /history, затем повторите ввод; /draft — сохранённое уточнение.'
-                FROM telegram_inbox WHERE id = ? AND status = 'FAILED' ON CONFLICT (inbox_id) DO
+                , member_id FROM telegram_inbox WHERE id = ? AND status = 'FAILED' ON CONFLICT (inbox_id) DO
                 NOTHING
                 """.trimIndent(),
             ).param(message.id)

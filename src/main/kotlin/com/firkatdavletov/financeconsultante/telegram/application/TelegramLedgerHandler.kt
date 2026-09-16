@@ -25,7 +25,7 @@ interface LedgerHandler {
         botId: Long,
     ): TelegramReply?
 
-    /** An AI proposal is never posted directly; it becomes a versioned owner-confirmed draft. */
+    /** An AI proposal is never posted directly; it becomes a versioned draft confirmed by its member. */
     fun recognized(
         message: InboxMessage,
         botId: Long,
@@ -46,6 +46,7 @@ class TelegramLedgerHandler(
     private val analyticsReports: AnalyticsReportService? = null,
     private val forecast: TelegramForecastHandler? = null,
     private val purchase: TelegramPurchaseHandler? = null,
+    private val family: TelegramFamilyHandler? = null,
 ) : LedgerHandler {
     private val draftHandler = TelegramDraftHandler(operations, drafts)
 
@@ -54,7 +55,7 @@ class TelegramLedgerHandler(
         botId: Long,
         proposal: RecordTransaction,
     ): TelegramReply {
-        require(access.owns(message.ownerId)) { "Budget access denied" }
+        require(access.canProcess(message.ownerId, message.memberId)) { "Budget access denied" }
         val owner = operations.owned(message.ownerId) ?: return "Сначала завершите настройку: /start.".reply()
         val clarification = drafts.needsInput(owner, botId)
         val source = source(botId, clarification?.sourceInboxId ?: message.id)
@@ -77,12 +78,13 @@ class TelegramLedgerHandler(
         }
     }
 
-    @Suppress("ReturnCount") // Route commands and reject invalid transport data before proposing money.
+    @Suppress("CyclomaticComplexMethod", "LongMethod", "ReturnCount")
+    // Route commands and reject invalid transport data before proposing money.
     override fun handle(
         message: InboxMessage,
         botId: Long,
     ): TelegramReply? {
-        require(access.owns(message.ownerId)) { "Budget access denied" }
+        require(access.canProcess(message.ownerId, message.memberId)) { "Budget access denied" }
         if (message.kind == IncomingKind.EDITED) {
             return "Изменение сообщения не меняет учёт. Откройте /history, выберите запись и исправьте её явно.".reply()
         }
@@ -96,7 +98,16 @@ class TelegramLedgerHandler(
         val sentAt = message.sentAt
         val today = (sentAt ?: clock.instant()).atZone(LedgerOperations.ZONE).toLocalDate()
         val initial = TransactionMessageParser().parse(message.text, today)
-        if (initial is MessageParseResult.Command) return routeCommand(message, initial, botId)
+        if (initial is MessageParseResult.Command) {
+            family?.command(message, initial, botId)?.let { return it }
+            if (message.memberId == null && !access.owns(message.ownerId)) {
+                return family?.pending(message.ownerId) ?: "Приглашение недоступно.".reply()
+            }
+            return routeCommand(message, initial, botId)
+        }
+        if (message.memberId == null && !access.owns(message.ownerId)) {
+            return family?.pending(message.ownerId) ?: "Приглашение недоступно.".reply()
+        }
         val owner = operations.owned(message.ownerId) ?: return "Сначала завершите настройку: /start.".reply()
         val parsed = TransactionMessageParser(categories.dictionary(message.ownerId)).parse(message.text, today)
         if (parsed == MessageParseResult.PurchaseQuestion) {
@@ -221,7 +232,7 @@ class TelegramLedgerHandler(
         return if (before == null || before <= 0) {
             "Формат: /history или /history <курсор из ответа>.".reply()
         } else {
-            LedgerMessages.history(operations.history(owner, before))
+            LedgerMessages.history(operations.history(owner, before), owner)
         }
     }
 

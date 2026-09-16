@@ -1,5 +1,6 @@
 package com.firkatdavletov.financeconsultante.ledger.infrastructure
 
+import com.firkatdavletov.financeconsultante.access.domain.MemberRole
 import com.firkatdavletov.financeconsultante.ledger.application.HistoryItem
 import com.firkatdavletov.financeconsultante.ledger.application.LedgerInteractionRepository
 import com.firkatdavletov.financeconsultante.ledger.application.OwnedLedger
@@ -22,9 +23,9 @@ class JdbcLedgerInteractionRepository(
         jdbc
             .sql(
                 """
-                SELECT m.household_id, m.id, a.accounting_started_at FROM member m
+                SELECT m.household_id, m.id, m.role, a.accounting_started_at FROM member m
                 JOIN account a USING (household_id)
-                WHERE m.telegram_user_id = ? AND m.role = 'OWNER' FOR UPDATE OF a
+                WHERE m.telegram_user_id = ? AND m.revoked_at IS NULL FOR UPDATE OF a, m
                 """.trimIndent(),
             ).param(ownerId)
             .query { row, _ ->
@@ -33,6 +34,7 @@ class JdbcLedgerInteractionRepository(
                     row.getObject("id", UUID::class.java),
                     ownerId,
                     row.getObject("accounting_started_at", OffsetDateTime::class.java).toInstant(),
+                    MemberRole.valueOf(row.getString("role")),
                 )
             }.optional()
             .orElse(null)
@@ -100,9 +102,11 @@ class JdbcLedgerInteractionRepository(
         return jdbc
             .sql(
                 """
-                SELECT l.*, c.name AS category_name, r.source AS rate_source,
+                SELECT l.*, c.name AS category_name, actor.telegram_user_id AS actor_telegram_user_id,
+                    r.source AS rate_source,
                     r.quoted_at AS rate_quoted_at, r.fetched_at AS rate_fetched_at
                 FROM ledger_entry l JOIN category c ON c.id = l.category_id AND c.household_id = l.household_id
+                JOIN member actor ON actor.id = l.actor_id AND actor.household_id = l.household_id
                 LEFT JOIN daily_exchange_rate r ON r.rate_date = l.occurred_on AND r.rub_kzt = l.rub_kzt
                 WHERE l.household_id = ? AND l.history_sequence < ?
                 ORDER BY l.history_sequence DESC LIMIT ?
@@ -113,6 +117,7 @@ class JdbcLedgerInteractionRepository(
                     row.getLong("history_sequence"),
                     row.getString("category_name"),
                     LedgerRowMapper.mapRow(row, index),
+                    row.getLong("actor_telegram_user_id"),
                 )
             }.list()
     }

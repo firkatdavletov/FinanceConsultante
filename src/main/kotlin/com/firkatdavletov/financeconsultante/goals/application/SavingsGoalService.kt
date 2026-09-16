@@ -85,6 +85,7 @@ class SavingsGoalService(
         asOf: LocalDate,
         source: String,
     ): GoalChange<SavingsGoal> {
+        if (!owner.canManageHousehold) return ownerOnly()
         requireNotNull(goals.lockBudget(owner)) { "Budget access denied" }
         goals.findGoalBySource(owner.householdId, source)?.let { return GoalChange.Applied(it, changed = false) }
         amountError(targetAmount)?.let { return GoalChange.Rejected(it) }
@@ -119,6 +120,7 @@ class SavingsGoalService(
         amount: Money,
         source: String,
     ): GoalChange<SavingsGoal> {
+        if (!owner.canManageHousehold) return ownerOnly()
         val settings = requireNotNull(goals.lockBudget(owner)) { "Budget access denied" }
         allocationReplay(owner, goalId, source)?.let { return it }
         amountError(amount)?.let { return GoalChange.Rejected(it) }
@@ -152,6 +154,7 @@ class SavingsGoalService(
         amount: Money,
         source: String,
     ): GoalChange<SavingsGoal> {
+        if (!owner.canManageHousehold) return ownerOnly()
         requireNotNull(goals.lockBudget(owner)) { "Budget access denied" }
         allocationReplay(owner, goalId, source)?.let { return it }
         amountError(amount)?.let { return GoalChange.Rejected(it) }
@@ -182,6 +185,7 @@ class SavingsGoalService(
         spentOn: LocalDate,
         source: String,
     ): GoalChange<GoalSpendReceipt> {
+        if (!owner.canManageHousehold) return ownerOnly()
         requireNotNull(goals.lockBudget(owner)) { "Budget access denied" }
         spendReplay(owner, goalId, source)?.let { return it }
         amountError(amount)?.let { return GoalChange.Rejected(it) }
@@ -233,6 +237,7 @@ class SavingsGoalService(
         asOf: LocalDate,
         source: String,
     ): GoalChange<GoalContributionPlan> {
+        if (!owner.canManageHousehold) return ownerOnly()
         requireNotNull(goals.lockBudget(owner)) { "Budget access denied" }
         goals.contributionPlanBySource(owner.householdId, source)?.let {
             return GoalChange.Applied(it, changed = false)
@@ -257,6 +262,7 @@ class SavingsGoalService(
         version: Long,
         source: String,
     ): GoalChange<GoalContributionPlan> {
+        if (!owner.canManageHousehold) return ownerOnly()
         requireNotNull(goals.lockBudget(owner)) { "Budget access denied" }
         goals.contributionPlanByCancelSource(owner.householdId, source)?.let {
             return GoalChange.Applied(it, changed = false)
@@ -357,6 +363,8 @@ class SavingsGoalService(
             amount.amount.signum() <= 0 -> "Сумма должна быть больше нуля."
             else -> null
         }
+
+    private fun ownerOnly(): GoalChange.Rejected = GoalChange.Rejected("Общие цели меняет только OWNER.")
 
     private fun now(): Instant = clock.instant().truncatedTo(ChronoUnit.MICROS)
 

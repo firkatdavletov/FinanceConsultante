@@ -53,6 +53,10 @@ class TelegramRecurringHandler(
                         "Повторите команду."
                 ).reply()
         val parts = command.arguments.split(' ').filter(String::isNotEmpty)
+        if (parts.isNotEmpty() && !owner.canManageHousehold) {
+            return "Постоянными платежами и ожидаемыми доходами управляет только OWNER; просмотр без аргументов."
+                .reply()
+        }
         return when (command.name) {
             "/recurring" -> recurring(parts, owner, today, message, botId)
             else -> expected(parts, owner, today, message, botId)

@@ -58,12 +58,14 @@ open class JdbcPollingStore(
         updates.sortedBy { it.updateId }.forEach { update ->
             require(update.updateId >= 0 && update.updateId < Long.MAX_VALUE)
             val message = authorized(update.message, access)
+            val memberId = message?.userId?.let(::activeMemberId)
             jdbc
                 .sql(
                     """
                     INSERT INTO telegram_inbox (bot_id, update_id, owner_id, text, status, message_sent_at,
-                        event_kind, callback_query_id, telegram_message_id)
-                    VALUES (:bot, :update, :owner, :text, :status, :sent, :kind, :query, :messageId) ON CONFLICT DO NOTHING
+                        event_kind, callback_query_id, telegram_message_id, member_id)
+                    VALUES (:bot, :update, :owner, :text, :status, :sent, :kind, :query, :messageId, :member)
+                    ON CONFLICT DO NOTHING
                     """.trimIndent(),
                 ).param("bot", lease.botId)
                 .param("update", update.updateId)
@@ -74,6 +76,7 @@ open class JdbcPollingStore(
                 .param("messageId", message?.messageId)
                 .param("status", if (message != null) "RECEIVED" else "IGNORED")
                 .param("sent", message?.sentAt?.atOffset(ZoneOffset.UTC))
+                .param("member", memberId)
                 .update()
         }
         // Derive from this returned batch: Telegram may choose a random update ID after a week of inactivity.
@@ -104,6 +107,14 @@ open class JdbcPollingStore(
     private fun validCallback(message: IncomingMessage): Boolean =
         message.callbackQueryId?.length in 1..MAX_QUERY_LENGTH &&
             message.text?.toByteArray(Charsets.UTF_8)?.size in 1..MAX_CALLBACK_BYTES
+
+    private fun activeMemberId(userId: Long): UUID? =
+        jdbc
+            .sql("SELECT id FROM member WHERE telegram_user_id = ? AND revoked_at IS NULL")
+            .param(userId)
+            .query(UUID::class.java)
+            .optional()
+            .orElse(null)
 
     @Transactional
     override fun retry(

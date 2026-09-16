@@ -44,6 +44,7 @@ class AnalyticsReportCoordinator(
                                 recipient.memberId,
                                 recipient.ownerId,
                                 recipient.accountingStartedAt,
+                                recipient.role,
                             ),
                             botId,
                             period.previousStart(dueDate),

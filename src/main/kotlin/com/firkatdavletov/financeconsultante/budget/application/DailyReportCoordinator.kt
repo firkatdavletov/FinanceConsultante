@@ -43,6 +43,7 @@ class DailyReportCoordinator(
                         recipient.memberId,
                         recipient.ownerId,
                         recipient.accountingStartedAt,
+                        recipient.role,
                     ),
                     botId,
                     date,

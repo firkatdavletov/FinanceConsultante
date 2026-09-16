@@ -1,5 +1,6 @@
 package com.firkatdavletov.financeconsultante.telegram
 
+import com.firkatdavletov.financeconsultante.access.application.FamilyBudgetAccess
 import com.firkatdavletov.financeconsultante.telegram.application.InboxStore
 import com.firkatdavletov.financeconsultante.telegram.application.LedgerHandler
 import com.firkatdavletov.financeconsultante.telegram.application.OwnerAccess
@@ -18,12 +19,16 @@ import java.time.Clock
 @EnableConfigurationProperties(TelegramProperties::class)
 class TelegramTestConfiguration {
     @Bean
+    fun telegramTestAccess(families: FamilyBudgetAccess): OwnerAccess = OwnerAccess(OWNER, families)
+
+    @Bean
     fun telegramTestProcessor(
         inbox: InboxStore,
         setup: SetupStore,
         clock: Clock,
         ledger: LedgerHandler,
-    ): TelegramInboxProcessor = TelegramInboxProcessor(inbox, setup, OwnerAccess(OWNER), clock, ledger)
+        access: OwnerAccess,
+    ): TelegramInboxProcessor = TelegramInboxProcessor(inbox, setup, access, clock, ledger)
 
     companion object {
         const val OWNER = 555L
