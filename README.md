@@ -532,7 +532,6 @@ backup, smoke, restore drill, RPO/RTO и cost limits описана в
 ## Документация проекта
 
 - [CONTEXT.md](CONTEXT.md) — продукт и фактическое состояние.
-- [PLANS.md](PLANS.md) — задачи и критерии готовности.
 - [ARCHITECTURE.md](ARCHITECTURE.md) — архитектура, code style и финансовые правила.
 - [AGENTS.md](AGENTS.md) — инструкции Codex и ссылки на ролевые навыки.
 - [docs/RAILWAY_DEPLOYMENT.md](docs/RAILWAY_DEPLOYMENT.md) — подробный production deploy/runbook для Railway.
