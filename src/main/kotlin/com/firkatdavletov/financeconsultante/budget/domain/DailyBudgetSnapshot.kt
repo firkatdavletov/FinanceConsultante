@@ -44,7 +44,17 @@ data class DailyBudgetView(
     val current: BudgetEstimate,
     val spentAfterSnapshot: Money,
     val remainingDailyLimit: Money,
+    val spendingSummary: DailySpendingSummary,
 ) {
     val currentFreeAmount: Money
         get() = checkNotNull(current.freeAmount)
+}
+
+data class DailySpendingSummary(
+    val yesterday: Money,
+    val lastThirtyDaysAverage: Money,
+) {
+    init {
+        require(yesterday.currency == Currency.KZT && lastThirtyDaysAverage.currency == Currency.KZT)
+    }
 }

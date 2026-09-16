@@ -3,7 +3,8 @@ package com.firkatdavletov.financeconsultante.budget.application
 import com.firkatdavletov.financeconsultante.budget.domain.BudgetState
 import com.firkatdavletov.financeconsultante.budget.domain.DailyBudgetView
 import com.firkatdavletov.financeconsultante.shared.domain.Money
-import com.firkatdavletov.financeconsultante.telegram.domain.ACCOUNTING_ZONE
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 
 object BudgetMessages {
     fun daily(
@@ -19,21 +20,22 @@ object BudgetMessages {
             }
         return buildString {
             if (morning) append("Доброе утро! ")
-            val localAsOf = snapshot.asOf.atZone(ACCOUNTING_ZONE).toLocalTime()
-            append("Бюджет на ${snapshot.date} (срез $localAsOf Asia/Almaty):\n")
-            append("Учётный баланс: ${money(checkNotNull(view.current.balance))}.\n")
-            append("Обязательства до конца месяца и просроченные: ${money(view.current.remainingObligations)}.\n")
-            append("Защищённый резерв: ${money(view.current.protectedReserve)}. ")
+            append("Бюджет на ${RUSSIAN_DATE.format(snapshot.date)}:\n")
+            append("Баланс: ${money(checkNotNull(view.current.balance))}.\n")
+            append("Обязательные расходы до конца месяца: ${money(view.current.remainingObligations)}.\n")
+            append("Защищённый резерв: ${money(view.current.protectedReserve)}.\n")
             append("Цели: ${money(view.current.goalReserve)}.\n")
-            append("Доступно сейчас: ${money(view.currentFreeAmount)}. ")
-            append("Дней с сегодняшним: ${view.current.daysRemaining}.\n")
-            append("Дневной лимит: ${money(snapshot.originalDailyLimit)}. ")
-            append("Остаток лимита: ${money(view.remainingDailyLimit)}.")
-            if (view.spentAfterSnapshot.amount.signum() > 0) {
-                append(" После среза обычные траты: ${money(view.spentAfterSnapshot)}.")
-            }
-            append("\n")
-            if (snapshot.recalculated) append("Снимок пересчитан из-за изменившихся данных.\n")
+            append("Доступно сейчас: ${money(view.currentFreeAmount)}.\n\n")
+            append("Дневной лимит: ${money(snapshot.originalDailyLimit)}.\n")
+            append("Остаток лимита: ${money(view.remainingDailyLimit)}.\n\n")
+            append("Вчерашний дневной расход (за исключением обязательных): ")
+            append(money(view.spendingSummary.yesterday))
+            append(comparisonEmoji(view.spendingSummary.yesterday, view.spendingSummary.lastThirtyDaysAverage))
+            append("\nСредний ежедневный расход за последние 30 дней: ")
+            append(money(view.spendingSummary.lastThirtyDaysAverage))
+            append(comparisonEmoji(view.spendingSummary.lastThirtyDaysAverage, view.spendingSummary.yesterday))
+            append("\n\n")
+            if (snapshot.recalculated) append("Снимок пересчитан из-за изменившихся данных.\n\n")
             append(assessment(currentState, view))
             append("\nОценка основана только на введённых данных; ожидаемые доходы не считаются полученными. ")
             append("Добавляйте обязательства через /recurring.")
@@ -54,23 +56,35 @@ object BudgetMessages {
     ): String =
         when (state) {
             BudgetState.INCOMPLETE -> {
-                "Оценка: данных недостаточно. Завершите настройку."
+                "Оценка: данных недостаточно.\nДействие: завершите настройку."
             }
 
             BudgetState.DEFICIT -> {
-                "Оценка: дефицит ${money(Money.of(view.currentFreeAmount.amount.negate()))}; лимит 0.00 KZT. " +
+                "Оценка: дефицит ${money(Money.of(view.currentFreeAmount.amount.negate()))}; лимит 0.00 KZT.\n" +
                     "Действие: проверьте обязательства и сократите необязательные расходы."
             }
 
             BudgetState.NO_FREE_FUNDS -> {
-                "Оценка: свободных средств нет. Действие: отложите необязательные расходы."
+                "Оценка: свободных средств нет.\nДействие: отложите необязательные расходы."
             }
 
             BudgetState.AVAILABLE -> {
-                "Оценка: есть доступные средства ${money(view.currentFreeAmount)}. " +
+                "Оценка: есть доступные средства ${money(view.currentFreeAmount)}.\n" +
                     "Действие: держите обычные траты в пределах остатка дневного лимита."
             }
         }
 
+    private fun comparisonEmoji(
+        value: Money,
+        comparison: Money,
+    ): String =
+        when (value.amount.compareTo(comparison.amount)) {
+            1 -> " ⬆️"
+            -1 -> " ⬇️"
+            else -> ""
+        }
+
     private fun money(value: Money): String = "${value.amount.toPlainString()} ${value.currency}"
+
+    private val RUSSIAN_DATE: DateTimeFormatter = DateTimeFormatter.ofPattern("d MMMM", Locale.forLanguageTag("ru"))
 }

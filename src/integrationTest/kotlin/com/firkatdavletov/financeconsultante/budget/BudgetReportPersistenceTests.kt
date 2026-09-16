@@ -130,8 +130,8 @@ class BudgetReportPersistenceTests
             assertThat(paid.currentFreeAmount).isEqualTo(Money.of("150000"))
             assertThat(paid.remainingDailyLimit).isEqualTo(Money.of("6000"))
             assertThat(BudgetMessages.daily(paid)).contains(
-                "Учётный баланс: 280000.00 KZT",
-                "Обязательства до конца месяца и просроченные: 80000.00 KZT",
+                "Баланс: 280000.00 KZT",
+                "Обязательные расходы до конца месяца: 80000.00 KZT",
             )
 
             record(Direction.EXPENSE, Money.of("10000"), expenseCategory(), "synthetic:t09:ordinary", date)
@@ -176,6 +176,62 @@ class BudgetReportPersistenceTests
             assertThat(recalculated.snapshot.recalculated).isTrue()
             assertThat(recalculated.snapshot.balance).isEqualTo(initial.snapshot.balance - Money.of("1000"))
             assertThat(recalculated.spentAfterSnapshot).isEqualTo(Money.of("0"))
+        }
+
+        @Test
+        fun `daily spending summary excludes obligation payments and averages thirty completed days`() {
+            val occurrence =
+                tx.execute {
+                    recurring.createRule(
+                        owner,
+                        RecurrenceFrequency.MONTHLY,
+                        date.dayOfMonth,
+                        Money.of("4000"),
+                        expenseCategory(),
+                        date,
+                    )
+                    recurring
+                        .overview(owner, date)
+                        .occurrences
+                        .single { it.occurrence.dueOn == date }
+                        .occurrence
+                }
+            tx.executeWithoutResult {
+                assertThat(
+                    recurring.pay(
+                        owner,
+                        occurrence.id,
+                        occurrence.version,
+                        Money.of("4000"),
+                        date.minusDays(1),
+                        "synthetic:daily-summary:obligation",
+                    ),
+                ).isInstanceOf(PlanChange.Applied::class.java)
+            }
+            record(
+                Direction.EXPENSE,
+                Money.of("15000"),
+                expenseCategory(),
+                "synthetic:daily-summary:yesterday",
+                date.minusDays(1),
+            )
+            record(
+                Direction.EXPENSE,
+                Money.of("30000"),
+                expenseCategory(),
+                "synthetic:daily-summary:earlier",
+                date.minusDays(2),
+            )
+
+            val view = today()
+
+            assertThat(view.spendingSummary.yesterday).isEqualTo(Money.of("15000"))
+            assertThat(view.spendingSummary.lastThirtyDaysAverage).isEqualTo(Money.of("1500"))
+            assertThat(BudgetMessages.daily(view, morning = true)).contains(
+                "Доброе утро! Бюджет на 6 сентября:",
+                "Вчерашний дневной расход (за исключением обязательных): 15000.00 KZT ⬆️",
+                "Средний ежедневный расход за последние 30 дней: 1500.00 KZT ⬇️",
+            )
         }
 
         @Test

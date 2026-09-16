@@ -5,6 +5,7 @@ import com.firkatdavletov.financeconsultante.budget.domain.BudgetCalculator
 import com.firkatdavletov.financeconsultante.budget.domain.BudgetEstimate
 import com.firkatdavletov.financeconsultante.budget.domain.DailyBudgetSnapshot
 import com.firkatdavletov.financeconsultante.budget.domain.DailyBudgetView
+import com.firkatdavletov.financeconsultante.budget.domain.DailySpendingSummary
 import com.firkatdavletov.financeconsultante.goals.application.SavingsGoalService
 import com.firkatdavletov.financeconsultante.ledger.application.AccountingService
 import com.firkatdavletov.financeconsultante.ledger.application.OwnedLedger
@@ -16,6 +17,7 @@ import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Propagation
 import org.springframework.transaction.annotation.Transactional
 import java.math.BigDecimal
+import java.math.RoundingMode
 import java.time.Clock
 import java.time.Instant
 import java.time.LocalDate
@@ -38,12 +40,13 @@ class BudgetReportService(
         val asOf = clock.instant().truncatedTo(ChronoUnit.MICROS)
         val date = asOf.atZone(ACCOUNTING_ZONE).toLocalDate()
         val estimate = estimate(owner, date)
+        val spendingSummary = spendingSummary(owner, date)
         val current = checkNotNull(estimate.freeAmount)
         val existing = repository.snapshot(owner.householdId, date)
         if (existing == null || replaceSnapshot) {
             val snapshot = snapshot(owner, date, asOf, estimate, existing != null)
             repository.save(snapshot)
-            return fresh(snapshot, estimate)
+            return fresh(snapshot, estimate, spendingSummary)
         }
 
         val spent = repository.ordinarySpendingAfter(existing)
@@ -54,7 +57,7 @@ class BudgetReportService(
         if (changed) {
             val snapshot = snapshot(owner, date, asOf, estimate, recalculated = true)
             repository.save(snapshot)
-            return fresh(snapshot, estimate)
+            return fresh(snapshot, estimate, spendingSummary)
         }
 
         val remaining =
@@ -62,7 +65,7 @@ class BudgetReportService(
                 existing.originalDailyLimit.amount.subtract(spent.amount),
                 current.amount,
             )
-        return DailyBudgetView(existing, estimate, spent, Money.of(remaining, Currency.KZT))
+        return DailyBudgetView(existing, estimate, spent, Money.of(remaining, Currency.KZT), spendingSummary)
     }
 
     private fun estimate(
@@ -112,16 +115,32 @@ class BudgetReportService(
     private fun fresh(
         snapshot: DailyBudgetSnapshot,
         estimate: BudgetEstimate,
+        spendingSummary: DailySpendingSummary,
     ): DailyBudgetView =
         DailyBudgetView(
             snapshot,
             estimate,
             Money.of(BigDecimal.ZERO),
             snapshot.originalDailyLimit,
+            spendingSummary,
         )
+
+    private fun spendingSummary(
+        owner: OwnedLedger,
+        date: LocalDate,
+    ): DailySpendingSummary {
+        val totals = repository.ordinarySpendingTotals(owner.householdId, date)
+        val average = totals.lastThirtyDays.amount.divide(THIRTY_DAYS, MONEY_SCALE, RoundingMode.HALF_UP)
+        return DailySpendingSummary(totals.yesterday, Money.of(average))
+    }
 
     private fun minimumNonNegative(
         first: BigDecimal,
         second: BigDecimal,
     ): BigDecimal = first.max(BigDecimal.ZERO).min(second.max(BigDecimal.ZERO))
+
+    private companion object {
+        val THIRTY_DAYS: BigDecimal = BigDecimal.valueOf(30)
+        const val MONEY_SCALE = 2
+    }
 }

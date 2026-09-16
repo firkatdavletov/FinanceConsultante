@@ -2,6 +2,7 @@ package com.firkatdavletov.financeconsultante.budget.infrastructure
 
 import com.firkatdavletov.financeconsultante.budget.application.BudgetReportRepository
 import com.firkatdavletov.financeconsultante.budget.application.BudgetSettingsView
+import com.firkatdavletov.financeconsultante.budget.application.DailySpendingTotals
 import com.firkatdavletov.financeconsultante.budget.domain.DailyBudgetSnapshot
 import com.firkatdavletov.financeconsultante.ledger.application.OwnedLedger
 import com.firkatdavletov.financeconsultante.shared.domain.Currency
@@ -119,6 +120,23 @@ class JdbcBudgetReportRepository(
             Currency.KZT,
         )
 
+    override fun ordinarySpendingTotals(
+        householdId: UUID,
+        date: LocalDate,
+    ): DailySpendingTotals =
+        jdbc
+            .sql(ORDINARY_SPENDING_TOTALS)
+            .param("household", householdId)
+            .param("averageStart", date.minusDays(AVERAGE_DAYS))
+            .param("yesterday", date.minusDays(1))
+            .param("today", date)
+            .query { row, _ ->
+                DailySpendingTotals(
+                    Money.of(row.getBigDecimal("yesterday")),
+                    Money.of(row.getBigDecimal("last_thirty_days")),
+                )
+            }.single()
+
     override fun hasInvalidatingLedgerChanges(snapshot: DailyBudgetSnapshot): Boolean =
         jdbc
             .sql(INVALIDATING_CHANGES)
@@ -129,6 +147,8 @@ class JdbcBudgetReportRepository(
             .single()
 
     companion object {
+        private const val AVERAGE_DAYS = 30L
+
         private val NEW_ORDINARY_EXPENSE =
             """
             l.direction = 'EXPENSE'
@@ -181,6 +201,40 @@ class JdbcBudgetReportRepository(
                         OR (l.direction = 'EXPENSE_REFUND' AND NOT ($REFUND_OF_NEW_ORDINARY_EXPENSE))
                     )
             )
+            """.trimIndent()
+
+        private val ORDINARY_SPENDING_TOTALS =
+            """
+            SELECT
+                COALESCE(SUM(
+                    CASE WHEN l.direction = 'EXPENSE' THEN l.amount_kzt ELSE -l.amount_kzt END
+                ) FILTER (WHERE l.occurred_on = :yesterday), 0) AS yesterday,
+                COALESCE(SUM(
+                    CASE WHEN l.direction = 'EXPENSE' THEN l.amount_kzt ELSE -l.amount_kzt END
+                ), 0) AS last_thirty_days
+            FROM ledger_entry l
+            WHERE l.household_id = :household AND l.status = 'POSTED'
+                AND l.occurred_on >= :averageStart AND l.occurred_on < :today
+                AND (
+                    (
+                        l.direction = 'EXPENSE' AND NOT EXISTS (
+                            SELECT 1 FROM recurring_occurrence_payment p
+                            WHERE p.household_id = l.household_id AND p.ledger_entry_id = l.id
+                        )
+                    ) OR (
+                        l.direction = 'EXPENSE_REFUND' AND (
+                            l.refund_of IS NULL OR EXISTS (
+                                SELECT 1 FROM ledger_entry original
+                                WHERE original.household_id = l.household_id AND original.id = l.refund_of
+                                    AND NOT EXISTS (
+                                        SELECT 1 FROM recurring_occurrence_payment p
+                                        WHERE p.household_id = original.household_id
+                                            AND p.ledger_entry_id = original.id
+                                    )
+                            )
+                        )
+                    )
+                )
             """.trimIndent()
     }
 }
