@@ -105,7 +105,7 @@ class CategoryManagement(
     ): String {
         val owner = owner(ownerId)
         if (!owner.canManageHousehold) return OWNER_ONLY
-        if (!validName(name)) return NAME_HELP
+        if (!validName(name, multiword = true)) return NAME_HELP
         val categories = categories(ownerId)
         if (categories.size >= MAX_ITEMS) return "Достигнут предел 100 категорий. Используйте существующие."
         if (categories.any { it.name.equals(name, ignoreCase = true) }) return "Категория уже существует: /categories."
@@ -138,7 +138,7 @@ class CategoryManagement(
     ): String {
         val owner = owner(ownerId)
         if (!owner.canManageHousehold) return OWNER_ONLY
-        if (!validName(name)) return NAME_HELP
+        if (!validName(name, multiword = true)) return NAME_HELP
         if (categories(ownerId).any { it.id != id && it.name.equals(name, true) }) {
             return "Название уже используется."
         }
@@ -158,7 +158,7 @@ class CategoryManagement(
     ): String {
         val owner = owner(ownerId)
         if (!owner.canManageHousehold) return OWNER_ONLY
-        if (!validName(keyword)) return NAME_HELP
+        if (!validName(keyword, multiword = false)) return RULE_HELP
         val rules = repository.rules(owner.householdId)
         if (rules.size >= MAX_ITEMS && rules.none { it.keyword == keyword }) return "Достигнут предел 100 правил."
         return if (repository.saveRule(EntryTarget(owner.householdId, owner.memberId, entryId, version), keyword)) {
@@ -180,17 +180,26 @@ class CategoryManagement(
         return "Правило удалено. /rules"
     }
 
-    private fun validName(name: String) = name.length in 1..MAX_NAME && NAME.matches(name) && name !in RESERVED
+    private fun validName(
+        name: String,
+        multiword: Boolean,
+    ) = name.length in 1..MAX_NAME &&
+        (if (multiword) CATEGORY_NAME else KEYWORD).matches(name) &&
+        name.split(' ').none(RESERVED::contains)
 
     companion object {
         private const val MAX_ITEMS = 100
         private const val MAX_NAME = 50
-        private val NAME = Regex("[a-zа-яё]+(?:-[a-zа-яё]+)*")
+        private const val WORD = "[a-zа-яё]+(?:-[a-zа-яё]+)*"
+        private val CATEGORY_NAME = Regex("$WORD(?: $WORD)*")
+        private val KEYWORD = Regex(WORD)
         private val RESERVED =
             setOf("сегодня", "вчера", "завтра", "купить", "покупать", "покупку", "покупке", "покупки")
         private const val NAME_HELP =
-            "Название: одно слово строчными русскими/латинскими буквами, " +
+            "Название: одно или несколько слов строчными русскими/латинскими буквами, " +
                 "до 50 знаков; допустим дефис."
+        private const val RULE_HELP =
+            "Правило: одно слово строчными русскими/латинскими буквами, до 50 знаков; допустим дефис."
         private const val OWNER_ONLY = "Категориями и правилами управляет только OWNER."
     }
 }

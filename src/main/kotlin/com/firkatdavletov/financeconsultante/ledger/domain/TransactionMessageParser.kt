@@ -112,9 +112,9 @@ class TransactionMessageParser(
         val match =
             (if (direction == null) SHORT_TRANSACTION else EXPLICIT_TRANSACTION).matchEntire(input)
                 ?: return NeedsClarification(ClarificationReason.INVALID_FORMAT)
-        val category = categories[match.groups["category"]?.value]
-        val currencyToken = match.groups["currency"]?.value.orEmpty()
-        val currency = CURRENCIES[currencyToken]
+        val matched = resolveCategory(match, direction)
+        val category = matched.category
+        val currency = CURRENCIES[matched.currencyToken]
         val amount = currency?.let { parseAmount(match.groups["amount"]?.value.orEmpty(), it) }
         return when {
             category == null -> {
@@ -140,9 +140,26 @@ class TransactionMessageParser(
                     amount,
                     category,
                     date,
-                    ExpenseDescriptionNormalizer.normalize(match.groups["category"]?.value.orEmpty()),
+                    ExpenseDescriptionNormalizer.normalize(matched.text),
                 )
             }
+        }
+    }
+
+    private fun resolveCategory(
+        match: MatchResult,
+        direction: Direction?,
+    ): MatchedCategory {
+        val text = match.groups["category"]?.value.orEmpty()
+        val currencyToken = match.groups["currency"]?.value.orEmpty()
+        val categoryWithoutCurrency =
+            currencyToken
+                .takeIf { direction != null && it.isNotEmpty() }
+                ?.let { categories["$it $text"] }
+        return if (categoryWithoutCurrency == null) {
+            MatchedCategory(categories[text], text, currencyToken)
+        } else {
+            MatchedCategory(categoryWithoutCurrency, "$currencyToken $text", "")
         }
     }
 
@@ -160,7 +177,8 @@ class TransactionMessageParser(
     companion object {
         private const val MAX_INPUT_LENGTH = 512
         private const val AMOUNT = "(?<amount>-?(?:[0-9]{1,3}(?: [0-9]{3})+|[0-9]+)(?:[.,][0-9]+)?)"
-        private const val CATEGORY = "(?<category>[a-zа-яё]+(?:-[a-zа-яё]+)*)"
+        private const val CATEGORY_WORD = "[a-zа-яё]+(?:-[a-zа-яё]+)*"
+        private const val CATEGORY = "(?<category>$CATEGORY_WORD(?: $CATEGORY_WORD)*)"
         private const val CURRENCY = "(?: (?<currency>[a-zа-яё]+|[₸₽$€]))?"
         private val SHORT_TRANSACTION = Regex("$CATEGORY $AMOUNT$CURRENCY")
         private val EXPLICIT_TRANSACTION = Regex("$AMOUNT$CURRENCY $CATEGORY")
@@ -198,3 +216,9 @@ class TransactionMessageParser(
             )
     }
 }
+
+private data class MatchedCategory(
+    val category: TransactionCategory?,
+    val text: String,
+    val currencyToken: String,
+)

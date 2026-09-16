@@ -15,6 +15,7 @@ import java.time.Clock
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
+import java.util.UUID
 import kotlin.test.assertIs
 
 @Suppress("TooManyFunctions")
@@ -124,6 +125,24 @@ class TransactionMessageParserTests {
         assertThat(result.direction).isEqualTo(direction)
         assertThat(result.category.name).isEqualTo(category)
         assertThat(result.amount).isEqualTo(Money.of("5000"))
+    }
+
+    @Test
+    fun `multiword custom category works in short and explicit formats`() {
+        val category =
+            TransactionCategory(
+                UUID.randomUUID().toString(),
+                "Отдых и развлечение",
+                Direction.EXPENSE,
+                UUID.randomUUID(),
+            )
+        val customParser = TransactionMessageParser(mapOf("отдых и развлечение" to category))
+
+        for (input in listOf("Отдых и развлечение 700", "/expense 700 Отдых и развлечение")) {
+            val result = assertIs<RecordTransaction>(customParser.parse(input, today))
+            assertThat(result.category).isEqualTo(category)
+            assertThat(result.amount).isEqualTo(Money.of("700"))
+        }
     }
 
     @ParameterizedTest

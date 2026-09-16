@@ -29,10 +29,10 @@ class TelegramCategoryHandler(
                     if (rows.size > (page + 1) * PAGE_SIZE) "\n/categories ${page + 1}" else ""
             }
 
-            name == "/category_add" && parts.size == 2 && parts[0] in setOf("expense", "income") -> {
+            name == "/category_add" && parts.size >= 2 && parts[0] in setOf("expense", "income") -> {
                 categories.add(
                     ownerId,
-                    parts[1],
+                    parts.drop(1).joinToString(" "),
                     if (parts[0] ==
                         "income"
                     ) {
@@ -47,8 +47,8 @@ class TelegramCategoryHandler(
                 categories.archive(ownerId, id, name == "/category_archive")
             }
 
-            name == "/category_rename" && parts.size == 2 && id != null -> {
-                categories.rename(ownerId, id, parts[1])
+            name == "/category_rename" && parts.size >= 2 && id != null -> {
+                categories.rename(ownerId, id, parts.drop(1).joinToString(" "))
             }
 
             name == "/rule" && parts.size == 3 && id != null -> {
