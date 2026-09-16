@@ -129,10 +129,28 @@ class TelegramRecurringHandler(
                 )
             }
 
+            parts.size == 4 && parts[0] == "match" -> {
+                matchExistingPayment(parts, owner)
+            }
+
             else -> {
                 RECURRING_HELP.reply()
             }
         }
+
+    private fun matchExistingPayment(
+        parts: List<String>,
+        owner: OwnedLedger,
+    ): TelegramReply {
+        val target = versioned(parts) ?: return RECURRING_HELP.reply()
+        val entryId =
+            uuid(parts[3])
+                ?: return "Нужен UUID проведённого расхода из выбранной записи /history.".reply()
+        return renderMatchedPayment(
+            service.matchPayment(owner, target.first, target.second, entryId),
+            entryId,
+        )
+    }
 
     private fun expected(
         parts: List<String>,
@@ -295,6 +313,26 @@ class TelegramRecurringHandler(
                         "Версия обязательства ${receipt.occurrence.occurrence.version}.",
                     EntryButtons.actions(receipt.entry),
                 )
+            }
+        }
+
+    private fun renderMatchedPayment(
+        result: PlanChange<RecurringOccurrenceView>,
+        entryId: UUID,
+    ): TelegramReply =
+        when (result) {
+            is PlanChange.Rejected -> {
+                result.message.reply()
+            }
+
+            is PlanChange.Applied -> {
+                val occurrence = result.value
+                (
+                    "Расход $entryId связан с обязательством ${occurrence.occurrence.id}. " +
+                        "Новая проводка не создавалась. Осталось по обязательству: " +
+                        "${occurrence.remainingAmount.amount.toPlainString()} KZT. " +
+                        "Версия обязательства ${occurrence.occurrence.version}."
+                ).reply()
             }
         }
 
@@ -563,6 +601,8 @@ class TelegramRecurringHandler(
                 "Отключить правило: /recurring deactivate <ID> <версия>. " +
                 "Оплатить: /recurring pay <ID обязательства> <версия> " +
                 "<сумма> [ГГГГ-ММ-ДД]. " +
+                "Связать существующий расход: /recurring match <ID обязательства> <версия> " +
+                "<ID проводки>. " +
                 "Отменить будущее: /recurring cancel <ID обязательства> <версия>."
         private const val EXPECTED_HELP =
             "Добавить: /expected add <ГГГГ-ММ-ДД> <сумма KZT> " +

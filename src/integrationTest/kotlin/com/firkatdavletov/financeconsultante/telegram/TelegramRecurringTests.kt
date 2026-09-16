@@ -29,7 +29,7 @@ import java.util.UUID
 
 @Import(TelegramTestConfiguration::class)
 @TestPropertySource(properties = ["app.telegram.bot-token=123456:synthetic-token", "app.telegram.owner-id=555"])
-@Suppress("MagicNumber")
+@Suppress("MagicNumber", "TooManyFunctions")
 class TelegramRecurringTests
     @Autowired
     constructor(
@@ -115,6 +115,40 @@ class TelegramRecurringTests
         }
 
         @Test
+        fun `existing expense can be matched to a recurring obligation without duplicate ledger entry`() {
+            receive("/category_add expense связь")
+            val expense = category("EXPENSE", "связь")
+            receive("/recurring add monthly 6 100 $expense")
+            val occurrence =
+                jdbc.queryForMap(
+                    "SELECT id, version FROM recurring_occurrence WHERE due_on = '2026-09-06'::date",
+                )
+            receive("/expense 40 связь")
+            assertThat(reply()).contains("Записано")
+            val entryId =
+                checkNotNull(
+                    jdbc.queryForObject(
+                        "SELECT id FROM ledger_entry WHERE category_id = ?",
+                        UUID::class.java,
+                        expense,
+                    ),
+                )
+            assertThat(count("ledger_entry")).isEqualTo(1)
+
+            receive("/recurring match ${occurrence["id"]} ${occurrence["version"]} $entryId")
+
+            assertThat(reply()).contains(
+                "Расход $entryId связан с обязательством",
+                "Новая проводка не создавалась",
+                "Осталось по обязательству: 60.00 KZT",
+            )
+            assertThat(count("ledger_entry")).isEqualTo(1)
+            assertThat(count("recurring_occurrence_payment")).isEqualTo(1)
+            receive("/recurring")
+            assertThat(reply()).contains("план 100.00 KZT, осталось 60.00 KZT")
+        }
+
+        @Test
         fun `today command returns deterministic budget estimate without OpenAI`() {
             receive("/today")
 
@@ -162,6 +196,21 @@ class TelegramRecurringTests
                     UUID::class.java,
                     OWNER,
                     kind,
+                ),
+            )
+
+        private fun category(
+            kind: String,
+            name: String,
+        ): UUID =
+            checkNotNull(
+                jdbc.queryForObject(
+                    "SELECT c.id FROM category c JOIN member m ON m.household_id = c.household_id " +
+                        "WHERE m.telegram_user_id = ? AND c.kind = ? AND c.name = ?",
+                    UUID::class.java,
+                    OWNER,
+                    kind,
+                    name,
                 ),
             )
 

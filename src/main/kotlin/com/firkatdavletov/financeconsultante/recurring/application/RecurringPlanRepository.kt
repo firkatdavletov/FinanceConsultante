@@ -84,7 +84,7 @@ interface RecurringPlanRepository {
         occurrenceId: UUID,
         ledgerEntryId: UUID,
         now: Instant,
-    )
+    ): Boolean
 
     fun insertExpectedIncome(expectedIncome: ExpectedIncome)
 

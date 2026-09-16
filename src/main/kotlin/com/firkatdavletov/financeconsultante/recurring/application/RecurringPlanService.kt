@@ -181,10 +181,52 @@ class RecurringPlanService(
                     source,
                 ),
             )
-        plans.linkPayment(owner.householdId, occurrenceId, recorded.entry.id, now())
+        check(plans.linkPayment(owner.householdId, occurrenceId, recorded.entry.id, now())) {
+            "New recurring payment was not linked"
+        }
         check(plans.advanceOccurrence(occurrenceId, version, now())) { "Occurrence changed while locked" }
         val after = checkNotNull(plans.occurrenceView(owner.householdId, occurrenceId))
         return PlanChange.Applied(PaymentReceipt(after, recorded.entry, recorded.recorded))
+    }
+
+    fun matchPayment(
+        owner: OwnedLedger,
+        occurrenceId: UUID,
+        version: Long,
+        ledgerEntryId: UUID,
+    ): PlanChange<RecurringOccurrenceView> {
+        if (!owner.canManageHousehold) return ownerOnly()
+        val occurrence =
+            plans.findOccurrence(owner.householdId, occurrenceId, lock = true)
+                ?: return PlanChange.Rejected(STALE_OCCURRENCE)
+        val before =
+            plans.occurrenceView(owner.householdId, occurrenceId)
+                ?: return PlanChange.Rejected(STALE_OCCURRENCE)
+        if (before.paidInFull) {
+            return PlanChange.Rejected("Обязательство уже оплачено.")
+        }
+        if (occurrence.version != version || occurrence.status != OccurrenceStatus.SCHEDULED) {
+            return PlanChange.Rejected(STALE_OCCURRENCE)
+        }
+        val entry =
+            ledger.find(owner.householdId, ledgerEntryId)
+                ?: return PlanChange.Rejected("Проводка расхода недоступна.")
+        if (
+            entry.status != EntryStatus.POSTED || entry.direction != Direction.EXPENSE ||
+            entry.categoryId != occurrence.categoryId || entry.originalAmount.currency != Currency.KZT
+        ) {
+            return PlanChange.Rejected(
+                "Нужна проведённая запись расхода KZT той же категории.",
+            )
+        }
+        if (plans.ledgerEntryAlreadyPlanned(owner.householdId, ledgerEntryId)) {
+            return PlanChange.Rejected("Эта проводка уже связана с другим планом.")
+        }
+        if (!plans.linkPayment(owner.householdId, occurrenceId, ledgerEntryId, now())) {
+            return PlanChange.Rejected("Эта проводка уже связана с другим планом.")
+        }
+        check(plans.advanceOccurrence(occurrenceId, version, now())) { "Occurrence changed while locked" }
+        return PlanChange.Applied(checkNotNull(plans.occurrenceView(owner.householdId, occurrenceId)))
     }
 
     fun remainingObligations(

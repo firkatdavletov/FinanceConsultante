@@ -162,6 +162,100 @@ class RecurringPlanPersistenceTests
         }
 
         @Test
+        fun `existing posted expense can be matched without changing balance twice`() {
+            service.createRule(owner, RecurrenceFrequency.MONTHLY, 6, Money.of("100"), expenseCategory(), today)
+            val occurrence = service.overview(owner, today).occurrences.first { it.occurrence.dueOn == today }
+            val actual =
+                accounting
+                    .record(
+                        RecordEntry(
+                            owner.householdId,
+                            owner.memberId,
+                            expenseCategory(),
+                            Direction.EXPENSE,
+                            Money.of("40"),
+                            today.atStartOfDay(java.time.ZoneId.of("Asia/Almaty")).toInstant(),
+                            "synthetic:existing:expense",
+                        ),
+                    ).entry
+            val balanceBeforeMatch = accounting.currentBalance(owner.householdId, owner.memberId).amount
+
+            val matched =
+                applied(
+                    service.matchPayment(
+                        owner,
+                        occurrence.occurrence.id,
+                        occurrence.occurrence.version,
+                        actual.id,
+                    ),
+                )
+
+            assertThat(matched.paidAmount).isEqualTo(Money.of("40"))
+            assertThat(matched.remainingAmount).isEqualTo(Money.of("60"))
+            assertThat(accounting.currentBalance(owner.householdId, owner.memberId).amount)
+                .isEqualTo(balanceBeforeMatch)
+            assertThat(linkCount("recurring_occurrence_payment")).isEqualTo(1)
+            assertThat(
+                service.matchPayment(owner, matched.occurrence.id, matched.occurrence.version, actual.id),
+            ).isInstanceOf(PlanChange.Rejected::class.java)
+            assertThat(linkCount("recurring_occurrence_payment")).isEqualTo(1)
+        }
+
+        @Test
+        fun `one existing expense cannot be concurrently matched to two obligations`() {
+            repeat(2) {
+                service.createRule(
+                    owner,
+                    RecurrenceFrequency.WEEKLY,
+                    today.dayOfWeek.value,
+                    Money.of("50"),
+                    expenseCategory(),
+                    today,
+                )
+            }
+            val occurrences =
+                service
+                    .overview(owner, today)
+                    .occurrences
+                    .filter { it.occurrence.dueOn == today }
+                    .map { it.occurrence }
+            val actual =
+                accounting
+                    .record(
+                        RecordEntry(
+                            owner.householdId,
+                            owner.memberId,
+                            expenseCategory(),
+                            Direction.EXPENSE,
+                            Money.of("50"),
+                            today.atStartOfDay(java.time.ZoneId.of("Asia/Almaty")).toInstant(),
+                            "synthetic:concurrent:existing-expense",
+                        ),
+                    ).entry
+            val executor = Executors.newFixedThreadPool(2)
+            try {
+                val results =
+                    executor
+                        .invokeAll(
+                            occurrences.map { occurrence ->
+                                Callable {
+                                    service.matchPayment(owner, occurrence.id, occurrence.version, actual.id)
+                                }
+                            },
+                        ).map { it.get(10, TimeUnit.SECONDS) }
+
+                assertThat(results.count { it is PlanChange.Applied }).isEqualTo(1)
+                assertThat(results.count { it is PlanChange.Rejected }).isEqualTo(1)
+                assertThat(linkCount("recurring_occurrence_payment")).isEqualTo(1)
+                assertThat(service.remainingObligations(owner, today)).isEqualTo(Money.of("50"))
+                assertThat(accounting.currentBalance(owner.householdId, owner.memberId).amount)
+                    .isEqualTo(Money.of("-50"))
+            } finally {
+                executor.shutdownNow()
+            }
+        }
+
+        @Test
         fun `two concurrent full payment confirmations create one ledger entry`() {
             service.createRule(
                 owner,

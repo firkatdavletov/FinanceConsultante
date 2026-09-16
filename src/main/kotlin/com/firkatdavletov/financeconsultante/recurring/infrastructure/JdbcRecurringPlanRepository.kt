@@ -267,18 +267,16 @@ class JdbcRecurringPlanRepository(
         occurrenceId: UUID,
         ledgerEntryId: UUID,
         now: Instant,
-    ) {
-        check(
-            jdbc
-                .sql(
-                    """
-                    INSERT INTO recurring_occurrence_payment(household_id, occurrence_id, ledger_entry_id, created_at)
-                    VALUES (?, ?, ?, ?)
-                    """.trimIndent(),
-                ).params(householdId, occurrenceId, ledgerEntryId, offset(now))
-                .update() == 1,
-        ) { "Recurring payment was not linked" }
-    }
+    ): Boolean =
+        jdbc
+            .sql(
+                """
+                INSERT INTO recurring_occurrence_payment(household_id, occurrence_id, ledger_entry_id, created_at)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT DO NOTHING
+                """.trimIndent(),
+            ).params(householdId, occurrenceId, ledgerEntryId, offset(now))
+            .update() == 1
 
     override fun insertExpectedIncome(expectedIncome: ExpectedIncome) {
         check(
