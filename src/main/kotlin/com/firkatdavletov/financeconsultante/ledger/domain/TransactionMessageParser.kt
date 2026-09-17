@@ -35,8 +35,12 @@ class TransactionMessageParser(
             }
 
             else -> {
-                val input = HORIZONTAL_SPACE.replace(text.trim(), " ").lowercase(Locale.ROOT)
-                if (input.startsWith('/')) parseCommand(input, today) else parseMessage(input, today)
+                val input = HORIZONTAL_SPACE.replace(text.trim(), " ")
+                if (input.startsWith('/')) {
+                    parseCommand(input, today)
+                } else {
+                    parseMessage(input.lowercase(Locale.ROOT), today)
+                }
             }
         }
 
@@ -44,13 +48,14 @@ class TransactionMessageParser(
         input: String,
         today: LocalDate,
     ): MessageParseResult {
-        val command = input.substringBefore(' ')
+        val command = input.substringBefore(' ').lowercase(Locale.ROOT)
         if (!COMMAND.matches(command)) return NeedsClarification(ClarificationReason.INVALID_FORMAT)
         val arguments = input.substringAfter(' ', "")
         return when (command) {
-            "/expense" -> parseDatedTransaction(arguments, today, Direction.EXPENSE)
-            "/income" -> parseDatedTransaction(arguments, today, Direction.INCOME)
-            else -> Command(command, arguments)
+            "/expense" -> parseDatedTransaction(arguments.lowercase(Locale.ROOT), today, Direction.EXPENSE)
+            "/income" -> parseDatedTransaction(arguments.lowercase(Locale.ROOT), today, Direction.INCOME)
+            in CASE_PRESERVING_COMMANDS -> Command(command, arguments)
+            else -> Command(command, arguments.lowercase(Locale.ROOT))
         }
     }
 
@@ -183,6 +188,7 @@ class TransactionMessageParser(
         private val SHORT_TRANSACTION = Regex("$CATEGORY $AMOUNT$CURRENCY")
         private val EXPLICIT_TRANSACTION = Regex("$AMOUNT$CURRENCY $CATEGORY")
         private val COMMAND = Regex("/[a-z][a-z0-9_]*")
+        private val CASE_PRESERVING_COMMANDS = setOf("/category_add", "/category_rename")
         private val HORIZONTAL_SPACE = Regex("[ \\t\\u00a0\\u202f]+")
         private val LINE_BREAK = Regex("[\\r\\n\\u000b\\u000c\\u0085\\u2028\\u2029]")
         private val PURCHASE_INTENT =

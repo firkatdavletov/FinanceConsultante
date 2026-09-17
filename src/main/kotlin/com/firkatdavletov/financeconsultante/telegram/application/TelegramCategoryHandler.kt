@@ -2,6 +2,7 @@ package com.firkatdavletov.financeconsultante.telegram.application
 
 import com.firkatdavletov.financeconsultante.ledger.application.CategoryManagement
 import com.firkatdavletov.financeconsultante.ledger.domain.CategoryKind
+import java.util.Locale
 import java.util.UUID
 
 @Suppress("MagicNumber") // Fixed command arities and a bounded page size.
@@ -15,6 +16,7 @@ class TelegramCategoryHandler(
         parts: List<String>,
     ): String {
         val id = parts.firstOrNull()?.let(::uuid)
+        val categoryKind = parts.firstOrNull()?.lowercase(Locale.ROOT)
         return when {
             name == "/categories" -> {
                 val page = page(parts) ?: return "Формат: /categories [страница]."
@@ -29,11 +31,11 @@ class TelegramCategoryHandler(
                     if (rows.size > (page + 1) * PAGE_SIZE) "\n/categories ${page + 1}" else ""
             }
 
-            name == "/category_add" && parts.size >= 2 && parts[0] in setOf("expense", "income") -> {
+            name == "/category_add" && parts.size >= 2 && categoryKind in setOf("expense", "income") -> {
                 categories.add(
                     ownerId,
                     parts.drop(1).joinToString(" "),
-                    if (parts[0] ==
+                    if (categoryKind ==
                         "income"
                     ) {
                         CategoryKind.INCOME
@@ -87,7 +89,7 @@ class TelegramCategoryHandler(
     companion object {
         private const val PAGE_SIZE = 10
         private const val MAX_PAGE = 100
-        private val UUID_PATTERN = Regex("[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}")
+        private val UUID_PATTERN = Regex("[A-Fa-f0-9]{8}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{12}")
         val COMMANDS =
             setOf(
                 "/categories",

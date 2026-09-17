@@ -220,6 +220,16 @@ class TransactionMessageParserTests {
         assertThat(parse(name)).isEqualTo(Command(name, ""))
     }
 
+    @Test
+    fun `category commands preserve display name case`() {
+        assertThat(parse("/CATEGORY_ADD EXPENSE Отдых и Развлечение"))
+            .isEqualTo(Command("/category_add", "EXPENSE Отдых и Развлечение"))
+        assertThat(parse("/category_rename 4B658BD3-A7D5-4A05-863A-4BF9C34376FA Походы в Кино"))
+            .isEqualTo(Command("/category_rename", "4B658BD3-A7D5-4A05-863A-4BF9C34376FA Походы в Кино"))
+        assertThat(parse("/HELP ПРОДУКТЫ"))
+            .isEqualTo(Command("/help", "продукты"))
+    }
+
     @ParameterizedTest
     @CsvSource(
         delimiter = '|',

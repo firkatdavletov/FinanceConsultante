@@ -185,18 +185,19 @@ class CategoryManagement(
         multiword: Boolean,
     ) = name.length in 1..MAX_NAME &&
         (if (multiword) CATEGORY_NAME else KEYWORD).matches(name) &&
-        name.split(' ').none(RESERVED::contains)
+        name.split(' ').none { it.lowercase(Locale.ROOT) in RESERVED }
 
     companion object {
         private const val MAX_ITEMS = 100
         private const val MAX_NAME = 50
-        private const val WORD = "[a-zа-яё]+(?:-[a-zа-яё]+)*"
-        private val CATEGORY_NAME = Regex("$WORD(?: $WORD)*")
-        private val KEYWORD = Regex(WORD)
+        private const val LOWERCASE_WORD = "[a-zа-яё]+(?:-[a-zа-яё]+)*"
+        private const val CATEGORY_WORD = "[A-Za-zА-Яа-яЁё]+(?:-[A-Za-zА-Яа-яЁё]+)*"
+        private val CATEGORY_NAME = Regex("$CATEGORY_WORD(?: $CATEGORY_WORD)*")
+        private val KEYWORD = Regex(LOWERCASE_WORD)
         private val RESERVED =
             setOf("сегодня", "вчера", "завтра", "купить", "покупать", "покупку", "покупке", "покупки")
         private const val NAME_HELP =
-            "Название: одно или несколько слов строчными русскими/латинскими буквами, " +
+            "Название: одно или несколько слов русскими/латинскими буквами, " +
                 "до 50 знаков; допустим дефис."
         private const val RULE_HELP =
             "Правило: одно слово строчными русскими/латинскими буквами, до 50 знаков; допустим дефис."

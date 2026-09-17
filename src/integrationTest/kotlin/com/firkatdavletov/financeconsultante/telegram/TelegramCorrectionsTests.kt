@@ -318,17 +318,19 @@ class TelegramCorrectionsTests
 
         @Test
         fun `multiword category can be created renamed and used for recording`() {
-            receive("/category_add expense Отдых и развлечение")
-            assertThat(reply()).contains("Категория создана: отдых и развлечение")
-            val category = category("отдых и развлечение")
+            receive("/category_add EXPENSE Отдых и Развлечение")
+            assertThat(reply()).contains("Категория создана: Отдых и Развлечение")
+            val category = category("Отдых и Развлечение")
 
             receive("Отдых и развлечение 1200")
             assertThat(latest().categoryId).isEqualTo(category)
 
-            receive("/category_rename $category Походы в кино")
+            receive("/category_rename $category Походы в Кино")
             assertThat(reply()).contains("Категория переименована")
             receive("Походы в кино 500")
             assertThat(latest().categoryId).isEqualTo(category)
+            receive("/categories")
+            assertThat(reply()).contains("Походы в Кино")
         }
 
         @Test
