@@ -129,13 +129,39 @@ class RestTelegramClient(
                 SendMessageRequest(
                     chatId,
                     text,
-                    buttons.takeIf { it.isNotEmpty() }?.let { rows ->
-                        InlineKeyboard(rows.chunked(2).map { row -> row.map { InlineButton(it.text, it.data) } })
-                    },
+                    keyboard(buttons),
                 ),
                 object : ParameterizedTypeReference<BotResponse<BotMessage>>() {},
             )
         return result.messageId?.takeIf { it > 0 } ?: throw TelegramFailure("invalid_message_id")
+    }
+
+    override fun editMessage(
+        chatId: Long,
+        messageId: Long,
+        text: String,
+        buttons: List<ReplyButton>,
+    ): Long {
+        require(chatId > 0 && messageId > 0 && text.isNotBlank() && text.length <= MAX_TEXT_LENGTH)
+        require(buttons.all { it.data.toByteArray(Charsets.UTF_8).size in 1..MAX_CALLBACK_BYTES })
+        val result =
+            request(
+                "editMessageText",
+                EditMessageRequest(chatId, messageId, text, keyboard(buttons) ?: InlineKeyboard(emptyList())),
+                object : ParameterizedTypeReference<BotResponse<BotMessage>>() {},
+            )
+        return result.messageId?.takeIf { it > 0 } ?: throw TelegramFailure("invalid_message_id")
+    }
+
+    private fun keyboard(buttons: List<ReplyButton>): InlineKeyboard? {
+        if (buttons.isEmpty()) return null
+        val rows =
+            if (buttons.all { it.row == null }) {
+                buttons.chunked(DEFAULT_BUTTONS_PER_ROW)
+            } else {
+                buttons.groupBy { it.row }.values.toList()
+            }
+        return InlineKeyboard(rows.map { row -> row.map { InlineButton(it.text, it.data) } })
     }
 
     @Suppress("SwallowedException")
@@ -236,6 +262,14 @@ class RestTelegramClient(
         @get:JsonProperty("reply_markup") val replyMarkup: InlineKeyboard? = null,
     )
 
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private data class EditMessageRequest(
+        @get:JsonProperty("chat_id") val chatId: Long,
+        @get:JsonProperty("message_id") val messageId: Long,
+        val text: String,
+        @get:JsonProperty("reply_markup") val replyMarkup: InlineKeyboard? = null,
+    )
+
     private data class InlineKeyboard(
         @get:JsonProperty("inline_keyboard") val rows: List<List<InlineButton>>,
     )
@@ -252,6 +286,7 @@ class RestTelegramClient(
         const val MAX_TEXT_LENGTH = 4096
         private const val MAX_MESSAGE_TIMESTAMP = 253402300799L
         private const val UPDATE_LIMIT = 100
+        private const val DEFAULT_BUTTONS_PER_ROW = 2
         private val PERMANENT_ERRORS =
             setOf(
                 HttpStatus.BAD_REQUEST,

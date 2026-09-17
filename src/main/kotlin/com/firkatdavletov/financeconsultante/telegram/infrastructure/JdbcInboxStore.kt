@@ -85,10 +85,13 @@ open class JdbcInboxStore(
         complete(message, botId, reply.text)
         jdbc
             .sql(
-                "UPDATE telegram_outbox SET buttons = :buttons::jsonb, callback_query_id = :query " +
+                "UPDATE telegram_outbox SET buttons = :buttons::jsonb, callback_query_id = :query, " +
+                    "delivery_method = :method, target_message_id = :target " +
                     "WHERE inbox_id = :inbox AND bot_id = :bot",
             ).param("buttons", ReplyButtonsJson.encode(reply.buttons))
             .param("query", message.callbackQueryId)
+            .param("method", reply.delivery.name)
+            .param("target", reply.targetMessageId)
             .param("inbox", message.id)
             .param("bot", botId)
             .update()

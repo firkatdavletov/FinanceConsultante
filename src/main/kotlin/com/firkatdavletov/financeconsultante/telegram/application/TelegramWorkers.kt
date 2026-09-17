@@ -68,6 +68,10 @@ open class TelegramInboxProcessor(
         val dialog = setup.dialog(message.ownerId)
         val current = setup.settings(message.ownerId)
         if (dialog.step == SetupStep.IDLE || message.kind != IncomingKind.MESSAGE) {
+            ledger.conversationInput(message)?.let { reply ->
+                inbox.completeReply(message, botId, reply)
+                return
+            }
             if (message.kind == IncomingKind.MESSAGE && recognition?.enqueueIfEligible(message, botId) == true) {
                 return
             }
@@ -143,7 +147,22 @@ class TelegramDeliveryWorker(
             }
         }
         try {
-            outbox.sent(delivery, client.sendMessage(delivery.ownerId, delivery.text, delivery.buttons))
+            val messageId =
+                when (delivery.method) {
+                    ReplyDelivery.SEND -> {
+                        client.sendMessage(delivery.ownerId, delivery.text, delivery.buttons)
+                    }
+
+                    ReplyDelivery.EDIT -> {
+                        client.editMessage(
+                            delivery.ownerId,
+                            checkNotNull(delivery.targetMessageId),
+                            delivery.text,
+                            delivery.buttons,
+                        )
+                    }
+                }
+            outbox.sent(delivery, messageId)
         } catch (failure: TelegramFailure) {
             outbox.failed(delivery, failure)
             logger.warn("Telegram reply delivery failed ({})", failure.code)

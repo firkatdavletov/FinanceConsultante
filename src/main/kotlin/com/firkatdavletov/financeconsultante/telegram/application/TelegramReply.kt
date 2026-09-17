@@ -7,12 +7,26 @@ import com.firkatdavletov.financeconsultante.ledger.domain.LedgerEntry
 data class ReplyButton(
     val text: String,
     val data: String,
+    val row: Int? = null,
 )
+
+enum class ReplyDelivery {
+    SEND,
+    EDIT,
+}
 
 data class TelegramReply(
     val text: String,
     val buttons: List<ReplyButton> = emptyList(),
-)
+    val delivery: ReplyDelivery = ReplyDelivery.SEND,
+    val targetMessageId: Long? = null,
+) {
+    init {
+        require((delivery == ReplyDelivery.EDIT) == (targetMessageId != null))
+    }
+
+    fun edit(messageId: Long): TelegramReply = copy(delivery = ReplyDelivery.EDIT, targetMessageId = messageId)
+}
 
 fun String.reply() = TelegramReply(this)
 

@@ -206,6 +206,7 @@ class TransactionMessageParser(
                 "аптека" to TransactionCategory.HEALTH,
                 "здоровье" to TransactionCategory.HEALTH,
                 "зарплата" to TransactionCategory.SALARY,
+                "другое" to TransactionCategory.OTHER,
             )
         private val CURRENCIES =
             mapOf(

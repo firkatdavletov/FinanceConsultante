@@ -65,7 +65,7 @@ class TelegramCorrectionsTests
             jdbc.execute(
                 "TRUNCATE openai_recognition_job, openai_daily_usage, transaction_draft, telegram_outbox, " +
                     "telegram_inbox, telegram_polling_state, " +
-                    "telegram_dialog RESTART IDENTITY",
+                    "telegram_category_dialog, telegram_dialog RESTART IDENTITY",
             )
             val ids = jdbc.queryForList("SELECT household_id FROM member WHERE telegram_user_id = ?", OWNER)
             ids.forEach { row ->
@@ -334,6 +334,63 @@ class TelegramCorrectionsTests
         }
 
         @Test
+        fun `category screens create rename and delete through one editable message`() {
+            receive("/categories")
+            assertThat(reply()).contains("Категории", "Продукты", "Здоровье", "Другое", "Зарплата")
+            assertThat(buttons()).contains("cats:add", "cats:view:")
+            assertThat(delivery()).containsEntry("delivery_method", "SEND")
+
+            callback("cats:add")
+            assertThat(reply()).contains("Введите название новой категории")
+            assertThat(delivery()).containsEntry("delivery_method", "EDIT").containsEntry("target_message_id", 73L)
+
+            receive("Спорт")
+            assertThat(reply()).contains("Выберите иконку", "Спорт")
+            assertThat(buttons()).contains("cats:newicon:SPORT")
+            assertThat(delivery()).containsEntry("delivery_method", "EDIT").containsEntry("target_message_id", 73L)
+
+            callback("cats:newicon:SPORT")
+            val sport = category("Спорт")
+            assertThat(
+                jdbc.queryForObject("SELECT icon_code FROM category WHERE id = ?", String::class.java, sport),
+            ).isEqualTo("SPORT")
+            callback("cats:view:$sport")
+            assertThat(reply()).contains("⚽ Спорт", "Расходов за сентябрь: 0 ₸", "Операций: 0")
+
+            callback("cats:rename:$sport")
+            assertThat(reply()).contains("Текущее название: Спорт", "Введите новое название")
+            receive("Фитнес")
+            assertThat(reply()).contains("⚽ Фитнес")
+            receive("фитнес 100")
+            val expense = latest()
+            assertThat(expense.categoryId).isEqualTo(sport)
+
+            callback("cats:view:$sport")
+            assertThat(reply()).contains("Расходов за сентябрь: 100 ₸", "Операций: 1")
+            callback("cats:delete:$sport")
+            assertThat(reply()).contains(
+                "Удалить категорию «⚽ Фитнес»?",
+                "Сами расходы удалены не будут",
+                "перенесены в категорию «Другое»",
+            )
+            callback("cats:delete_yes:$sport")
+
+            val other = category("Другое")
+            assertThat(latest().categoryId).isEqualTo(other)
+            assertThat(latest().version).isEqualTo(1)
+            assertThat(revisions(expense.id)).isEqualTo(2)
+            assertThat(
+                jdbc.queryForObject("SELECT archived FROM category WHERE id = ?", Boolean::class.java, sport),
+            ).isTrue()
+            receive("/history")
+            assertThat(reply()).contains("Другое: 100.00")
+
+            callback("cats:delete_yes:$sport")
+            assertThat(reply()).contains("Экран устарел")
+            assertThat(revisions(expense.id)).isEqualTo(2)
+        }
+
+        @Test
         fun `custom category draft survives clarification and archived target cannot be confirmed`() {
             receive("/category_add expense транспорт")
             val id = category("транспорт")
@@ -440,7 +497,17 @@ class TelegramCorrectionsTests
             ownerId: Long = OWNER,
         ) = IncomingUpdate(
             ++updateId,
-            IncomingMessage(ownerId, ownerId, "private", false, text, clock.instant(), kind, query),
+            IncomingMessage(
+                ownerId,
+                ownerId,
+                "private",
+                false,
+                text,
+                clock.instant(),
+                kind,
+                query,
+                messageId = if (kind == IncomingKind.CALLBACK) 73 else null,
+            ),
         )
 
         private fun accept(update: IncomingUpdate) {
@@ -458,6 +525,11 @@ class TelegramCorrectionsTests
                     "SELECT buttons::text FROM telegram_outbox ORDER BY id DESC LIMIT 1",
                     String::class.java,
                 ),
+            )
+
+        private fun delivery(): Map<String, Any?> =
+            jdbc.queryForMap(
+                "SELECT delivery_method, target_message_id FROM telegram_outbox ORDER BY id DESC LIMIT 1",
             )
 
         private fun latest(): LedgerEntry =

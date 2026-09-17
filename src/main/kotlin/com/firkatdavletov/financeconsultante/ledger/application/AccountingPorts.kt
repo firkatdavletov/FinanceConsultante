@@ -35,6 +35,11 @@ interface LedgerRepository {
         entryId: UUID,
     ): List<LedgerEntry>
 
+    fun findByCategory(
+        householdId: UUID,
+        categoryId: UUID,
+    ): List<LedgerEntry> = emptyList()
+
     /** Compare-and-set ledger and append its audit snapshot in the same transaction. */
     fun revise(
         entry: LedgerEntry,

@@ -46,7 +46,8 @@ data class TransactionCategory(
         val GROCERIES = TransactionCategory("GROCERIES", "Продукты", Direction.EXPENSE)
         val HEALTH = TransactionCategory("HEALTH", "Здоровье", Direction.EXPENSE)
         val SALARY = TransactionCategory("SALARY", "Зарплата", Direction.INCOME)
-        val entries = listOf(GROCERIES, HEALTH, SALARY)
+        val OTHER = TransactionCategory("OTHER", "Другое", Direction.EXPENSE)
+        val entries = listOf(GROCERIES, HEALTH, SALARY, OTHER)
     }
 }
 
@@ -59,7 +60,7 @@ enum class ClarificationReason(
     INVALID_FORMAT("Уточните одну операцию: /expense <сумма> [валюта] <категория> или /income в том же формате."),
     INVALID_AMOUNT("Сумма должна быть больше нуля, до двух дробных знаков и не больше 99 999 999 999 999 999,99."),
     UNSUPPORTED_CURRENCY("Поддерживаются только KZT/тенге и RUB/рубли."),
-    UNKNOWN_CATEGORY("Категория неизвестна. Доступные: /categories; новая: /category_add expense <название>."),
+    UNKNOWN_CATEGORY("Категория неизвестна. Откройте /categories, чтобы выбрать или добавить её."),
     CATEGORY_MISMATCH("Тип категории не соответствует операции. Проверьте /categories."),
     INVALID_DATE("Укажите действительную дату: ГГГГ-ММ-ДД, ДД.ММ.ГГГГ, сегодня или вчера."),
     FUTURE_DATE("Будущая операция требует планирования или уточнения; фактическое движение ещё не подтверждено."),

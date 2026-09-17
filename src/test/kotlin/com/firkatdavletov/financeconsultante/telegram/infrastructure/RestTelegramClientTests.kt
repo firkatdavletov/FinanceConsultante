@@ -1,5 +1,6 @@
 package com.firkatdavletov.financeconsultante.telegram.infrastructure
 
+import com.firkatdavletov.financeconsultante.telegram.application.ReplyButton
 import com.firkatdavletov.financeconsultante.telegram.application.TelegramFailure
 import com.firkatdavletov.financeconsultante.telegram.application.TelegramMenuRegistrar
 import com.github.tomakehurst.wiremock.WireMockServer
@@ -271,6 +272,42 @@ class RestTelegramClientTests {
         )
         assertThatThrownBy { client().sendMessage(555, "Действие", listOf(button.copy(data = "x".repeat(65)))) }
             .isInstanceOf(IllegalArgumentException::class.java)
+    }
+
+    @Test
+    fun `editMessageText targets the existing message and preserves explicit keyboard rows`() {
+        stub("editMessageText", """{"ok":true,"result":{"message_id":73}}""")
+        val buttons =
+            listOf(
+                ReplyButton("🍔 Еда", "cats:view:food", 0),
+                ReplyButton("🚕 Транспорт", "cats:view:transport", 1),
+                ReplyButton("◀️", "cats:list:0", 2),
+                ReplyButton("▶️", "cats:list:2", 2),
+            )
+
+        assertThat(client().editMessage(555, 73, "Категории", buttons)).isEqualTo(73)
+
+        server.verify(
+            postRequestedFor(urlEqualTo("/bot$token/editMessageText")).withRequestBody(
+                equalToJson(
+                    """
+                    {
+                      "chat_id":555,
+                      "message_id":73,
+                      "text":"Категории",
+                      "reply_markup":{"inline_keyboard":[
+                        [{"text":"🍔 Еда","callback_data":"cats:view:food"}],
+                        [{"text":"🚕 Транспорт","callback_data":"cats:view:transport"}],
+                        [
+                          {"text":"◀️","callback_data":"cats:list:0"},
+                          {"text":"▶️","callback_data":"cats:list:2"}
+                        ]
+                      ]}
+                    }
+                    """,
+                ),
+            ),
+        )
     }
 
     private fun client(timeout: Duration = Duration.ofSeconds(2)): RestTelegramClient {

@@ -9,7 +9,11 @@ internal object ReplyButtonsJson {
     fun encode(buttons: List<ReplyButton>): String =
         mapper.writeValueAsString(
             buttons.map {
-                mapOf("text" to it.text, "data" to it.data)
+                buildMap<String, Any> {
+                    put("text", it.text)
+                    put("data", it.data)
+                    it.row?.let { row -> put("row", row) }
+                }
             },
         )
 
@@ -19,6 +23,10 @@ internal object ReplyButtonsJson {
             .iterator()
             .asSequence()
             .map {
-                ReplyButton(it.get("text").asString(), it.get("data").asString())
+                ReplyButton(
+                    it.get("text").asString(),
+                    it.get("data").asString(),
+                    it.get("row")?.asInt(),
+                )
             }.toList()
 }

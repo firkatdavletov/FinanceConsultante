@@ -40,7 +40,8 @@ open class JdbcOutboxStore(
                 ORDER BY id LIMIT 1
                 ) AND next_attempt_at <= clock_timestamp()
                 AND (status = 'PENDING' OR lease_until <= clock_timestamp())
-                RETURNING id, owner_id, text, buttons, callback_query_id, report_job_id, member_id
+                RETURNING id, owner_id, text, buttons, callback_query_id, report_job_id, member_id,
+                    delivery_method, target_message_id
                 """.trimIndent(),
             ).param("bot", botId)
             .param("token", token)
@@ -58,6 +59,10 @@ open class JdbcOutboxStore(
                     row.getString("callback_query_id"),
                     row.getObject("report_job_id", UUID::class.java),
                     row.getObject("member_id", UUID::class.java),
+                    com.firkatdavletov.financeconsultante.telegram.application.ReplyDelivery.valueOf(
+                        row.getString("delivery_method"),
+                    ),
+                    row.getObject("target_message_id", Long::class.javaObjectType),
                 )
             }.optional()
             .orElse(null)

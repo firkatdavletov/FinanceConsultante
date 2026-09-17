@@ -5,6 +5,7 @@ import com.firkatdavletov.financeconsultante.ledger.application.HistoryItem
 import com.firkatdavletov.financeconsultante.ledger.application.LedgerInteractionRepository
 import com.firkatdavletov.financeconsultante.ledger.application.OwnedLedger
 import com.firkatdavletov.financeconsultante.ledger.domain.Category
+import com.firkatdavletov.financeconsultante.ledger.domain.CategoryIcon
 import com.firkatdavletov.financeconsultante.ledger.domain.CategoryKind
 import com.firkatdavletov.financeconsultante.ledger.domain.TransactionCategory
 import org.springframework.jdbc.core.simple.JdbcClient
@@ -56,6 +57,8 @@ class JdbcLedgerInteractionRepository(
                             row.getString("name"),
                             CategoryKind.valueOf(row.getString("kind")),
                             row.getBoolean("archived"),
+                            row.getString("dictionary_key"),
+                            CategoryIcon.valueOf(row.getString("icon_code")),
                         )
                     }.optional()
                     .orElse(null),
@@ -66,12 +69,19 @@ class JdbcLedgerInteractionRepository(
         jdbc
             .sql(
                 """
-                INSERT INTO category (id, household_id, name, kind, dictionary_key) VALUES (?, ?, ?, ?, ?)
-                ON CONFLICT (household_id, kind, name) DO UPDATE SET dictionary_key = EXCLUDED.dictionary_key
+                INSERT INTO category (id, household_id, name, kind, dictionary_key, icon_code) VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT (household_id, kind, name) DO UPDATE SET dictionary_key = EXCLUDED.dictionary_key,
+                    icon_code = CASE WHEN category.dictionary_key IS NULL THEN EXCLUDED.icon_code ELSE category.icon_code END
                 WHERE category.dictionary_key IS NULL OR category.dictionary_key = EXCLUDED.dictionary_key
                 """.trimIndent(),
-            ).params(UUID.randomUUID(), householdId, key.displayName, key.direction.categoryKind.name, key.name)
-            .update()
+            ).params(
+                UUID.randomUUID(),
+                householdId,
+                key.displayName,
+                key.direction.categoryKind.name,
+                key.name,
+                CategoryIcon.defaultFor(key.name).name,
+            ).update()
         return checkNotNull(findCategory(householdId, key))
     }
 
@@ -80,7 +90,7 @@ class JdbcLedgerInteractionRepository(
         key: TransactionCategory,
     ): Category? =
         jdbc
-            .sql("SELECT id, name, kind, archived FROM category WHERE household_id = ? AND dictionary_key = ?")
+            .sql("SELECT * FROM category WHERE household_id = ? AND dictionary_key = ?")
             .params(householdId, key.name)
             .query { row, _ ->
                 Category(
@@ -89,6 +99,8 @@ class JdbcLedgerInteractionRepository(
                     row.getString("name"),
                     CategoryKind.valueOf(row.getString("kind")),
                     row.getBoolean("archived"),
+                    row.getString("dictionary_key"),
+                    CategoryIcon.valueOf(row.getString("icon_code")),
                 )
             }.optional()
             .orElse(null)

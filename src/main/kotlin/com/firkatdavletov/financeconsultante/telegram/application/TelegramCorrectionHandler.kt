@@ -17,21 +17,31 @@ import java.time.DateTimeException
 import java.time.LocalDate
 import java.util.UUID
 
-@Suppress("ReturnCount", "MagicNumber") // Fixed command arities; invalid input exits without changing the ledger.
+@Suppress(
+    "ReturnCount",
+    "MagicNumber",
+    "TooManyFunctions",
+) // Fixed command arities and delegated category/correction state machines share this router.
 class TelegramCorrectionHandler(
     private val access: OwnerAccess,
     private val operations: LedgerOperations,
     private val corrections: EntryCorrections,
     private val categories: CategoryManagement,
     private val clock: Clock,
+    dialogs: CategoryDialogRepository? = null,
 ) {
-    private val categoryHandler = TelegramCategoryHandler(categories)
+    private val categoryHandler = TelegramCategoryHandler(categories, dialogs, clock)
+
+    fun categoryInput(message: InboxMessage): TelegramReply? = categoryHandler.input(message)
 
     fun callback(
         message: InboxMessage,
         botId: Long,
     ): TelegramReply {
         require(access.canProcess(message.ownerId, message.memberId)) { "Budget access denied" }
+        if (message.text.substringBefore(':') in TelegramCategoryHandler.CALLBACKS) {
+            return categoryHandler.callback(message, botId)
+        }
         val parts = message.text.split(':')
         if (parts.size != 3 || parts[0] !in CALLBACKS) return "Кнопка недоступна. /history".reply()
         val target = target(message.ownerId, parts.drop(1)) ?: return EntryCorrections.STALE.reply()
@@ -78,7 +88,7 @@ class TelegramCorrectionHandler(
             if (!owner.canManageHousehold) {
                 "Категориями и правилами управляет только OWNER.".reply()
             } else {
-                categoryHandler.handle(message.ownerId, command.name, parts).reply()
+                categoryHandler.handle(message.ownerId, command.name, parts)
             }
         } else {
             entryCommand(message, command.name, parts, botId)

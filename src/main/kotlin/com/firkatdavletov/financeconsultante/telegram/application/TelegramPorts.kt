@@ -94,6 +94,13 @@ interface TelegramClient {
         buttons: List<ReplyButton> = emptyList(),
     ): Long
 
+    fun editMessage(
+        chatId: Long,
+        messageId: Long,
+        text: String,
+        buttons: List<ReplyButton> = emptyList(),
+    ): Long = throw UnsupportedOperationException("Editing Telegram messages is not supported by this client")
+
     fun answerCallback(queryId: String)
 }
 
@@ -133,6 +140,8 @@ data class OutboxDelivery(
     val callbackQueryId: String? = null,
     val reportJobId: UUID? = null,
     val memberId: UUID? = null,
+    val method: ReplyDelivery = ReplyDelivery.SEND,
+    val targetMessageId: Long? = null,
 )
 
 data class OwnedSettings(

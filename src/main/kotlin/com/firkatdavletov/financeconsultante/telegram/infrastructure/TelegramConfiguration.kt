@@ -15,6 +15,7 @@ import com.firkatdavletov.financeconsultante.ledger.application.LedgerOperations
 import com.firkatdavletov.financeconsultante.ledger.application.TransactionDraftRepository
 import com.firkatdavletov.financeconsultante.recurring.application.RecurringExpenseAnalysisService
 import com.firkatdavletov.financeconsultante.recurring.application.RecurringPlanService
+import com.firkatdavletov.financeconsultante.telegram.application.CategoryDialogRepository
 import com.firkatdavletov.financeconsultante.telegram.application.InboxStore
 import com.firkatdavletov.financeconsultante.telegram.application.LedgerHandler
 import com.firkatdavletov.financeconsultante.telegram.application.OutboxStore
@@ -153,6 +154,7 @@ class TelegramStorageConfiguration {
         analyticsReports: AnalyticsReportService,
         forecasts: BudgetForecastService,
         purchaseAdvice: PurchaseAdviceService,
+        categoryDialogs: CategoryDialogRepository,
     ): LedgerHandler =
         TelegramLedgerHandler(
             access,
@@ -160,7 +162,7 @@ class TelegramStorageConfiguration {
             drafts,
             clock,
             categories,
-            TelegramCorrectionHandler(access, operations, corrections, categories, clock),
+            TelegramCorrectionHandler(access, operations, corrections, categories, clock, categoryDialogs),
             TelegramRecurringHandler(recurringPlans, clock, recurringAnalysis),
             TelegramGoalsHandler(savingsGoals, clock),
             budgetReports,

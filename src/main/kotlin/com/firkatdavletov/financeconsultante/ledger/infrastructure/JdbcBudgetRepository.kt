@@ -4,6 +4,7 @@ import com.firkatdavletov.financeconsultante.ledger.application.BudgetRepository
 import com.firkatdavletov.financeconsultante.ledger.domain.Account
 import com.firkatdavletov.financeconsultante.ledger.domain.BudgetSetup
 import com.firkatdavletov.financeconsultante.ledger.domain.Category
+import com.firkatdavletov.financeconsultante.ledger.domain.CategoryIcon
 import com.firkatdavletov.financeconsultante.ledger.domain.CategoryKind
 import com.firkatdavletov.financeconsultante.shared.domain.Money
 import org.springframework.jdbc.core.simple.JdbcClient
@@ -43,13 +44,16 @@ class JdbcBudgetRepository(
             ).update()
         setup.categories.forEach { category ->
             jdbc
-                .sql("INSERT INTO category (id, household_id, name, kind, archived) VALUES (?, ?, ?, ?, ?)")
-                .params(
+                .sql(
+                    "INSERT INTO category (id, household_id, name, kind, archived, icon_code) " +
+                        "VALUES (?, ?, ?, ?, ?, ?)",
+                ).params(
                     category.id,
                     category.householdId,
                     category.name,
                     category.kind.name,
                     category.archived,
+                    category.icon.name,
                 ).update()
         }
     }
@@ -93,6 +97,8 @@ class JdbcBudgetRepository(
                     row.getString("name"),
                     CategoryKind.valueOf(row.getString("kind")),
                     row.getBoolean("archived"),
+                    row.getString("dictionary_key"),
+                    CategoryIcon.valueOf(row.getString("icon_code")),
                 )
             }.optional()
             .orElse(null)

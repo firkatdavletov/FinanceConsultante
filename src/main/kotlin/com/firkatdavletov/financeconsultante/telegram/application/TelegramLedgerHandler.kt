@@ -19,6 +19,9 @@ import java.time.Clock
 import java.util.UUID
 
 interface LedgerHandler {
+    /** Consumes text required by an already active chat screen before optional AI routing. */
+    fun conversationInput(message: InboxMessage): TelegramReply? = null
+
     /** null leaves a settings command to SetupConversation. */
     fun handle(
         message: InboxMessage,
@@ -49,6 +52,9 @@ class TelegramLedgerHandler(
     private val family: TelegramFamilyHandler? = null,
 ) : LedgerHandler {
     private val draftHandler = TelegramDraftHandler(operations, drafts)
+
+    override fun conversationInput(message: InboxMessage): TelegramReply? =
+        if (message.kind == IncomingKind.MESSAGE) corrections.categoryInput(message) else null
 
     override fun recognized(
         message: InboxMessage,
@@ -95,6 +101,7 @@ class TelegramLedgerHandler(
                 corrections.callback(message, botId)
             }
         }
+        conversationInput(message)?.let { return it }
         val sentAt = message.sentAt
         val today = (sentAt ?: clock.instant()).atZone(LedgerOperations.ZONE).toLocalDate()
         val initial = TransactionMessageParser().parse(message.text, today)

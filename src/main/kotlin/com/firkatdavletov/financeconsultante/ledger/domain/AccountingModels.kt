@@ -50,6 +50,34 @@ enum class CategoryKind {
     EXPENSE,
 }
 
+enum class CategoryIcon(
+    val emoji: String,
+) {
+    FOOD("🍔"),
+    TRANSPORT("🚕"),
+    HOME("🏠"),
+    CLOTHES("👕"),
+    HEALTH("💊"),
+    ENTERTAINMENT("🎬"),
+    SPORT("⚽"),
+    EDUCATION("🎓"),
+    TRAVEL("✈️"),
+    PETS("🐾"),
+    INCOME("💰"),
+    OTHER("📦"),
+    ;
+
+    companion object {
+        fun defaultFor(dictionaryKey: String): CategoryIcon =
+            when (dictionaryKey) {
+                "GROCERIES" -> FOOD
+                "HEALTH" -> HEALTH
+                "SALARY" -> INCOME
+                else -> OTHER
+            }
+    }
+}
+
 data class Category(
     val id: UUID,
     val householdId: UUID,
@@ -57,6 +85,7 @@ data class Category(
     val kind: CategoryKind,
     val archived: Boolean = false,
     val dictionaryKey: String? = null,
+    val icon: CategoryIcon = CategoryIcon.OTHER,
 ) {
     init {
         require(name.isNotBlank() && name.length <= MAX_NAME_LENGTH) { "Invalid category name" }

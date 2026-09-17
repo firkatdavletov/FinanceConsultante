@@ -36,6 +36,18 @@ class JdbcLedgerRepository(
             .query(LedgerRowMapper)
             .list()
 
+    override fun findByCategory(
+        householdId: UUID,
+        categoryId: UUID,
+    ): List<LedgerEntry> =
+        jdbc
+            .sql(
+                "$SELECT_ENTRY WHERE l.household_id = ? AND l.category_id = ? AND l.status = 'POSTED' " +
+                    "ORDER BY l.history_sequence FOR UPDATE OF l",
+            ).params(householdId, categoryId)
+            .query(LedgerRowMapper)
+            .list()
+
     @Transactional(propagation = Propagation.MANDATORY)
     override fun revise(
         entry: LedgerEntry,
