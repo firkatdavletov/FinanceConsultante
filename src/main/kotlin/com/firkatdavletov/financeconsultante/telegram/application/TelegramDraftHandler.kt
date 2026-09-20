@@ -5,6 +5,7 @@ import com.firkatdavletov.financeconsultante.ledger.application.LedgerOperations
 import com.firkatdavletov.financeconsultante.ledger.application.OwnedLedger
 import com.firkatdavletov.financeconsultante.ledger.application.ProposalCheck
 import com.firkatdavletov.financeconsultante.ledger.application.TransactionDraftRepository
+import com.firkatdavletov.financeconsultante.ledger.domain.CategoryIcon
 import com.firkatdavletov.financeconsultante.ledger.domain.CategoryKind
 import com.firkatdavletov.financeconsultante.ledger.domain.Direction
 import com.firkatdavletov.financeconsultante.ledger.domain.DraftState
@@ -58,6 +59,9 @@ internal class TelegramDraftHandler(
         DraftCategoryCallbacks.parseSelection(message.text)?.let { target ->
             return selectCategory(message.ownerId, owner, botId, target)
         }
+        DraftCategoryCallbacks.parseNewCategory(message.text)?.let { target ->
+            return beginNewCategory(owner, botId, target)
+        }
         val match = DRAFT_CALLBACK.matchEntire(message.text) ?: return "Кнопка черновика недоступна. /draft".reply()
         val id = UUID.fromString(match.groupValues[2])
         val version = match.groupValues[3].toLongOrNull() ?: return "Кнопка черновика недоступна. /draft".reply()
@@ -66,6 +70,41 @@ internal class TelegramDraftHandler(
             "dx" -> cancel(owner, botId, id, version)
             else -> show(owner, botId, id, version)
         }
+    }
+
+    @Suppress("ReturnCount") // Only the one persisted category-name dialog may consume ordinary text.
+    fun categoryNameInput(
+        message: InboxMessage,
+        botId: Long,
+    ): TelegramReply? {
+        val owner = operations.owned(message.ownerId) ?: return null
+        val draft =
+            drafts.active(owner, botId).singleOrNull { it.state == DraftState.NEEDS_CATEGORY_NAME } ?: return null
+        if (message.text.startsWith('/')) {
+            if (message.text.trim().equals("/cancel", ignoreCase = true)) {
+                drafts.save(owner, botId, draft.cancel())
+                return "Операция отменена. Баланс не изменён.".reply()
+            }
+            drafts.save(
+                owner,
+                botId,
+                draft.revise(draft.proposal, DraftState.NEEDS_CATEGORY, MANUAL_CATEGORY_REASON),
+            )
+            return null
+        }
+        val name = message.text.trim()
+        categories.nameError(message.ownerId, name)?.let { error ->
+            return newCategoryPrompt(draft, error)
+        }
+        val category =
+            categories.createExpense(message.ownerId, name, CategoryIcon.OTHER)
+                ?: return newCategoryPrompt(draft, "Не удалось создать категорию. Введите другое название.")
+        val proposal = checkNotNull(draft.proposal)
+        val categorized =
+            proposal.copy(
+                category = TransactionCategory(category.id.toString(), category.name, proposal.direction, category.id),
+            )
+        return recordSelection(owner, botId, draft, categorized)
     }
 
     @Suppress("ReturnCount") // The no-argument shortcut is valid only for one unambiguous active draft.
@@ -101,7 +140,7 @@ internal class TelegramDraftHandler(
         }
         if (draft.state == DraftState.CANCELLED) return "Черновик уже отменён. Баланс не изменён.".reply()
         if (draft.version != version) return LedgerMessages.draft(draft, "Подтверждение устарело. Актуальные данные:")
-        if (draft.state == DraftState.NEEDS_INPUT) {
+        if (draft.state !in setOf(DraftState.READY, DraftState.WAITING_RATE)) {
             return LedgerMessages.draft(draft, "Черновик нужно уточнить перед записью.")
         }
         val proposal = checkNotNull(draft.proposal)
@@ -115,24 +154,29 @@ internal class TelegramDraftHandler(
             is ProposalCheck.Ready -> {
                 val entry = operations.record(checked).entry
                 val learned =
-                    draft.recognizedByAi &&
-                        categories.learnRule(owner, entry.id, entry.version, draft.categoryAlias)
+                    categories.learnRule(owner, entry.id, entry.version, draft.categoryAlias)
                 drafts.save(owner, botId, draft.confirm(entry.id))
                 recorded(entry, proposal.category.displayName, draft.categoryAlias, learned)
             }
         }
     }
 
-    @Suppress("ReturnCount") // The shown page is tied to one active AI draft version.
+    @Suppress("LongMethod", "ReturnCount") // Validation and the two-column keyboard form one screen response.
     private fun categoryPage(
         ownerId: Long,
         owner: OwnedLedger,
         botId: Long,
         target: DraftCategoryPage,
     ): TelegramReply {
-        val draft = drafts.find(owner, botId, target.draftId) ?: return "Черновик недоступен. /draft".reply()
-        if (!draft.active || !draft.recognizedByAi) return "Выбор категории уже недоступен. /draft".reply()
+        var draft = drafts.find(owner, botId, target.draftId) ?: return "Черновик недоступен. /draft".reply()
+        if (!draft.active || (!draft.recognizedByAi && !draft.requiresCategory)) {
+            return "Выбор категории уже недоступен. /draft".reply()
+        }
         if (draft.version != target.version) return LedgerMessages.draft(draft, "Кнопка устарела. Актуальные данные:")
+        if (draft.state == DraftState.NEEDS_CATEGORY_NAME) {
+            draft = draft.revise(draft.proposal, DraftState.NEEDS_CATEGORY, MANUAL_CATEGORY_REASON)
+            drafts.save(owner, botId, draft)
+        }
         val direction = checkNotNull(draft.proposal).direction
         val available =
             categories
@@ -172,7 +216,17 @@ internal class TelegramDraftHandler(
                         ),
                     )
                 }
-                add(ReplyButton("❌ Отменить операцию", "dx:${draft.id}:${draft.version}", navigationRow + 1))
+                var actionRow = navigationRow + 1
+                if (owner.canManageHousehold && direction == Direction.EXPENSE) {
+                    add(
+                        ReplyButton(
+                            "➕ Новая категория",
+                            DraftCategoryCallbacks.newCategory(draft.id, draft.version),
+                            actionRow++,
+                        ),
+                    )
+                }
+                add(ReplyButton("❌ Отменить операцию", "dx:${draft.id}:${draft.version}", actionRow))
             }
         return TelegramReply(
             "Выберите категорию для операции. Страница ${target.page + 1} из $pages.",
@@ -192,7 +246,7 @@ internal class TelegramDraftHandler(
             return "Уже записано: ${draft.entryId}. Повторного изменения баланса нет.".reply()
         }
         if (draft.state == DraftState.CANCELLED) return "Черновик уже отменён. Баланс не изменён.".reply()
-        if (!draft.recognizedByAi || draft.version != target.version) {
+        if ((!draft.recognizedByAi && !draft.requiresCategory) || draft.version != target.version) {
             return LedgerMessages.draft(draft, "Выбор категории устарел. Актуальные данные:")
         }
         val selected =
@@ -207,6 +261,26 @@ internal class TelegramDraftHandler(
                 category = TransactionCategory(selected.id.toString(), selected.name, proposal.direction, selected.id),
             )
         return recordSelection(owner, botId, draft, revised)
+    }
+
+    @Suppress("ReturnCount") // Creating a category is allowed only for an active owned expense draft.
+    private fun beginNewCategory(
+        owner: OwnedLedger,
+        botId: Long,
+        target: DraftNewCategory,
+    ): TelegramReply {
+        val draft = drafts.find(owner, botId, target.draftId) ?: return "Черновик недоступен. /draft".reply()
+        val selectionUnavailable = !draft.active || (!draft.recognizedByAi && !draft.requiresCategory)
+        if (selectionUnavailable || draft.version != target.version) {
+            return LedgerMessages.draft(draft, "Кнопка устарела. Актуальные данные:")
+        }
+        val proposal = checkNotNull(draft.proposal)
+        if (!owner.canManageHousehold || proposal.direction != Direction.EXPENSE) {
+            return LedgerMessages.draft(draft, "Новые категории может создавать только OWNER.")
+        }
+        val revised = draft.revise(proposal, DraftState.NEEDS_CATEGORY_NAME, "Введите название новой категории.")
+        drafts.save(owner, botId, revised)
+        return newCategoryPrompt(revised)
     }
 
     private fun recordSelection(
@@ -225,10 +299,29 @@ internal class TelegramDraftHandler(
             is ProposalCheck.Ready -> {
                 val entry = operations.record(checked).entry
                 val learned = categories.learnRule(owner, entry.id, entry.version, draft.categoryAlias)
-                drafts.save(owner, botId, draft.copy(proposal = proposal).confirm(entry.id))
+                drafts.save(owner, botId, draft.confirm(entry.id, proposal))
                 recorded(entry, proposal.category.displayName, draft.categoryAlias, learned)
             }
         }
+
+    private fun newCategoryPrompt(
+        draft: TransactionDraft,
+        error: String? = null,
+    ): TelegramReply =
+        TelegramReply(
+            listOfNotNull(
+                error,
+                "Введите название новой категории одним сообщением. После ввода категория и расход будут сохранены.",
+            ).joinToString("\n\n"),
+            listOf(
+                ReplyButton(
+                    "◀️ Выбрать существующую",
+                    DraftCategoryCallbacks.page(draft.id, draft.version, 0),
+                    0,
+                ),
+                ReplyButton("❌ Отменить операцию", "dx:${draft.id}:${draft.version}", 1),
+            ),
+        )
 
     private fun recorded(
         entry: com.firkatdavletov.financeconsultante.ledger.domain.LedgerEntry,
@@ -327,7 +420,8 @@ internal class TelegramDraftHandler(
 
     companion object {
         val COMMANDS = setOf("/draft", "/confirm", "/cancel")
-        val CALLBACKS = setOf("dc", "dx", "du", "dcp", "dcs")
+        val CALLBACKS = setOf("dc", "dx", "du", "dcp", "dcs", "dcn")
+        private const val MANUAL_CATEGORY_REASON = "Не удалось определить категорию автоматически."
         private const val CATEGORY_PAGE_SIZE = 10
         private const val CATEGORY_COLUMNS = 2
         private const val UUID_PATTERN = "[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}"

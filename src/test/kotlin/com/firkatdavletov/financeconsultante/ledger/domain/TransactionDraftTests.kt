@@ -63,11 +63,7 @@ class TransactionDraftTests {
     }
 
     @Test
-    fun `category alias belongs only to an AI recognized draft`() {
-        assertThatThrownBy {
-            draft.copy(categoryAlias = "автобус")
-        }.isInstanceOf(IllegalArgumentException::class.java)
-
+    fun `category alias is retained for AI and manual category drafts`() {
         val recognized =
             draft.copy(
                 state = DraftState.READY,
@@ -77,5 +73,32 @@ class TransactionDraftTests {
             )
         assertThat(recognized.revise(proposal, DraftState.READY, "Подтвердите").categoryAlias)
             .isEqualTo("автобус")
+
+        val manual =
+            draft.copy(
+                state = DraftState.NEEDS_CATEGORY,
+                proposal = proposal,
+                categoryAlias = "стиральный порошок",
+            )
+        assertThat(manual.recognizedByAi).isFalse()
+        assertThat(manual.requiresCategory).isTrue()
+        assertThat(manual.confirm(UUID.randomUUID(), proposal).state).isEqualTo(DraftState.CONFIRMED)
+    }
+
+    @Test
+    fun `manual category state requires a proposal and normalized alias`() {
+        assertThatThrownBy {
+            draft.copy(state = DraftState.NEEDS_CATEGORY)
+        }.isInstanceOf(IllegalArgumentException::class.java)
+        assertThatThrownBy {
+            draft.copy(state = DraftState.NEEDS_CATEGORY, proposal = proposal)
+        }.isInstanceOf(IllegalArgumentException::class.java)
+        assertThatThrownBy {
+            draft.copy(
+                state = DraftState.NEEDS_CATEGORY,
+                proposal = proposal,
+                categoryAlias = "Стиральный порошок",
+            )
+        }.isInstanceOf(IllegalArgumentException::class.java)
     }
 }

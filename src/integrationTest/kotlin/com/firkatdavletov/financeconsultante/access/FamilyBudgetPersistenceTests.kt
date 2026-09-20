@@ -148,7 +148,7 @@ class FamilyBudgetPersistenceTests
             assertThat(reply(MEMBER)).contains("только OWNER")
             assertThat(families.configureReports(MEMBER, MEMBER, enabled = true))
                 .isInstanceOf(FamilyChange.Rejected::class.java)
-            receive(OWNER, "кофе 5")
+            receive(OWNER, "продукты 1.001")
             receive(OWNER, "продукты 5")
             val ownerDraft =
                 checkNotNull(

@@ -172,7 +172,5 @@ class OpenAiRecognitionWorker(
         return RecognitionRunResult.FALLBACK
     }
 
-    private fun fallbackReply(job: RecognitionJob) =
-        ledger.handle(job.message, job.botId)
-            ?: error("An OpenAI-routed message must have a local fallback")
+    private fun fallbackReply(job: RecognitionJob) = ledger.recognitionFallback(job.message, job.botId)
 }

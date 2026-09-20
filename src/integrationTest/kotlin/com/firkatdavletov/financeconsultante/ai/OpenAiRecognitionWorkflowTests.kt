@@ -87,24 +87,10 @@ class OpenAiRecognitionWorkflowTests
         @BeforeEach
         fun reset() {
             jdbc.execute(
-                "TRUNCATE openai_recognition_job, openai_daily_usage, transaction_draft, telegram_outbox, " +
-                    "telegram_inbox, telegram_polling_state, telegram_dialog RESTART IDENTITY",
+                "TRUNCATE telegram_entry_correction_dialog, telegram_category_dialog, openai_recognition_job, " +
+                    "openai_daily_usage, transaction_draft, telegram_outbox, telegram_inbox, " +
+                    "telegram_polling_state, telegram_dialog, household RESTART IDENTITY CASCADE",
             )
-            val households = jdbc.queryForList("SELECT household_id FROM member WHERE telegram_user_id = ?", OWNER)
-            households.forEach { row ->
-                val id = row.getValue("household_id")
-                for (table in listOf(
-                    "category_rule",
-                    "entry_revision",
-                    "ledger_entry",
-                    "category",
-                    "account",
-                    "member",
-                )) {
-                    jdbc.update("DELETE FROM $table WHERE household_id = ?", id)
-                }
-                jdbc.update("DELETE FROM household WHERE id = ?", id)
-            }
             tx.executeWithoutResult {
                 setup.saveSettings(
                     OWNER,
@@ -320,8 +306,21 @@ class OpenAiRecognitionWorkflowTests
         }
 
         @Test
-        fun `invalid model fields fall back without changing ledger`() {
-            receive("Вчера потратил 700 на продукты")
+        fun `unknown category opens manual picker when OpenAI is disabled`() {
+            val localProcessor = TelegramInboxProcessor(inbox, setup, access, clock, ledger)
+
+            receive("Автобус 500", localProcessor)
+
+            assertThat(count("openai_recognition_job")).isZero()
+            assertThat(count("ledger_entry")).isZero()
+            assertThat(value("SELECT state FROM transaction_draft", String::class.java)).isEqualTo("NEEDS_CATEGORY")
+            assertThat(latestButtons()).contains("dcp:", "dx:").doesNotContain("du:", "dc:")
+        }
+
+        @Test
+        @Suppress("LongMethod") // Covers the complete fallback, creation, recording, and learned-alias path.
+        fun `invalid AI category opens manual picker and a new category records the expense`() {
+            receive("Стиральный порошок 9656")
             val unknownCategory = UUID.randomUUID().toString()
             val invalidProvider =
                 TransactionRecognitionProvider {
@@ -330,11 +329,11 @@ class OpenAiRecognitionWorkflowTests
                             RecognitionCandidate(
                                 RecognitionIntent.RECORD_TRANSACTION,
                                 RecognitionOperationType.EXPENSE,
-                                "700",
+                                "9656",
                                 RecognitionCurrency.KZT,
                                 unknownCategory,
-                                "2026-09-05",
-                                "Injected category",
+                                "2026-09-06",
+                                "стиральный порошок",
                                 false,
                             ),
                             "req_invalid",
@@ -346,14 +345,49 @@ class OpenAiRecognitionWorkflowTests
                 }
             assertThat(worker(invalidProvider).runOnce()).isEqualTo(RecognitionRunResult.FALLBACK)
             assertThat(count("ledger_entry")).isZero()
+            assertThat(
+                jdbc.queryForMap(
+                    "SELECT state, amount::text, category_alias, recognized_by_ai FROM transaction_draft",
+                ),
+            ).containsEntry("state", "NEEDS_CATEGORY")
+                .containsEntry("amount", "9656.00")
+                .containsEntry("category_alias", "стиральный порошок")
+                .containsEntry("recognized_by_ai", false)
+            assertThat(reply()).contains("категория не выбрана", "Выберите существующую категорию")
+            assertThat(latestButtons()).contains("dcp:", "dx:").doesNotContain("du:", "dc:")
             assertThat(value("SELECT status FROM openai_recognition_job", String::class.java)).isEqualTo("FAILED")
             assertThat(value("SELECT last_error_code FROM openai_recognition_job", String::class.java))
                 .isEqualTo("validation_category")
+
+            receiveCallback(categoryPageActionByAlias("стиральный порошок"))
+            assertThat(reply()).contains("Выберите категорию")
+            assertThat(latestButtons()).contains("dcs:", "dcn:", "➕ Новая категория")
+
+            receiveCallback(newCategoryAction("стиральный порошок"))
+            assertThat(reply()).contains("Введите название новой категории", "сохранены")
+            receive("Бытовая химия")
+
+            assertThat(reply()).contains("Записано", "9656.00 KZT", "Бытовая химия", "Правило запомнено")
+            assertThat(count("ledger_entry")).isEqualTo(1)
+            assertThat(
+                value(
+                    "SELECT category.name FROM ledger_entry JOIN category ON category.id = ledger_entry.category_id",
+                    String::class.java,
+                ),
+            ).isEqualTo("Бытовая химия")
+            assertThat(
+                value("SELECT keyword FROM category_rule", String::class.java),
+            ).isEqualTo("стиральный порошок")
+
+            val recognitionJobs = count("openai_recognition_job")
+            receive("Стиральный порошок 500")
+            assertThat(count("openai_recognition_job")).isEqualTo(recognitionJobs)
+            assertThat(count("ledger_entry")).isEqualTo(2)
         }
 
         @Test
-        fun `provider timeout falls back without changing ledger`() {
-            receive("Оплатил кружок 800")
+        fun `provider timeout opens manual category picker without changing ledger`() {
+            receive("Кружок 800")
 
             assertThat(
                 worker(TransactionRecognitionProvider { RecognitionResponse.Failure("timeout", 50) }).runOnce(),
@@ -366,6 +400,41 @@ class OpenAiRecognitionWorkflowTests
                     Long::class.java,
                 ),
             ).isEqualTo(1)
+            assertThat(value("SELECT state FROM transaction_draft", String::class.java)).isEqualTo("NEEDS_CATEGORY")
+            assertThat(latestButtons()).contains("dcp:", "dx:").doesNotContain("du:", "dc:")
+        }
+
+        @Test
+        fun `AI clarification opens manual category picker without changing ledger`() {
+            receive("Автобус 500")
+            val provider =
+                TransactionRecognitionProvider {
+                    RecognitionResponse.Success(
+                        RecognitionObservation(
+                            RecognitionCandidate(
+                                RecognitionIntent.UNKNOWN,
+                                RecognitionOperationType.UNKNOWN,
+                                "500",
+                                RecognitionCurrency.KZT,
+                                "",
+                                "2026-09-06",
+                                "",
+                                true,
+                            ),
+                            "req_clarification",
+                            "resp_clarification",
+                            RecognitionUsage(20, 10),
+                            5,
+                        ),
+                    )
+                }
+
+            assertThat(worker(provider).runOnce()).isEqualTo(RecognitionRunResult.FALLBACK)
+            assertThat(count("ledger_entry")).isZero()
+            assertThat(value("SELECT state FROM transaction_draft", String::class.java)).isEqualTo("NEEDS_CATEGORY")
+            assertThat(value("SELECT last_error_code FROM openai_recognition_job", String::class.java))
+                .isEqualTo("validation_needs_clarification")
+            assertThat(latestButtons()).contains("dcp:", "dx:").doesNotContain("du:", "dc:")
         }
 
         @Test
@@ -429,11 +498,14 @@ class OpenAiRecognitionWorkflowTests
             dailyLimit,
         )
 
-        private fun receive(text: String) {
+        private fun receive(
+            text: String,
+            targetProcessor: TelegramInboxProcessor = processor,
+        ) {
             val lease = checkNotNull(polls.claim(BOT))
             val message = IncomingMessage(OWNER, OWNER, "private", false, text, clock.instant())
             assertThat(polls.accept(lease, listOf(IncomingUpdate(++updateId, message)), access)).isTrue()
-            assertThat(tx.execute { processor.processOne(BOT) }).isTrue()
+            assertThat(tx.execute { targetProcessor.processOne(BOT) }).isTrue()
         }
 
         private fun receiveCallback(data: String) {
@@ -472,6 +544,16 @@ class OpenAiRecognitionWorkflowTests
             return "dcp:${compact(draft.first)}:${draft.second}:0"
         }
 
+        private fun categoryPageActionByAlias(alias: String): String {
+            val draft = draftByAlias(alias)
+            return "dcp:${compact(draft.first)}:${draft.second}:0"
+        }
+
+        private fun newCategoryAction(alias: String): String {
+            val draft = draftByAlias(alias)
+            return "dcn:${compact(draft.first)}:${draft.second}"
+        }
+
         private fun categorySelectionAction(
             draftCategory: String,
             selectedCategory: String,
@@ -494,6 +576,15 @@ class OpenAiRecognitionWorkflowTests
                     "SELECT id, version FROM transaction_draft WHERE category_name = ?",
                     { row, _ -> row.getObject("id", UUID::class.java) to row.getLong("version") },
                     category,
+                ),
+            )
+
+        private fun draftByAlias(alias: String): Pair<UUID, Long> =
+            checkNotNull(
+                jdbc.queryForObject(
+                    "SELECT id, version FROM transaction_draft WHERE category_alias = ?",
+                    { row, _ -> row.getObject("id", UUID::class.java) to row.getLong("version") },
+                    alias,
                 ),
             )
 

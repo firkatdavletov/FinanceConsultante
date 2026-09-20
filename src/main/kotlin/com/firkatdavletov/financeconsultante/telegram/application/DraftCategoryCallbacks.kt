@@ -16,6 +16,11 @@ internal data class DraftCategorySelection(
     val categoryId: UUID,
 )
 
+internal data class DraftNewCategory(
+    val draftId: UUID,
+    val version: Long,
+)
+
 internal object DraftCategoryCallbacks {
     fun page(
         draftId: UUID,
@@ -28,6 +33,11 @@ internal object DraftCategoryCallbacks {
         version: Long,
         categoryId: UUID,
     ): String = "dcs:${encode(draftId)}:$version:${encode(categoryId)}"
+
+    fun newCategory(
+        draftId: UUID,
+        version: Long,
+    ): String = "dcn:${encode(draftId)}:$version"
 
     @Suppress("ReturnCount") // Every compact callback field is independently untrusted.
     fun parsePage(value: String): DraftCategoryPage? {
@@ -46,6 +56,15 @@ internal object DraftCategoryCallbacks {
             decode(match.groupValues[1]) ?: return null,
             match.groupValues[2].toLongOrNull() ?: return null,
             decode(match.groupValues[LAST_VALUE_GROUP]) ?: return null,
+        )
+    }
+
+    @Suppress("ReturnCount") // Both compact callback fields are independently untrusted.
+    fun parseNewCategory(value: String): DraftNewCategory? {
+        val match = NEW_CATEGORY.matchEntire(value) ?: return null
+        return DraftNewCategory(
+            decode(match.groupValues[1]) ?: return null,
+            match.groupValues[2].toLongOrNull() ?: return null,
         )
     }
 
@@ -75,4 +94,5 @@ internal object DraftCategoryCallbacks {
     private const val COMPACT_UUID = "[A-Za-z0-9_-]{22}"
     private val PAGE = Regex("dcp:($COMPACT_UUID):([0-9]+):([0-9]+)")
     private val SELECTION = Regex("dcs:($COMPACT_UUID):([0-9]+):($COMPACT_UUID)")
+    private val NEW_CATEGORY = Regex("dcn:($COMPACT_UUID):([0-9]+)")
 }

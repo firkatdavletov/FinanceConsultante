@@ -38,6 +38,11 @@ class TelegramCorrectionHandler(
         botId: Long,
     ): TelegramReply? = amountInput(message, botId) ?: categoryHandler.input(message)
 
+    fun clearConversations(ownerId: Long) {
+        entryDialogs?.clear(ownerId)
+        categoryDialogs?.clear(ownerId)
+    }
+
     fun callback(
         message: InboxMessage,
         botId: Long,

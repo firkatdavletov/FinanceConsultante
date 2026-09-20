@@ -80,15 +80,35 @@ object LedgerMessages {
         buildString {
             append("Черновик ${draft.id}, версия ${draft.version}.\n")
             draft.proposal?.let {
-                append(if (draft.recognizedByAi) "AI предложил: " else "")
-                append("${it.occurredOn}: ${it.category.displayName}, ${money(it.amount)}.\n")
+                if (draft.requiresCategory) {
+                    append("${it.occurredOn}: ${money(it.amount)}, категория не выбрана.\n")
+                } else {
+                    append(if (draft.recognizedByAi) "AI предложил: " else "")
+                    append("${it.occurredOn}: ${it.category.displayName}, ${money(it.amount)}.\n")
+                }
             }
             append(draft.reason)
-            if (draft.state == DraftState.READY || draft.state == DraftState.WAITING_RATE) {
-                val action = if (draft.recognizedByAi) "Подтвердить" else "Записать"
-                append("\nНажмите «$action» или используйте: /confirm ${draft.id} ${draft.version}")
-            } else {
-                append("\nНажмите «Уточнить» и отправьте одну операцию целиком.")
+            when (draft.state) {
+                DraftState.READY, DraftState.WAITING_RATE -> {
+                    val action = if (draft.recognizedByAi) "Подтвердить" else "Записать"
+                    append("\nНажмите «$action» или используйте: /confirm ${draft.id} ${draft.version}")
+                }
+
+                DraftState.NEEDS_CATEGORY -> {
+                    append("\nВыберите существующую категорию или создайте новую.")
+                }
+
+                DraftState.NEEDS_CATEGORY_NAME -> {
+                    append("\nВведите название новой категории одним сообщением.")
+                }
+
+                DraftState.NEEDS_INPUT -> {
+                    append("\nНажмите «Уточнить» и отправьте одну операцию целиком.")
+                }
+
+                DraftState.CONFIRMED, DraftState.CANCELLED -> {
+                    Unit
+                }
             }
             append("\nОтменить этот черновик: /cancel ${draft.id} ${draft.version}")
         }
@@ -100,18 +120,21 @@ object LedgerMessages {
         val suffix = "${draft.id}:${draft.version}"
         val label = number?.let { " $it" } ?: ""
         val actions = mutableListOf<ReplyButton>()
-        if (draft.recognizedByAi && draft.active) {
+        if (
+            draft.state == DraftState.NEEDS_CATEGORY ||
+            (draft.recognizedByAi && draft.state in setOf(DraftState.READY, DraftState.WAITING_RATE))
+        ) {
             actions +=
                 ReplyButton(
                     "🗂 Выбрать категорию$label",
                     DraftCategoryCallbacks.page(draft.id, draft.version, 0),
                 )
         }
-        if (draft.state != DraftState.NEEDS_INPUT) {
+        if (draft.state == DraftState.READY || draft.state == DraftState.WAITING_RATE) {
             val text = if (draft.recognizedByAi) "✅ Подтвердить$label" else "✅ Записать$label"
             actions += ReplyButton(text, "dc:$suffix")
         }
-        if (!draft.recognizedByAi) {
+        if (draft.state == DraftState.NEEDS_INPUT) {
             actions += ReplyButton("✏️ Уточнить$label", "du:$suffix")
         }
         actions += ReplyButton("❌ Отменить операцию$label", "dx:$suffix")

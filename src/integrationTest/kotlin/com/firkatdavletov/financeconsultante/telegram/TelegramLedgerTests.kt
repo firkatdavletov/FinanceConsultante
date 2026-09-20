@@ -176,7 +176,7 @@ class TelegramLedgerTests
 
         @Test
         fun `persistent clarification requires confirmation and concurrent confirmations record once`() {
-            receive("непонятная покупка 12")
+            receive("аптека 1.001")
             assertThat(count("ledger_entry")).isZero()
             receive("аптека 10,01")
             val confirm = confirmation()
@@ -223,7 +223,7 @@ class TelegramLedgerTests
 
         @Test
         fun `rollback after posting restores inbox draft audit and outbox then new processor recovers`() {
-            receive("кофе 10")
+            receive("продукты 1.001")
             receive("продукты 10")
             accept(listOf(update(confirmation())))
             tx.executeWithoutResult {
@@ -423,7 +423,7 @@ class TelegramLedgerTests
         fun `confirmation from another bot cannot consume its draft`() {
             val otherBot = BOT + 1
             val lease = checkNotNull(polls.claim(otherBot))
-            polls.accept(lease, listOf(update("кофе 10"), update("продукты 10")), access)
+            polls.accept(lease, listOf(update("продукты 1.001"), update("продукты 10")), access)
             repeat(2) { processor.processOne(otherBot) }
             val otherConfirmation = confirmation()
             receive(otherConfirmation)

@@ -11,9 +11,12 @@ import com.firkatdavletov.financeconsultante.ledger.application.OwnedLedger
 import com.firkatdavletov.financeconsultante.ledger.application.ProposalCheck
 import com.firkatdavletov.financeconsultante.ledger.application.TransactionDraftRepository
 import com.firkatdavletov.financeconsultante.ledger.domain.CategoryAliasNormalizer
+import com.firkatdavletov.financeconsultante.ledger.domain.ClarificationReason
+import com.firkatdavletov.financeconsultante.ledger.domain.Direction
 import com.firkatdavletov.financeconsultante.ledger.domain.DraftState
 import com.firkatdavletov.financeconsultante.ledger.domain.MessageParseResult
 import com.firkatdavletov.financeconsultante.ledger.domain.MessageParseResult.RecordTransaction
+import com.firkatdavletov.financeconsultante.ledger.domain.TransactionCategory
 import com.firkatdavletov.financeconsultante.ledger.domain.TransactionDraft
 import com.firkatdavletov.financeconsultante.ledger.domain.TransactionMessageParser
 import java.time.Clock
@@ -38,8 +41,15 @@ interface LedgerHandler {
         botId: Long,
         proposal: RecordTransaction,
     ): TelegramReply
+
+    /** A provider failure may still preserve a canonical amount and route only category selection to the user. */
+    fun recognitionFallback(
+        message: InboxMessage,
+        botId: Long,
+    ): TelegramReply = checkNotNull(handle(message, botId))
 }
 
+@Suppress("TooManyFunctions") // This application facade owns the stable Telegram ledger command routes.
 class TelegramLedgerHandler(
     private val access: OwnerAccess,
     private val operations: LedgerOperations,
@@ -61,7 +71,22 @@ class TelegramLedgerHandler(
         message: InboxMessage,
         botId: Long,
     ): TelegramReply? =
-        if (message.kind == IncomingKind.MESSAGE) corrections.conversationInput(message, botId) else null
+        if (message.kind == IncomingKind.MESSAGE) {
+            draftHandler.categoryNameInput(message, botId) ?: corrections.conversationInput(message, botId)
+        } else {
+            null
+        }
+
+    override fun recognitionFallback(
+        message: InboxMessage,
+        botId: Long,
+    ): TelegramReply {
+        require(access.canProcess(message.ownerId, message.memberId)) { "Budget access denied" }
+        val owner = operations.owned(message.ownerId) ?: return "Сначала завершите настройку: /start.".reply()
+        val today = checkNotNull(message.sentAt).atZone(LedgerOperations.ZONE).toLocalDate()
+        return manualCategoryDraft(message, botId, owner, today, drafts.needsInput(owner, botId))
+            ?: checkNotNull(handle(message, botId))
+    }
 
     override fun recognized(
         message: InboxMessage,
@@ -116,6 +141,7 @@ class TelegramLedgerHandler(
         }
         if (message.kind == IncomingKind.CALLBACK) {
             return if (message.text.substringBefore(':') in TelegramDraftHandler.CALLBACKS) {
+                if (message.text.startsWith("dcn:")) corrections.clearConversations(message.ownerId)
                 draftHandler.callback(message, botId)
             } else {
                 corrections.callback(message, botId)
@@ -163,15 +189,12 @@ class TelegramLedgerHandler(
             }
 
             is MessageParseResult.NeedsClarification -> {
-                saveDraft(
-                    owner,
-                    botId,
-                    message.id,
-                    clarification,
-                    null,
-                    DraftState.NEEDS_INPUT,
-                    parsed.reason.message,
-                )
+                if (parsed.reason == ClarificationReason.UNKNOWN_CATEGORY) {
+                    manualCategoryDraft(message, botId, owner, today, clarification)
+                        ?: saveClarification(owner, botId, message.id, clarification, parsed.reason.message)
+                } else {
+                    saveClarification(owner, botId, message.id, clarification, parsed.reason.message)
+                }
             }
         }
     }
@@ -307,6 +330,58 @@ class TelegramLedgerHandler(
             }
         }
     }
+
+    private fun manualCategoryDraft(
+        message: InboxMessage,
+        botId: Long,
+        owner: OwnedLedger,
+        today: java.time.LocalDate,
+        clarification: TransactionDraft?,
+    ): TelegramReply? =
+        CategoryAliasNormalizer.fromMessage(message.text)?.let { alias ->
+            categories
+                .activeCategories(message.ownerId)
+                .singleOrNull { it.dictionaryKey == TransactionCategory.OTHER.name }
+                ?.let { placeholder ->
+                    TransactionCategory(
+                        placeholder.id.toString(),
+                        placeholder.name,
+                        Direction.EXPENSE,
+                        placeholder.id,
+                    )
+                }?.let { unresolvedCategory ->
+                    TransactionMessageParser(mapOf(alias to unresolvedCategory))
+                        .parse(message.text, today) as? RecordTransaction
+                }?.let { proposal ->
+                    saveDraft(
+                        owner,
+                        botId,
+                        message.id,
+                        clarification,
+                        proposal,
+                        DraftState.NEEDS_CATEGORY,
+                        "Не удалось определить категорию автоматически.",
+                        categoryAlias = alias,
+                    )
+                }
+        }
+
+    private fun saveClarification(
+        owner: OwnedLedger,
+        botId: Long,
+        inboxId: Long,
+        clarification: TransactionDraft?,
+        reason: String,
+    ): TelegramReply =
+        saveDraft(
+            owner,
+            botId,
+            inboxId,
+            clarification,
+            null,
+            DraftState.NEEDS_INPUT,
+            reason,
+        )
 
     @Suppress("LongParameterList") // All fields belong to one draft transition.
     private fun saveDraft(

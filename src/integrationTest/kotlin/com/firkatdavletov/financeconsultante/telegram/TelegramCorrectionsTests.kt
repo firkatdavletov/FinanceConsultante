@@ -424,7 +424,7 @@ class TelegramCorrectionsTests
         fun `custom category draft survives clarification and archived target cannot be confirmed`() {
             receive("/category_add expense транспорт")
             val id = category("транспорт")
-            receive("неизвестно 10")
+            receive("транспорт 1.001")
             receive("транспорт 20")
             val command =
                 checkNotNull(

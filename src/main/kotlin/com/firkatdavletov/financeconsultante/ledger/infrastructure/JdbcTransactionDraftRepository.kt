@@ -29,7 +29,8 @@ class JdbcTransactionDraftRepository(
         query(
             owner,
             botId,
-            "AND state IN ('NEEDS_INPUT', 'READY', 'WAITING_RATE') ORDER BY source_inbox_id",
+            "AND state IN ('NEEDS_INPUT', 'NEEDS_CATEGORY', 'NEEDS_CATEGORY_NAME', 'READY', 'WAITING_RATE') " +
+                "ORDER BY source_inbox_id",
         ).query(MAPPER)
             .list()
 
@@ -93,7 +94,9 @@ class JdbcTransactionDraftRepository(
                         normalized_description = EXCLUDED.normalized_description,
                         recognized_by_ai = EXCLUDED.recognized_by_ai, category_alias = EXCLUDED.category_alias
                     WHERE transaction_draft.version = EXCLUDED.version - 1
-                        AND transaction_draft.state IN ('NEEDS_INPUT', 'READY', 'WAITING_RATE')
+                        AND transaction_draft.state IN (
+                            'NEEDS_INPUT', 'NEEDS_CATEGORY', 'NEEDS_CATEGORY_NAME', 'READY', 'WAITING_RATE'
+                        )
                         AND transaction_draft.household_id = EXCLUDED.household_id
                         AND transaction_draft.member_id = EXCLUDED.member_id AND transaction_draft.bot_id = EXCLUDED.bot_id
                         AND transaction_draft.source_inbox_id = EXCLUDED.source_inbox_id

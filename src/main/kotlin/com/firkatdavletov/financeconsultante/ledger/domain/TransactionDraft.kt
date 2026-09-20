@@ -6,6 +6,8 @@ import java.util.UUID
 
 enum class DraftState {
     NEEDS_INPUT,
+    NEEDS_CATEGORY,
+    NEEDS_CATEGORY_NAME,
     READY,
     WAITING_RATE,
     CONFIRMED,
@@ -23,7 +25,19 @@ data class TransactionDraft(
     val recognizedByAi: Boolean = false,
     val categoryAlias: String? = null,
 ) {
-    val active: Boolean get() = state in setOf(DraftState.NEEDS_INPUT, DraftState.READY, DraftState.WAITING_RATE)
+    val active: Boolean
+        get() =
+            state in
+                setOf(
+                    DraftState.NEEDS_INPUT,
+                    DraftState.NEEDS_CATEGORY,
+                    DraftState.NEEDS_CATEGORY_NAME,
+                    DraftState.READY,
+                    DraftState.WAITING_RATE,
+                )
+
+    val requiresCategory: Boolean
+        get() = state == DraftState.NEEDS_CATEGORY || state == DraftState.NEEDS_CATEGORY_NAME
 
     init {
         require(sourceInboxId > 0 && version >= 0)
@@ -33,7 +47,8 @@ data class TransactionDraft(
         require(state != DraftState.WAITING_RATE || proposal?.amount?.currency == Currency.RUB)
         require(!recognizedByAi || proposal != null)
         require(categoryAlias == null || CategoryAliasNormalizer.normalize(categoryAlias) == categoryAlias)
-        require(categoryAlias == null || recognizedByAi)
+        require(!requiresCategory || proposal != null)
+        require(!requiresCategory || categoryAlias != null)
     }
 
     fun revise(
@@ -41,13 +56,34 @@ data class TransactionDraft(
         state: DraftState,
         reason: String,
     ): TransactionDraft {
-        check(active && state in setOf(DraftState.NEEDS_INPUT, DraftState.READY, DraftState.WAITING_RATE))
+        check(
+            active &&
+                state in
+                setOf(
+                    DraftState.NEEDS_INPUT,
+                    DraftState.NEEDS_CATEGORY,
+                    DraftState.NEEDS_CATEGORY_NAME,
+                    DraftState.READY,
+                    DraftState.WAITING_RATE,
+                ),
+        )
         return copy(proposal = proposal, state = state, reason = reason, version = version + 1)
     }
 
-    fun confirm(entryId: UUID): TransactionDraft {
-        check(state == DraftState.READY || state == DraftState.WAITING_RATE)
-        return copy(state = DraftState.CONFIRMED, entryId = entryId, version = version + 1)
+    fun confirm(
+        entryId: UUID,
+        proposal: RecordTransaction = checkNotNull(this.proposal),
+    ): TransactionDraft {
+        check(
+            state in
+                setOf(
+                    DraftState.NEEDS_CATEGORY,
+                    DraftState.NEEDS_CATEGORY_NAME,
+                    DraftState.READY,
+                    DraftState.WAITING_RATE,
+                ),
+        )
+        return copy(proposal = proposal, state = DraftState.CONFIRMED, entryId = entryId, version = version + 1)
     }
 
     fun cancel(): TransactionDraft {
