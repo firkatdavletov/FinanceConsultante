@@ -56,13 +56,13 @@ class TelegramCategoryHandler(
                 categories.rename(ownerId, id, parts.drop(1).joinToString(" ")).reply()
             }
 
-            name == "/rule" && parts.size == 3 && id != null -> {
+            name == "/rule" && parts.size >= 3 && id != null -> {
                 categories
                     .saveRule(
                         ownerId,
                         id,
                         parts[1].toLongOrNull() ?: return "Некорректная версия.".reply(),
-                        parts[2],
+                        parts.drop(2).joinToString(" "),
                     ).reply()
             }
 
@@ -73,13 +73,13 @@ class TelegramCategoryHandler(
                     "Правила, страница $page:\n" +
                         rows.drop(page * PAGE_SIZE).take(PAGE_SIZE).joinToString("\n") {
                             "${it.keyword} → ${it.categoryId}"
-                        } + "\n/rule_delete <слово>" +
+                        } + "\n/rule_delete <слово или фраза>" +
                         if (rows.size > (page + 1) * PAGE_SIZE) "\n/rules ${page + 1}" else ""
                 ).reply()
             }
 
-            name == "/rule_delete" && parts.size == 1 -> {
-                categories.deleteRule(ownerId, parts[0]).reply()
+            name == "/rule_delete" && parts.isNotEmpty() -> {
+                categories.deleteRule(ownerId, parts.joinToString(" ")).reply()
             }
 
             else -> {

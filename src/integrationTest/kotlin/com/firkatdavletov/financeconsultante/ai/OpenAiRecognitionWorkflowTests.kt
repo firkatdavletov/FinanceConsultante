@@ -42,10 +42,12 @@ import org.springframework.test.context.TestPropertySource
 import org.springframework.transaction.PlatformTransactionManager
 import org.springframework.transaction.support.TransactionSynchronizationManager
 import org.springframework.transaction.support.TransactionTemplate
+import java.nio.ByteBuffer
 import java.time.Clock
 import java.time.Duration
 import java.time.LocalDate
 import java.time.LocalTime
+import java.util.Base64
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -91,7 +93,14 @@ class OpenAiRecognitionWorkflowTests
             val households = jdbc.queryForList("SELECT household_id FROM member WHERE telegram_user_id = ?", OWNER)
             households.forEach { row ->
                 val id = row.getValue("household_id")
-                for (table in listOf("entry_revision", "ledger_entry", "category", "account", "member")) {
+                for (table in listOf(
+                    "category_rule",
+                    "entry_revision",
+                    "ledger_entry",
+                    "category",
+                    "account",
+                    "member",
+                )) {
                     jdbc.update("DELETE FROM $table WHERE household_id = ?", id)
                 }
                 jdbc.update("DELETE FROM household WHERE id = ?", id)
@@ -228,28 +237,77 @@ class OpenAiRecognitionWorkflowTests
                     "SELECT buttons::text FROM telegram_outbox ORDER BY id DESC LIMIT 1",
                     String::class.java,
                 ),
-            ).contains("dc:", "du:", "dx:", "✅ Записать 1", "✏️ Уточнить 2", "❌ Отменить 2")
+            ).contains(
+                "dcp:",
+                "dc:",
+                "dx:",
+                "🗂 Выбрать категорию 1",
+                "✅ Подтвердить 1",
+                "❌ Отменить операцию 2",
+            ).doesNotContain("du:")
 
             val confirmLeisure = draftAction("dc", "отдых-и-развлечения")
             receiveCallback(confirmLeisure)
-            assertThat(reply()).contains("Записано", "1297.50 KZT")
+            assertThat(reply()).contains("Записано", "1297.50 KZT", "Правило запомнено", "«отдых»")
             assertThat(count("ledger_entry")).isEqualTo(2)
             receiveCallback(confirmLeisure)
             assertThat(reply()).contains("Уже записано", "Повторного изменения баланса нет")
             assertThat(count("ledger_entry")).isEqualTo(2)
 
-            receiveCallback(draftAction("du", "кафе-и-рестораны"))
-            assertThat(reply()).contains("Выбран черновик для уточнения", "версия 1")
-            receive("/expense 11900 кафе-и-рестораны")
-            assertThat(reply()).contains("кафе-и-рестораны", "версия 2")
-            assertThat(count("transaction_draft")).isEqualTo(2)
-            assertThat(count("ledger_entry")).isEqualTo(2)
+            val recognitionJobs = count("openai_recognition_job")
+            receive("Отдых 500")
+            assertThat(count("openai_recognition_job")).isEqualTo(recognitionJobs)
+            assertThat(count("ledger_entry")).isEqualTo(3)
 
-            receiveCallback(draftAction("dx", "кафе-и-рестораны"))
-            assertThat(reply()).contains("Черновик отменён")
-            assertThat(count("ledger_entry")).isEqualTo(2)
+            receiveCallback(categoryPageAction("кафе-и-рестораны"))
+            assertThat(reply()).contains("Выберите категорию", "Страница 1")
+            val categoryButtons = latestButtons()
+            assertThat(categoryButtons).contains("dcs:", "\"row\": 0", "\"row\": 1")
+
+            receiveCallback(categorySelectionAction("кафе-и-рестораны", "кафе-и-рестораны"))
+            assertThat(reply()).contains("Записано", "11900.00 KZT", "Правило запомнено", "«кафе»")
+            assertThat(count("ledger_entry")).isEqualTo(4)
+
+            receive("Кафе 700")
+            assertThat(count("openai_recognition_job")).isEqualTo(recognitionJobs)
+            assertThat(count("ledger_entry")).isEqualTo(5)
             receive("/draft")
             assertThat(reply()).contains("Незавершённых черновиков нет")
+        }
+
+        @Test
+        fun `cancelling AI proposal records neither expense nor alias`() {
+            receive("/category_add expense транспорт")
+            receive("Автобус 500")
+            val provider =
+                TransactionRecognitionProvider { input ->
+                    val category = input.categories.single { it.name == "транспорт" }
+                    RecognitionResponse.Success(
+                        RecognitionObservation(
+                            RecognitionCandidate(
+                                RecognitionIntent.RECORD_TRANSACTION,
+                                RecognitionOperationType.EXPENSE,
+                                "500",
+                                RecognitionCurrency.KZT,
+                                category.id.toString(),
+                                "2026-09-06",
+                                "автобус",
+                                false,
+                            ),
+                            "req_cancel",
+                            "resp_cancel",
+                            RecognitionUsage(20, 10),
+                            5,
+                        ),
+                    )
+                }
+            assertThat(worker(provider).runOnce()).isEqualTo(RecognitionRunResult.COMPLETED)
+
+            receiveCallback(draftAction("dx", "транспорт"))
+
+            assertThat(reply()).contains("Черновик отменён")
+            assertThat(count("ledger_entry")).isZero()
+            assertThat(count("category_rule")).isZero()
         }
 
         @Test
@@ -406,6 +464,56 @@ class OpenAiRecognitionWorkflowTests
                     String::class.java,
                     action,
                     category,
+                ),
+            )
+
+        private fun categoryPageAction(category: String): String {
+            val draft = draft(category)
+            return "dcp:${compact(draft.first)}:${draft.second}:0"
+        }
+
+        private fun categorySelectionAction(
+            draftCategory: String,
+            selectedCategory: String,
+        ): String {
+            val draft = draft(draftCategory)
+            val categoryId =
+                checkNotNull(
+                    jdbc.queryForObject(
+                        "SELECT id FROM category WHERE name = ? AND NOT archived",
+                        UUID::class.java,
+                        selectedCategory,
+                    ),
+                )
+            return "dcs:${compact(draft.first)}:${draft.second}:${compact(categoryId)}"
+        }
+
+        private fun draft(category: String): Pair<UUID, Long> =
+            checkNotNull(
+                jdbc.queryForObject(
+                    "SELECT id, version FROM transaction_draft WHERE category_name = ?",
+                    { row, _ -> row.getObject("id", UUID::class.java) to row.getLong("version") },
+                    category,
+                ),
+            )
+
+        private fun compact(value: UUID): String =
+            Base64
+                .getUrlEncoder()
+                .withoutPadding()
+                .encodeToString(
+                    ByteBuffer
+                        .allocate(16)
+                        .putLong(value.mostSignificantBits)
+                        .putLong(value.leastSignificantBits)
+                        .array(),
+                )
+
+        private fun latestButtons(): String =
+            checkNotNull(
+                jdbc.queryForObject(
+                    "SELECT buttons::text FROM telegram_outbox ORDER BY id DESC LIMIT 1",
+                    String::class.java,
                 ),
             )
 

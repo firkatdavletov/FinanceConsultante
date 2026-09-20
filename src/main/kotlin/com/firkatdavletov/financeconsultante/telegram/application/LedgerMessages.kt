@@ -80,11 +80,13 @@ object LedgerMessages {
         buildString {
             append("Черновик ${draft.id}, версия ${draft.version}.\n")
             draft.proposal?.let {
+                append(if (draft.recognizedByAi) "AI предложил: " else "")
                 append("${it.occurredOn}: ${it.category.displayName}, ${money(it.amount)}.\n")
             }
             append(draft.reason)
             if (draft.state == DraftState.READY || draft.state == DraftState.WAITING_RATE) {
-                append("\nНажмите «Записать» или используйте: /confirm ${draft.id} ${draft.version}")
+                val action = if (draft.recognizedByAi) "Подтвердить" else "Записать"
+                append("\nНажмите «$action» или используйте: /confirm ${draft.id} ${draft.version}")
             } else {
                 append("\nНажмите «Уточнить» и отправьте одну операцию целиком.")
             }
@@ -98,11 +100,21 @@ object LedgerMessages {
         val suffix = "${draft.id}:${draft.version}"
         val label = number?.let { " $it" } ?: ""
         val actions = mutableListOf<ReplyButton>()
-        if (draft.state != DraftState.NEEDS_INPUT) {
-            actions += ReplyButton("✅ Записать$label", "dc:$suffix")
+        if (draft.recognizedByAi && draft.active) {
+            actions +=
+                ReplyButton(
+                    "🗂 Выбрать категорию$label",
+                    DraftCategoryCallbacks.page(draft.id, draft.version, 0),
+                )
         }
-        actions += ReplyButton("✏️ Уточнить$label", "du:$suffix")
-        actions += ReplyButton("❌ Отменить$label", "dx:$suffix")
+        if (draft.state != DraftState.NEEDS_INPUT) {
+            val text = if (draft.recognizedByAi) "✅ Подтвердить$label" else "✅ Записать$label"
+            actions += ReplyButton(text, "dc:$suffix")
+        }
+        if (!draft.recognizedByAi) {
+            actions += ReplyButton("✏️ Уточнить$label", "du:$suffix")
+        }
+        actions += ReplyButton("❌ Отменить операцию$label", "dx:$suffix")
         return actions
     }
 

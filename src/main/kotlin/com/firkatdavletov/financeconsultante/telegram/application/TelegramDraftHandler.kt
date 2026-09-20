@@ -1,16 +1,23 @@
 package com.firkatdavletov.financeconsultante.telegram.application
 
+import com.firkatdavletov.financeconsultante.ledger.application.CategoryManagement
 import com.firkatdavletov.financeconsultante.ledger.application.LedgerOperations
 import com.firkatdavletov.financeconsultante.ledger.application.OwnedLedger
 import com.firkatdavletov.financeconsultante.ledger.application.ProposalCheck
 import com.firkatdavletov.financeconsultante.ledger.application.TransactionDraftRepository
+import com.firkatdavletov.financeconsultante.ledger.domain.CategoryKind
+import com.firkatdavletov.financeconsultante.ledger.domain.Direction
 import com.firkatdavletov.financeconsultante.ledger.domain.DraftState
+import com.firkatdavletov.financeconsultante.ledger.domain.MessageParseResult.RecordTransaction
+import com.firkatdavletov.financeconsultante.ledger.domain.TransactionCategory
 import com.firkatdavletov.financeconsultante.ledger.domain.TransactionDraft
 import java.util.UUID
 
+@Suppress("TooManyFunctions") // One bounded state machine owns draft commands, callbacks, and category selection.
 internal class TelegramDraftHandler(
     private val operations: LedgerOperations,
     private val drafts: TransactionDraftRepository,
+    private val categories: CategoryManagement,
 ) {
     fun command(
         name: String,
@@ -45,6 +52,12 @@ internal class TelegramDraftHandler(
         botId: Long,
     ): TelegramReply {
         val owner = operations.owned(message.ownerId) ?: return "Сначала завершите настройку: /start.".reply()
+        DraftCategoryCallbacks.parsePage(message.text)?.let { target ->
+            return categoryPage(message.ownerId, owner, botId, target)
+        }
+        DraftCategoryCallbacks.parseSelection(message.text)?.let { target ->
+            return selectCategory(message.ownerId, owner, botId, target)
+        }
         val match = DRAFT_CALLBACK.matchEntire(message.text) ?: return "Кнопка черновика недоступна. /draft".reply()
         val id = UUID.fromString(match.groupValues[2])
         val version = match.groupValues[3].toLongOrNull() ?: return "Кнопка черновика недоступна. /draft".reply()
@@ -66,7 +79,7 @@ internal class TelegramDraftHandler(
             return when (active.size) {
                 0 -> "Незавершённых черновиков нет.".reply()
                 1 -> confirm(owner, botId, active.single().id, active.single().version)
-                else -> LedgerMessages.drafts(active, notice = "Выберите черновик кнопкой «Записать».")
+                else -> LedgerMessages.drafts(active, notice = "Выберите черновик кнопкой подтверждения.")
             }
         }
         val target =
@@ -101,11 +114,138 @@ internal class TelegramDraftHandler(
 
             is ProposalCheck.Ready -> {
                 val entry = operations.record(checked).entry
+                val learned =
+                    draft.recognizedByAi &&
+                        categories.learnRule(owner, entry.id, entry.version, draft.categoryAlias)
                 drafts.save(owner, botId, draft.confirm(entry.id))
-                LedgerMessages.recorded(entry, proposal.category.displayName)
+                recorded(entry, proposal.category.displayName, draft.categoryAlias, learned)
             }
         }
     }
+
+    @Suppress("ReturnCount") // The shown page is tied to one active AI draft version.
+    private fun categoryPage(
+        ownerId: Long,
+        owner: OwnedLedger,
+        botId: Long,
+        target: DraftCategoryPage,
+    ): TelegramReply {
+        val draft = drafts.find(owner, botId, target.draftId) ?: return "Черновик недоступен. /draft".reply()
+        if (!draft.active || !draft.recognizedByAi) return "Выбор категории уже недоступен. /draft".reply()
+        if (draft.version != target.version) return LedgerMessages.draft(draft, "Кнопка устарела. Актуальные данные:")
+        val direction = checkNotNull(draft.proposal).direction
+        val available =
+            categories
+                .activeCategories(ownerId)
+                .filter { category -> category.kind == direction.categoryKind() }
+        if (available.isEmpty()) return LedgerMessages.draft(draft, "Нет доступных категорий этого типа.")
+        val pages = (available.size + CATEGORY_PAGE_SIZE - 1) / CATEGORY_PAGE_SIZE
+        if (target.page !in 0 until pages) return LedgerMessages.draft(draft, "Страница категорий недоступна.")
+        val visible = available.drop(target.page * CATEGORY_PAGE_SIZE).take(CATEGORY_PAGE_SIZE)
+        val buttons =
+            buildList {
+                visible.forEachIndexed { index, category ->
+                    add(
+                        ReplyButton(
+                            "${category.icon.emoji} ${category.name}",
+                            DraftCategoryCallbacks.selection(draft.id, draft.version, category.id),
+                            index / CATEGORY_COLUMNS,
+                        ),
+                    )
+                }
+                val navigationRow = (visible.size + CATEGORY_COLUMNS - 1) / CATEGORY_COLUMNS
+                if (target.page > 0) {
+                    add(
+                        ReplyButton(
+                            "◀️",
+                            DraftCategoryCallbacks.page(draft.id, draft.version, target.page - 1),
+                            navigationRow,
+                        ),
+                    )
+                }
+                if (target.page + 1 < pages) {
+                    add(
+                        ReplyButton(
+                            "▶️",
+                            DraftCategoryCallbacks.page(draft.id, draft.version, target.page + 1),
+                            navigationRow,
+                        ),
+                    )
+                }
+                add(ReplyButton("❌ Отменить операцию", "dx:${draft.id}:${draft.version}", navigationRow + 1))
+            }
+        return TelegramReply(
+            "Выберите категорию для операции. Страница ${target.page + 1} из $pages.",
+            buttons,
+        )
+    }
+
+    @Suppress("ReturnCount") // Category selection validates the draft version, scope, state, and direction.
+    private fun selectCategory(
+        ownerId: Long,
+        owner: OwnedLedger,
+        botId: Long,
+        target: DraftCategorySelection,
+    ): TelegramReply {
+        val draft = drafts.find(owner, botId, target.draftId) ?: return "Черновик недоступен. /draft".reply()
+        if (draft.state == DraftState.CONFIRMED) {
+            return "Уже записано: ${draft.entryId}. Повторного изменения баланса нет.".reply()
+        }
+        if (draft.state == DraftState.CANCELLED) return "Черновик уже отменён. Баланс не изменён.".reply()
+        if (!draft.recognizedByAi || draft.version != target.version) {
+            return LedgerMessages.draft(draft, "Выбор категории устарел. Актуальные данные:")
+        }
+        val selected =
+            categories.category(ownerId, target.categoryId)
+                ?: return LedgerMessages.draft(draft, "Категория недоступна.")
+        val proposal = checkNotNull(draft.proposal)
+        if (selected.kind != proposal.direction.categoryKind()) {
+            return LedgerMessages.draft(draft, "Тип категории не соответствует операции.")
+        }
+        val revised =
+            proposal.copy(
+                category = TransactionCategory(selected.id.toString(), selected.name, proposal.direction, selected.id),
+            )
+        return recordSelection(owner, botId, draft, revised)
+    }
+
+    private fun recordSelection(
+        owner: OwnedLedger,
+        botId: Long,
+        draft: TransactionDraft,
+        proposal: RecordTransaction,
+    ): TelegramReply =
+        when (val checked = operations.check(owner, proposal, source(botId, draft.sourceInboxId))) {
+            is ProposalCheck.Pending -> {
+                val revised = draft.revise(proposal, checked.state, checked.reason)
+                drafts.save(owner, botId, revised)
+                LedgerMessages.draft(revised)
+            }
+
+            is ProposalCheck.Ready -> {
+                val entry = operations.record(checked).entry
+                val learned = categories.learnRule(owner, entry.id, entry.version, draft.categoryAlias)
+                drafts.save(owner, botId, draft.copy(proposal = proposal).confirm(entry.id))
+                recorded(entry, proposal.category.displayName, draft.categoryAlias, learned)
+            }
+        }
+
+    private fun recorded(
+        entry: com.firkatdavletov.financeconsultante.ledger.domain.LedgerEntry,
+        category: String,
+        alias: String?,
+        learned: Boolean,
+    ): TelegramReply {
+        val reply = LedgerMessages.recorded(entry, category)
+        return if (alias != null && learned) {
+            reply.copy(text = "${reply.text}\nПравило запомнено: «$alias» → «$category».")
+        } else {
+            reply
+        }
+    }
+
+    private fun Direction.categoryKind(): CategoryKind =
+        if (this == Direction.INCOME) CategoryKind.INCOME else CategoryKind.EXPENSE
 
     @Suppress("ReturnCount") // A specific target is required when more than one draft is active.
     private fun cancel(
@@ -187,7 +327,9 @@ internal class TelegramDraftHandler(
 
     companion object {
         val COMMANDS = setOf("/draft", "/confirm", "/cancel")
-        val CALLBACKS = setOf("dc", "dx", "du")
+        val CALLBACKS = setOf("dc", "dx", "du", "dcp", "dcs")
+        private const val CATEGORY_PAGE_SIZE = 10
+        private const val CATEGORY_COLUMNS = 2
         private const val UUID_PATTERN = "[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}"
         private val DRAFT_TARGET = Regex("($UUID_PATTERN) ([0-9]+)")
         private val DRAFT_CALLBACK = Regex("(dc|dx|du):($UUID_PATTERN):([0-9]+)")

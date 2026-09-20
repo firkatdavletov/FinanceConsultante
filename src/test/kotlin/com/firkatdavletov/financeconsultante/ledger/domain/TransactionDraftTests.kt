@@ -61,4 +61,21 @@ class TransactionDraftTests {
             )
         }.isInstanceOf(IllegalArgumentException::class.java)
     }
+
+    @Test
+    fun `category alias belongs only to an AI recognized draft`() {
+        assertThatThrownBy {
+            draft.copy(categoryAlias = "автобус")
+        }.isInstanceOf(IllegalArgumentException::class.java)
+
+        val recognized =
+            draft.copy(
+                state = DraftState.READY,
+                proposal = proposal,
+                recognizedByAi = true,
+                categoryAlias = "автобус",
+            )
+        assertThat(recognized.revise(proposal, DraftState.READY, "Подтвердите").categoryAlias)
+            .isEqualTo("автобус")
+    }
 }

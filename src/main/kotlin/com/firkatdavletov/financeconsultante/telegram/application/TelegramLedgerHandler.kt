@@ -10,6 +10,7 @@ import com.firkatdavletov.financeconsultante.ledger.application.LedgerOperations
 import com.firkatdavletov.financeconsultante.ledger.application.OwnedLedger
 import com.firkatdavletov.financeconsultante.ledger.application.ProposalCheck
 import com.firkatdavletov.financeconsultante.ledger.application.TransactionDraftRepository
+import com.firkatdavletov.financeconsultante.ledger.domain.CategoryAliasNormalizer
 import com.firkatdavletov.financeconsultante.ledger.domain.DraftState
 import com.firkatdavletov.financeconsultante.ledger.domain.MessageParseResult
 import com.firkatdavletov.financeconsultante.ledger.domain.MessageParseResult.RecordTransaction
@@ -51,7 +52,7 @@ class TelegramLedgerHandler(
     private val purchase: TelegramPurchaseHandler? = null,
     private val family: TelegramFamilyHandler? = null,
 ) : LedgerHandler {
-    private val draftHandler = TelegramDraftHandler(operations, drafts)
+    private val draftHandler = TelegramDraftHandler(operations, drafts, categories)
 
     override fun conversationInput(message: InboxMessage): TelegramReply? =
         if (message.kind == IncomingKind.MESSAGE) corrections.categoryInput(message) else null
@@ -65,9 +66,20 @@ class TelegramLedgerHandler(
         val owner = operations.owned(message.ownerId) ?: return "Сначала завершите настройку: /start.".reply()
         val clarification = drafts.needsInput(owner, botId)
         val source = source(botId, clarification?.sourceInboxId ?: message.id)
+        val categoryAlias = CategoryAliasNormalizer.fromMessage(message.text)
         return when (val check = operations.check(owner, proposal, source)) {
             is ProposalCheck.Pending -> {
-                saveDraft(owner, botId, message.id, clarification, proposal, check.state, check.reason)
+                saveDraft(
+                    owner,
+                    botId,
+                    message.id,
+                    clarification,
+                    proposal,
+                    check.state,
+                    check.reason,
+                    recognizedByAi = true,
+                    categoryAlias = categoryAlias,
+                )
             }
 
             is ProposalCheck.Ready -> {
@@ -79,6 +91,8 @@ class TelegramLedgerHandler(
                     proposal,
                     DraftState.READY,
                     "Распознано через OpenAI. Проверьте данные и подтвердите запись.",
+                    recognizedByAi = true,
+                    categoryAlias = categoryAlias,
                 )
             }
         }
@@ -297,10 +311,23 @@ class TelegramLedgerHandler(
         proposal: RecordTransaction?,
         state: DraftState,
         reason: String,
+        recognizedByAi: Boolean = false,
+        categoryAlias: String? = null,
     ): TelegramReply {
         val draft =
-            clarification?.revise(proposal, state, reason)
-                ?: TransactionDraft(UUID.randomUUID(), inboxId, state, 0, proposal, reason)
+            clarification
+                ?.revise(proposal, state, reason)
+                ?.copy(recognizedByAi = recognizedByAi, categoryAlias = categoryAlias)
+                ?: TransactionDraft(
+                    UUID.randomUUID(),
+                    inboxId,
+                    state,
+                    0,
+                    proposal,
+                    reason,
+                    recognizedByAi = recognizedByAi,
+                    categoryAlias = categoryAlias,
+                )
         drafts.save(owner, botId, draft)
         return LedgerMessages.draft(draft)
     }

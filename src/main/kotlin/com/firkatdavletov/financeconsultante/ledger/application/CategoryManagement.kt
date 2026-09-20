@@ -1,6 +1,7 @@
 package com.firkatdavletov.financeconsultante.ledger.application
 
 import com.firkatdavletov.financeconsultante.ledger.domain.Category
+import com.firkatdavletov.financeconsultante.ledger.domain.CategoryAliasNormalizer
 import com.firkatdavletov.financeconsultante.ledger.domain.CategoryIcon
 import com.firkatdavletov.financeconsultante.ledger.domain.CategoryKind
 import com.firkatdavletov.financeconsultante.ledger.domain.Direction
@@ -73,6 +74,11 @@ interface CategoryRepository {
     fun saveRule(
         target: EntryTarget,
         keyword: String,
+    ): Boolean
+
+    fun saveLearnedRule(
+        target: EntryTarget,
+        alias: String,
     ): Boolean
 
     fun deleteRule(
@@ -190,7 +196,7 @@ class CategoryManagement(
         name: String,
         except: UUID? = null,
     ): String? {
-        if (!validName(name, multiword = true)) return NAME_HELP
+        if (!validName(name)) return NAME_HELP
         val categories = categories(ownerId)
         if (categories.size >= MAX_ITEMS && except == null) {
             return "Достигнут предел 100 категорий. Используйте существующие."
@@ -230,7 +236,7 @@ class CategoryManagement(
     ): String {
         val owner = owner(ownerId)
         if (!owner.canManageHousehold) return OWNER_ONLY
-        if (!validName(name, multiword = true)) return NAME_HELP
+        if (!validName(name)) return NAME_HELP
         val current = categories(ownerId).firstOrNull { it.id == id } ?: return "Категория недоступна."
         if (protected(current)) return "Системную категорию «Другое» нельзя переименовать."
         if (categories(ownerId).any { it.id != id && it.name.equals(name, true) }) {
@@ -304,34 +310,55 @@ class CategoryManagement(
     ): String {
         val owner = owner(ownerId)
         if (!owner.canManageHousehold) return OWNER_ONLY
-        if (!validName(keyword, multiword = false)) return RULE_HELP
+        val normalized = normalizedAlias(keyword) ?: return RULE_HELP
         val rules = repository.rules(owner.householdId)
-        if (rules.size >= MAX_ITEMS && rules.none { it.keyword == keyword }) return "Достигнут предел 100 правил."
-        return if (repository.saveRule(EntryTarget(owner.householdId, owner.memberId, entryId, version), keyword)) {
-            "Правило сохранено: $keyword → исправленная категория. /rules"
+        if (rules.size >= MAX_ITEMS && rules.none { it.keyword == normalized }) return "Достигнут предел 100 правил."
+        return if (repository.saveRule(EntryTarget(owner.householdId, owner.memberId, entryId, version), normalized)) {
+            "Правило сохранено: $normalized → исправленная категория. /rules"
         } else {
             "Правило не сохранено: нужна текущая версия после исправления категории. /history"
         }
     }
 
+    @Suppress("ReturnCount") // Invalid, exhausted, and persisted aliases are separate safe outcomes.
+    fun learnRule(
+        owner: OwnedLedger,
+        entryId: UUID,
+        version: Long,
+        alias: String?,
+    ): Boolean {
+        val normalized = alias?.let(::normalizedAlias) ?: return false
+        val rules = repository.rules(owner.householdId)
+        if (rules.size >= MAX_ITEMS && rules.none { it.keyword == normalized }) return false
+        return repository.saveLearnedRule(
+            EntryTarget(owner.householdId, owner.memberId, entryId, version, owner.role),
+            normalized,
+        )
+    }
+
     fun rules(ownerId: Long): List<CategoryRule> = repository.rules(owner(ownerId).householdId)
 
+    @Suppress("ReturnCount") // Access and alias validation precede the delete independently.
     fun deleteRule(
         ownerId: Long,
         keyword: String,
     ): String {
         val owner = owner(ownerId)
         if (!owner.canManageHousehold) return OWNER_ONLY
-        repository.deleteRule(owner.householdId, keyword)
+        val normalized = normalizedAlias(keyword) ?: return RULE_HELP
+        repository.deleteRule(owner.householdId, normalized)
         return "Правило удалено. /rules"
     }
 
-    private fun validName(
-        name: String,
-        multiword: Boolean,
-    ) = name.length in 1..MAX_NAME &&
-        (if (multiword) CATEGORY_NAME else KEYWORD).matches(name) &&
-        name.split(' ').none { it.lowercase(Locale.ROOT) in RESERVED }
+    private fun validName(name: String) =
+        name.length in 1..MAX_NAME &&
+            CATEGORY_NAME.matches(name) &&
+            name.split(' ').none { it.lowercase(Locale.ROOT) in RESERVED }
+
+    private fun normalizedAlias(alias: String): String? =
+        CategoryAliasNormalizer
+            .normalize(alias)
+            ?.takeIf { value -> value.split(' ').none { it in RESERVED } }
 
     private fun ownerOnlyError(ownerId: Long): String? = if (owner(ownerId).canManageHousehold) null else OWNER_ONLY
 
@@ -340,17 +367,16 @@ class CategoryManagement(
     companion object {
         private const val MAX_ITEMS = 100
         private const val MAX_NAME = 50
-        private const val LOWERCASE_WORD = "[a-zа-яё]+(?:-[a-zа-яё]+)*"
         private const val CATEGORY_WORD = "[A-Za-zА-Яа-яЁё]+(?:-[A-Za-zА-Яа-яЁё]+)*"
         private val CATEGORY_NAME = Regex("$CATEGORY_WORD(?: $CATEGORY_WORD)*")
-        private val KEYWORD = Regex(LOWERCASE_WORD)
         private val RESERVED =
             setOf("сегодня", "вчера", "завтра", "купить", "покупать", "покупку", "покупке", "покупки")
         private const val NAME_HELP =
             "Название: одно или несколько слов русскими/латинскими буквами, " +
                 "до 50 знаков; допустим дефис."
         private const val RULE_HELP =
-            "Правило: одно слово строчными русскими/латинскими буквами, до 50 знаков; допустим дефис."
+            "Правило: одно или несколько слов русскими/латинскими буквами, " +
+                "до 100 знаков; допустим дефис."
         private const val OWNER_ONLY = "Категориями и правилами управляет только OWNER."
     }
 }

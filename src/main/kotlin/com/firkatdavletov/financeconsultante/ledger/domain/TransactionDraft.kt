@@ -20,6 +20,8 @@ data class TransactionDraft(
     val proposal: RecordTransaction?,
     val reason: String,
     val entryId: UUID? = null,
+    val recognizedByAi: Boolean = false,
+    val categoryAlias: String? = null,
 ) {
     val active: Boolean get() = state in setOf(DraftState.NEEDS_INPUT, DraftState.READY, DraftState.WAITING_RATE)
 
@@ -29,6 +31,9 @@ data class TransactionDraft(
         require(state !in setOf(DraftState.READY, DraftState.WAITING_RATE, DraftState.CONFIRMED) || proposal != null)
         require((state == DraftState.CONFIRMED) == (entryId != null))
         require(state != DraftState.WAITING_RATE || proposal?.amount?.currency == Currency.RUB)
+        require(!recognizedByAi || proposal != null)
+        require(categoryAlias == null || CategoryAliasNormalizer.normalize(categoryAlias) == categoryAlias)
+        require(categoryAlias == null || recognizedByAi)
     }
 
     fun revise(

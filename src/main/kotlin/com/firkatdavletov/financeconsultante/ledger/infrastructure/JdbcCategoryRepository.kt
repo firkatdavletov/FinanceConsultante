@@ -136,6 +136,29 @@ class JdbcCategoryRepository(
             .param("version", target.version)
             .update() == 1
 
+    override fun saveLearnedRule(
+        target: EntryTarget,
+        alias: String,
+    ): Boolean =
+        jdbc
+            .sql(
+                """
+                INSERT INTO category_rule(household_id, keyword, category_id, corrected_entry_id, corrected_version)
+                SELECT l.household_id, :alias, l.category_id, l.id, l.version FROM ledger_entry l
+                JOIN category c ON c.household_id = l.household_id AND c.id = l.category_id
+                JOIN entry_revision r ON r.entry_id = l.id AND r.version = l.version
+                WHERE l.household_id = :household AND l.actor_id = :member
+                    AND l.id = :id AND l.version = :version AND l.status = 'POSTED' AND NOT c.archived
+                ON CONFLICT (household_id, keyword) DO UPDATE SET category_id = EXCLUDED.category_id,
+                    corrected_entry_id = EXCLUDED.corrected_entry_id, corrected_version = EXCLUDED.corrected_version
+                """.trimIndent(),
+            ).param("alias", alias)
+            .param("household", target.householdId)
+            .param("member", target.memberId)
+            .param("id", target.entryId)
+            .param("version", target.version)
+            .update() == 1
+
     override fun deleteRule(
         householdId: UUID,
         keyword: String,
