@@ -28,11 +28,15 @@ class TelegramCorrectionHandler(
     private val corrections: EntryCorrections,
     private val categories: CategoryManagement,
     private val clock: Clock,
-    dialogs: CategoryDialogRepository? = null,
+    private val categoryDialogs: CategoryDialogRepository? = null,
+    private val entryDialogs: EntryCorrectionDialogRepository? = null,
 ) {
-    private val categoryHandler = TelegramCategoryHandler(categories, dialogs, clock)
+    private val categoryHandler = TelegramCategoryHandler(categories, categoryDialogs, clock)
 
-    fun categoryInput(message: InboxMessage): TelegramReply? = categoryHandler.input(message)
+    fun conversationInput(
+        message: InboxMessage,
+        botId: Long,
+    ): TelegramReply? = amountInput(message, botId) ?: categoryHandler.input(message)
 
     fun callback(
         message: InboxMessage,
@@ -40,6 +44,7 @@ class TelegramCorrectionHandler(
     ): TelegramReply {
         require(access.canProcess(message.ownerId, message.memberId)) { "Budget access denied" }
         if (message.text.substringBefore(':') in TelegramCategoryHandler.CALLBACKS) {
+            entryDialogs?.clear(message.ownerId)
             return categoryHandler.callback(message, botId)
         }
         val parts = message.text.split(':')
@@ -47,6 +52,7 @@ class TelegramCorrectionHandler(
         val target = target(message.ownerId, parts.drop(1)) ?: return EntryCorrections.STALE.reply()
         val entry = corrections.selected(target) ?: return EntryCorrections.STALE.reply()
         val args = "${entry.id} ${entry.version}"
+        entryDialogs?.clear(message.ownerId)
         return when (parts[0]) {
             "void" -> {
                 result(corrections.change(target, EntryChange.Void, source(message, botId)), message.ownerId)
@@ -57,7 +63,22 @@ class TelegramCorrectionHandler(
             }
 
             "amount" -> {
-                "Новая сумма в ${entry.originalAmount.currency}:\n/amount $args <сумма>".reply()
+                val store = entryDialogs
+                if (store == null) {
+                    "Новая сумма в ${entry.originalAmount.currency}:\n/amount $args <сумма>".reply()
+                } else {
+                    categoryDialogs?.clear(message.ownerId)
+                    store.save(
+                        message.ownerId,
+                        EntryCorrectionDialog(
+                            target.householdId,
+                            target.memberId,
+                            target.entryId,
+                            target.version,
+                        ),
+                    )
+                    amountPrompt(entry)
+                }
             }
 
             "cat" -> {
@@ -72,6 +93,45 @@ class TelegramCorrectionHandler(
                 "Возврат в ${entry.originalAmount.currency}:\n/refund $args <сумма> [ГГГГ-ММ-ДД]".reply()
             }
         }
+    }
+
+    @Suppress("ReturnCount") // Only an active amount dialog consumes ordinary text.
+    private fun amountInput(
+        message: InboxMessage,
+        botId: Long,
+    ): TelegramReply? {
+        val store = entryDialogs ?: return null
+        val dialog = store.find(message.ownerId) ?: return null
+        if (message.text.startsWith('/')) {
+            store.clear(message.ownerId)
+            return if (message.text.trim().equals("/cancel", ignoreCase = true)) {
+                "Редактирование суммы отменено.".reply()
+            } else {
+                null
+            }
+        }
+        val owner = operations.owned(message.ownerId)
+        if (owner == null || owner.householdId != dialog.householdId || owner.memberId != dialog.memberId) {
+            store.clear(message.ownerId)
+            return EntryCorrections.STALE.reply()
+        }
+        val target =
+            EntryTarget(
+                dialog.householdId,
+                dialog.memberId,
+                dialog.entryId,
+                dialog.version,
+                owner.role,
+            )
+        val entry = corrections.selected(target)
+        if (entry == null) {
+            store.clear(message.ownerId)
+            return EntryCorrections.STALE.reply()
+        }
+        val value = amount(message.text.trim(), entry) ?: return amountPrompt(entry, AMOUNT_HELP)
+        val changed = corrections.change(target, EntryChange.Amount(value), source(message, botId))
+        store.clear(message.ownerId)
+        return result(changed, message.ownerId)
     }
 
     fun command(
@@ -212,6 +272,16 @@ class TelegramCorrectionHandler(
                 "Аудит сохранён. /balance; /history",
             EntryButtons.actions(entry),
         )
+
+    private fun amountPrompt(
+        entry: LedgerEntry,
+        error: String? = null,
+    ): TelegramReply =
+        listOfNotNull(
+            error,
+            "Введите новую сумму в ${entry.originalAmount.currency}.",
+            "Например: 1000 или 1000,50\nДля отмены: /cancel",
+        ).joinToString("\n\n").reply()
 
     @Suppress("SwallowedException")
     private fun amount(

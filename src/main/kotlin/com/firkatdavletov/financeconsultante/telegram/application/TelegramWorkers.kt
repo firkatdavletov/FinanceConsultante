@@ -68,7 +68,7 @@ open class TelegramInboxProcessor(
         val dialog = setup.dialog(message.ownerId)
         val current = setup.settings(message.ownerId)
         if (dialog.step == SetupStep.IDLE || message.kind != IncomingKind.MESSAGE) {
-            ledger.conversationInput(message)?.let { reply ->
+            ledger.conversationInput(message, botId)?.let { reply ->
                 inbox.completeReply(message, botId, reply)
                 return
             }

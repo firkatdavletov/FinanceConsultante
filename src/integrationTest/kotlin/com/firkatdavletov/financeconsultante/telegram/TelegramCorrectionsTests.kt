@@ -63,7 +63,8 @@ class TelegramCorrectionsTests
         @BeforeEach
         fun reset() {
             jdbc.execute(
-                "TRUNCATE openai_recognition_job, openai_daily_usage, transaction_draft, telegram_outbox, " +
+                "TRUNCATE telegram_entry_correction_dialog, openai_recognition_job, openai_daily_usage, " +
+                    "transaction_draft, telegram_outbox, " +
                     "telegram_inbox, telegram_polling_state, " +
                     "telegram_category_dialog, telegram_dialog RESTART IDENTITY",
             )
@@ -110,8 +111,9 @@ class TelegramCorrectionsTests
             val id = latest().id
             assertThat(buttons()).contains("amount:$id:0", "cat:$id:0", "date:$id:0", "void:$id:0")
             callback("amount:$id:0")
-            assertThat(reply()).contains("/amount $id 0")
-            receive("/amount $id 0 1000,01")
+            assertThat(reply()).contains("Введите новую сумму в KZT", "Для отмены: /cancel").doesNotContain("/amount")
+            assertThat(latest().originalAmount).isEqualTo(Money.of("1300"))
+            receive("1000,01")
             receive("/date $id 1 2026-09-05")
             receive("/category_add expense транспорт")
             receive("/category $id 2 ${category("транспорт")}")
@@ -135,6 +137,27 @@ class TelegramCorrectionsTests
             assertThat(reply()).contains("-1000.01 KZT", "Доходы: 0.00")
             receive("/history")
             assertThat(reply()).contains("2026-09-05 расход, транспорт: 1000.01")
+        }
+
+        @Test
+        fun `invalid amount keeps correction dialog until valid plain input arrives`() {
+            receive("продукты 1300")
+            val entry = latest()
+            callback("amount:${entry.id}:0")
+
+            receive("0")
+            assertThat(reply()).contains("Нужна положительная сумма", "Введите новую сумму в KZT")
+            assertThat(latest().originalAmount).isEqualTo(Money.of("1300"))
+            assertThat(
+                jdbc.queryForObject("SELECT count(*) FROM telegram_entry_correction_dialog", Long::class.java),
+            ).isEqualTo(1)
+
+            receive("700,50")
+            assertThat(reply()).contains("Сохранено", "700.50 KZT")
+            assertThat(latest().originalAmount).isEqualTo(Money.of("700.50"))
+            assertThat(
+                jdbc.queryForObject("SELECT count(*) FROM telegram_entry_correction_dialog", Long::class.java),
+            ).isZero()
         }
 
         @Test
@@ -213,7 +236,8 @@ class TelegramCorrectionsTests
         fun `audit failure rolls back amount version inbox and reply then retry succeeds`() {
             receive("продукты 1300")
             val entry = latest()
-            accept(update("/amount ${entry.id} 0 1000"))
+            callback("amount:${entry.id}:0")
+            accept(update("1000"))
             try {
                 jdbc.execute(
                     "ALTER TABLE entry_revision ADD CONSTRAINT synthetic_revision_failure " +
@@ -223,12 +247,18 @@ class TelegramCorrectionsTests
                 assertThat(latest().originalAmount).isEqualTo(Money.of("1300"))
                 assertThat(latest().version).isZero()
                 assertThat(revisions(entry.id)).isEqualTo(1)
-                assertThat(jdbc.queryForObject("SELECT count(*) FROM telegram_outbox", Long::class.java)).isEqualTo(1)
+                assertThat(
+                    jdbc.queryForObject("SELECT count(*) FROM telegram_entry_correction_dialog", Long::class.java),
+                ).isEqualTo(1)
+                assertThat(jdbc.queryForObject("SELECT count(*) FROM telegram_outbox", Long::class.java)).isEqualTo(2)
             } finally {
                 jdbc.execute("ALTER TABLE entry_revision DROP CONSTRAINT IF EXISTS synthetic_revision_failure")
             }
             assertThat(processor.processOne(BOT)).isTrue()
             assertThat(latest().originalAmount).isEqualTo(Money.of("1000"))
+            assertThat(
+                jdbc.queryForObject("SELECT count(*) FROM telegram_entry_correction_dialog", Long::class.java),
+            ).isZero()
         }
 
         @Test
