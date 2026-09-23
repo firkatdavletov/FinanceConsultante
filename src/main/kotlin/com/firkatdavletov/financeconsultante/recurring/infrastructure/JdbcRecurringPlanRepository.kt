@@ -197,14 +197,29 @@ class JdbcRecurringPlanRepository(
         return jdbc
             .sql(OCCURRENCE_VIEW + if (limit == null) "" else " LIMIT :limit")
             .params(parameters)
-            .query { row, _ ->
-                RecurringOccurrenceView(
-                    mapOccurrence(row),
-                    row.getString("category_name"),
-                    Money.of(row.getBigDecimal("paid_amount"), Currency.KZT),
-                )
-            }.list()
+            .query { row, _ -> mapOccurrenceView(row) }
+            .list()
     }
+
+    override fun matchableOccurrences(
+        householdId: UUID,
+        categoryId: UUID,
+        closestTo: LocalDate,
+        throughInclusive: LocalDate,
+        limit: Int,
+    ): List<RecurringOccurrenceView> =
+        jdbc
+            .sql(MATCHABLE_OCCURRENCES)
+            .params(
+                mapOf(
+                    "household" to householdId,
+                    "category" to categoryId,
+                    "closest" to closestTo,
+                    "through" to throughInclusive,
+                    "limit" to limit,
+                ),
+            ).query { row, _ -> mapOccurrenceView(row) }
+            .list()
 
     override fun findOccurrence(
         householdId: UUID,
@@ -225,13 +240,8 @@ class JdbcRecurringPlanRepository(
         jdbc
             .sql(OCCURRENCE_BY_ID)
             .params(householdId, id)
-            .query { row, _ ->
-                RecurringOccurrenceView(
-                    mapOccurrence(row),
-                    row.getString("category_name"),
-                    Money.of(row.getBigDecimal("paid_amount"), Currency.KZT),
-                )
-            }.optional()
+            .query { row, _ -> mapOccurrenceView(row) }
+            .optional()
             .orElse(null)
 
     override fun advanceOccurrence(
@@ -437,6 +447,13 @@ class JdbcRecurringPlanRepository(
             instant(row, "updated_at"),
         )
 
+    private fun mapOccurrenceView(row: java.sql.ResultSet): RecurringOccurrenceView =
+        RecurringOccurrenceView(
+            mapOccurrence(row),
+            row.getString("category_name"),
+            Money.of(row.getBigDecimal("paid_amount"), Currency.KZT),
+        )
+
     private fun mapExpected(row: java.sql.ResultSet): ExpectedIncome =
         ExpectedIncome(
             row.getObject("id", UUID::class.java),
@@ -491,6 +508,22 @@ class JdbcRecurringPlanRepository(
                 ON p.household_id = o.household_id AND p.occurrence_id = o.id
             LEFT JOIN ledger_entry l ON l.household_id = p.household_id AND l.id = p.ledger_entry_id
             WHERE o.household_id = ? AND o.id = ? GROUP BY o.id, c.name
+            """.trimIndent()
+        private val MATCHABLE_OCCURRENCES =
+            """
+            SELECT o.*, c.name AS category_name,
+                COALESCE(SUM(l.original_amount) FILTER (WHERE l.status = 'POSTED'), 0) AS paid_amount
+            FROM recurring_occurrence o
+            JOIN category c ON c.household_id = o.household_id AND c.id = o.category_id
+            LEFT JOIN recurring_occurrence_payment p
+                ON p.household_id = o.household_id AND p.occurrence_id = o.id
+            LEFT JOIN ledger_entry l ON l.household_id = p.household_id AND l.id = p.ledger_entry_id
+            WHERE o.household_id = :household AND o.category_id = :category
+                AND o.status = 'SCHEDULED' AND o.due_on <= :through
+            GROUP BY o.id, c.name
+            HAVING COALESCE(SUM(l.original_amount) FILTER (WHERE l.status = 'POSTED'), 0) < o.planned_amount
+            ORDER BY ABS(o.due_on - :closest), o.due_on, o.id
+            LIMIT :limit
             """.trimIndent()
         private val EXPECTED_VIEW =
             """

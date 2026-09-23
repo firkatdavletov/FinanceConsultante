@@ -9,6 +9,7 @@ import com.firkatdavletov.financeconsultante.ledger.domain.CategoryIcon
 import com.firkatdavletov.financeconsultante.ledger.domain.CategoryKind
 import com.firkatdavletov.financeconsultante.ledger.domain.Direction
 import com.firkatdavletov.financeconsultante.ledger.domain.DraftState
+import com.firkatdavletov.financeconsultante.ledger.domain.LedgerEntry
 import com.firkatdavletov.financeconsultante.ledger.domain.MessageParseResult.RecordTransaction
 import com.firkatdavletov.financeconsultante.ledger.domain.TransactionCategory
 import com.firkatdavletov.financeconsultante.ledger.domain.TransactionDraft
@@ -19,6 +20,8 @@ internal class TelegramDraftHandler(
     private val operations: LedgerOperations,
     private val drafts: TransactionDraftRepository,
     private val categories: CategoryManagement,
+    private val recordedReply: (OwnedLedger, LedgerEntry, String) -> TelegramReply =
+        { _, entry, category -> LedgerMessages.recorded(entry, category) },
 ) {
     fun command(
         name: String,
@@ -156,7 +159,7 @@ internal class TelegramDraftHandler(
                 val learned =
                     categories.learnRule(owner, entry.id, entry.version, draft.categoryAlias)
                 drafts.save(owner, botId, draft.confirm(entry.id))
-                recorded(entry, proposal.category.displayName, draft.categoryAlias, learned)
+                recorded(owner, entry, proposal.category.displayName, draft.categoryAlias, learned)
             }
         }
     }
@@ -300,7 +303,7 @@ internal class TelegramDraftHandler(
                 val entry = operations.record(checked).entry
                 val learned = categories.learnRule(owner, entry.id, entry.version, draft.categoryAlias)
                 drafts.save(owner, botId, draft.confirm(entry.id, proposal))
-                recorded(entry, proposal.category.displayName, draft.categoryAlias, learned)
+                recorded(owner, entry, proposal.category.displayName, draft.categoryAlias, learned)
             }
         }
 
@@ -324,12 +327,13 @@ internal class TelegramDraftHandler(
         )
 
     private fun recorded(
-        entry: com.firkatdavletov.financeconsultante.ledger.domain.LedgerEntry,
+        owner: OwnedLedger,
+        entry: LedgerEntry,
         category: String,
         alias: String?,
         learned: Boolean,
     ): TelegramReply {
-        val reply = LedgerMessages.recorded(entry, category)
+        val reply = recordedReply(owner, entry, category)
         return if (alias != null && learned) {
             reply.copy(text = "${reply.text}\nПравило запомнено: «$alias» → «$category».")
         } else {

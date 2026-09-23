@@ -1,6 +1,7 @@
 package com.firkatdavletov.financeconsultante.telegram.application
 
 import com.firkatdavletov.financeconsultante.ledger.application.OwnedLedger
+import com.firkatdavletov.financeconsultante.ledger.domain.LedgerEntry
 import com.firkatdavletov.financeconsultante.ledger.domain.MessageParseResult.Command
 import com.firkatdavletov.financeconsultante.recurring.application.CandidateAnalysis
 import com.firkatdavletov.financeconsultante.recurring.application.CandidateDecision
@@ -39,6 +40,51 @@ class TelegramRecurringHandler(
     private val clock: Clock,
     private val analysis: RecurringExpenseAnalysisService? = null,
 ) {
+    fun recorded(
+        owner: OwnedLedger,
+        entry: LedgerEntry,
+        categoryName: String,
+    ): TelegramReply {
+        val reply = LedgerMessages.recorded(entry, categoryName)
+        val matches = service.matchablePayments(owner, entry)
+        if (matches.isEmpty()) return reply
+        return reply.copy(
+            text =
+                "${reply.text}\nЕсть плановые расходы в категории «$categoryName». " +
+                    "Связать текущий расход с планом? Выберите дату:",
+            buttons =
+                reply.buttons +
+                    matches.map { match ->
+                        ReplyButton(
+                            "📅 ${match.occurrence.dueOn}",
+                            RecurringPaymentCallbacks.data(
+                                match.occurrence.id,
+                                match.occurrence.version,
+                                entry.id,
+                            ),
+                        )
+                    },
+        )
+    }
+
+    fun callback(
+        message: InboxMessage,
+        owner: OwnedLedger,
+    ): TelegramReply {
+        val target =
+            RecurringPaymentCallbacks.parse(message.text)
+                ?: return "Кнопка связи с планом недоступна. Откройте /recurring.".reply()
+        return renderMatchedPayment(
+            service.matchPayment(
+                owner,
+                target.occurrenceId,
+                target.occurrenceVersion,
+                target.ledgerEntryId,
+            ),
+            target.ledgerEntryId,
+        )
+    }
+
     fun command(
         message: InboxMessage,
         command: Command,

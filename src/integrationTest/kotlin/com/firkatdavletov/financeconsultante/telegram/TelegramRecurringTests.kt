@@ -4,6 +4,7 @@ import com.firkatdavletov.financeconsultante.PostgresIntegrationTest
 import com.firkatdavletov.financeconsultante.shared.domain.Money
 import com.firkatdavletov.financeconsultante.telegram.TelegramTestConfiguration.Companion.BOT
 import com.firkatdavletov.financeconsultante.telegram.TelegramTestConfiguration.Companion.OWNER
+import com.firkatdavletov.financeconsultante.telegram.application.IncomingKind
 import com.firkatdavletov.financeconsultante.telegram.application.IncomingMessage
 import com.firkatdavletov.financeconsultante.telegram.application.IncomingUpdate
 import com.firkatdavletov.financeconsultante.telegram.application.OwnerAccess
@@ -149,6 +150,53 @@ class TelegramRecurringTests
         }
 
         @Test
+        fun `recorded expense offers every matching plan date and callback links the selected occurrence`() {
+            receive("/category_add expense связь")
+            val expense = category("EXPENSE", "связь")
+            receive("/recurring add monthly 10 100 $expense")
+            receive("/recurring add monthly 20 100 $expense")
+
+            receive("/expense 40 связь")
+
+            assertThat(reply()).contains(
+                "Записано",
+                "Есть плановые расходы в категории «связь»",
+                "Связать текущий расход с планом?",
+            )
+            assertThat(buttonTexts()).contains("📅 2026-09-10", "📅 2026-09-20")
+            val entryId =
+                checkNotNull(
+                    jdbc.queryForObject(
+                        "SELECT id FROM ledger_entry WHERE category_id = ?",
+                        UUID::class.java,
+                        expense,
+                    ),
+                )
+            val callback = buttonData("📅 2026-09-20")
+
+            receiveCallback(callback)
+
+            val matched =
+                jdbc.queryForMap(
+                    """
+                    SELECT o.due_on, p.ledger_entry_id
+                    FROM recurring_occurrence_payment p
+                    JOIN recurring_occurrence o ON o.id = p.occurrence_id
+                    """.trimIndent(),
+                )
+            assertThat(matched["due_on"]).isEqualTo(java.sql.Date.valueOf("2026-09-20"))
+            assertThat(matched["ledger_entry_id"]).isEqualTo(entryId)
+            assertThat(reply()).contains("Новая проводка не создавалась", "Осталось по обязательству: 60.00 KZT")
+            assertThat(count("ledger_entry")).isEqualTo(1)
+
+            receiveCallback(callback)
+
+            assertThat(reply()).contains("Обязательство изменилось или недоступно").doesNotContain("Новая проводка")
+            assertThat(count("recurring_occurrence_payment")).isEqualTo(1)
+            assertThat(count("ledger_entry")).isEqualTo(1)
+        }
+
+        @Test
         fun `today command returns deterministic budget estimate without OpenAI`() {
             receive("/today")
 
@@ -223,9 +271,56 @@ class TelegramRecurringTests
             assertThat(processor.processOne(BOT)).isTrue()
         }
 
+        private fun receiveCallback(data: String) {
+            val update =
+                IncomingUpdate(
+                    ++updateId,
+                    IncomingMessage(
+                        OWNER,
+                        OWNER,
+                        "private",
+                        false,
+                        data,
+                        clock.instant(),
+                        IncomingKind.CALLBACK,
+                        "query-$updateId",
+                        messageId = 73,
+                    ),
+                )
+            assertThat(polls.accept(checkNotNull(polls.claim(BOT)), listOf(update), access)).isTrue()
+            assertThat(processor.processOne(BOT)).isTrue()
+        }
+
         private fun reply(): String =
             checkNotNull(
                 jdbc.queryForObject("SELECT text FROM telegram_outbox ORDER BY id DESC LIMIT 1", String::class.java),
+            )
+
+        private fun buttonTexts(): List<String> =
+            jdbc
+                .queryForList(
+                    """
+                    SELECT item->>'text'
+                    FROM telegram_outbox o
+                    CROSS JOIN LATERAL jsonb_array_elements(o.buttons) item
+                    WHERE o.id = (SELECT max(id) FROM telegram_outbox)
+                    ORDER BY item->>'text'
+                    """.trimIndent(),
+                    String::class.java,
+                ).filterNotNull()
+
+        private fun buttonData(text: String): String =
+            checkNotNull(
+                jdbc.queryForObject(
+                    """
+                    SELECT item->>'data'
+                    FROM telegram_outbox o
+                    CROSS JOIN LATERAL jsonb_array_elements(o.buttons) item
+                    WHERE o.id = (SELECT max(id) FROM telegram_outbox) AND item->>'text' = ?
+                    """.trimIndent(),
+                    String::class.java,
+                    text,
+                ),
             )
 
         private fun count(table: String): Long =

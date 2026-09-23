@@ -14,6 +14,7 @@ import com.firkatdavletov.financeconsultante.ledger.domain.CategoryAliasNormaliz
 import com.firkatdavletov.financeconsultante.ledger.domain.ClarificationReason
 import com.firkatdavletov.financeconsultante.ledger.domain.Direction
 import com.firkatdavletov.financeconsultante.ledger.domain.DraftState
+import com.firkatdavletov.financeconsultante.ledger.domain.LedgerEntry
 import com.firkatdavletov.financeconsultante.ledger.domain.MessageParseResult
 import com.firkatdavletov.financeconsultante.ledger.domain.MessageParseResult.RecordTransaction
 import com.firkatdavletov.financeconsultante.ledger.domain.TransactionCategory
@@ -65,7 +66,7 @@ class TelegramLedgerHandler(
     private val purchase: TelegramPurchaseHandler? = null,
     private val family: TelegramFamilyHandler? = null,
 ) : LedgerHandler {
-    private val draftHandler = TelegramDraftHandler(operations, drafts, categories)
+    private val draftHandler = TelegramDraftHandler(operations, drafts, categories, ::recorded)
 
     override fun conversationInput(
         message: InboxMessage,
@@ -140,11 +141,23 @@ class TelegramLedgerHandler(
             return "Изменение сообщения не меняет учёт. Откройте /history, выберите запись и исправьте её явно.".reply()
         }
         if (message.kind == IncomingKind.CALLBACK) {
-            return if (message.text.substringBefore(':') in TelegramDraftHandler.CALLBACKS) {
-                if (message.text.startsWith("dcn:")) corrections.clearConversations(message.ownerId)
-                draftHandler.callback(message, botId)
-            } else {
-                corrections.callback(message, botId)
+            return when (message.text.substringBefore(':')) {
+                RecurringPaymentCallbacks.PREFIX -> {
+                    val owner =
+                        operations.owned(message.ownerId)
+                            ?: return "Сначала завершите настройку: /start.".reply()
+                    recurring?.callback(message, owner)
+                        ?: "Связь с плановыми расходами временно недоступна.".reply()
+                }
+
+                in TelegramDraftHandler.CALLBACKS -> {
+                    if (message.text.startsWith("dcn:")) corrections.clearConversations(message.ownerId)
+                    draftHandler.callback(message, botId)
+                }
+
+                else -> {
+                    corrections.callback(message, botId)
+                }
             }
         }
         conversationInput(message, botId)?.let { return it }
@@ -325,11 +338,17 @@ class TelegramLedgerHandler(
                         "Проверьте данные и подтвердите запись.",
                     )
                 } else {
-                    LedgerMessages.recorded(operations.record(check).entry, proposal.category.displayName)
+                    recorded(owner, operations.record(check).entry, proposal.category.displayName)
                 }
             }
         }
     }
+
+    private fun recorded(
+        owner: OwnedLedger,
+        entry: LedgerEntry,
+        categoryName: String,
+    ): TelegramReply = recurring?.recorded(owner, entry, categoryName) ?: LedgerMessages.recorded(entry, categoryName)
 
     private fun manualCategoryDraft(
         message: InboxMessage,

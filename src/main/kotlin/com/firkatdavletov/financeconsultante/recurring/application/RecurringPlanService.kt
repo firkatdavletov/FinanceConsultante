@@ -8,6 +8,7 @@ import com.firkatdavletov.financeconsultante.ledger.application.RecordEntry
 import com.firkatdavletov.financeconsultante.ledger.domain.CategoryKind
 import com.firkatdavletov.financeconsultante.ledger.domain.Direction
 import com.firkatdavletov.financeconsultante.ledger.domain.EntryStatus
+import com.firkatdavletov.financeconsultante.ledger.domain.LedgerEntry
 import com.firkatdavletov.financeconsultante.recurring.domain.ExpectedIncome
 import com.firkatdavletov.financeconsultante.recurring.domain.ExpectedIncomeStatus
 import com.firkatdavletov.financeconsultante.recurring.domain.ExpectedIncomeView
@@ -227,6 +228,30 @@ class RecurringPlanService(
         }
         check(plans.advanceOccurrence(occurrenceId, version, now())) { "Occurrence changed while locked" }
         return PlanChange.Applied(checkNotNull(plans.occurrenceView(owner.householdId, occurrenceId)))
+    }
+
+    fun matchablePayments(
+        owner: OwnedLedger,
+        entry: LedgerEntry,
+    ): List<RecurringOccurrenceView> {
+        if (
+            !owner.canManageHousehold || entry.householdId != owner.householdId ||
+            entry.status != EntryStatus.POSTED || entry.direction != Direction.EXPENSE ||
+            entry.originalAmount.currency != Currency.KZT ||
+            plans.ledgerEntryAlreadyPlanned(owner.householdId, entry.id)
+        ) {
+            return emptyList()
+        }
+        val today = LocalDate.now(clock.withZone(ACCOUNTING_ZONE))
+        val through = horizon(today)
+        generate(owner.householdId, through)
+        return plans.matchableOccurrences(
+            owner.householdId,
+            entry.categoryId,
+            entry.occurredAt.atZone(ACCOUNTING_ZONE).toLocalDate(),
+            through,
+            MATCH_LIMIT,
+        )
     }
 
     fun remainingObligations(
@@ -482,6 +507,7 @@ class RecurringPlanService(
         private val ACCOUNTING_ZONE = java.time.ZoneId.of("Asia/Almaty")
         private const val HORIZON_MONTHS = 2L
         private const val LIST_LIMIT = 12
+        private const val MATCH_LIMIT = 12
         private const val STALE_RULE =
             "Правило изменилось или недоступно. Откройте /recurring."
         private const val STALE_OCCURRENCE =

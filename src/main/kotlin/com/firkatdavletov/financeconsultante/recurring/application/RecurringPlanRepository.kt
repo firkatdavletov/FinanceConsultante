@@ -56,6 +56,14 @@ interface RecurringPlanRepository {
         limit: Int? = null,
     ): List<RecurringOccurrenceView>
 
+    fun matchableOccurrences(
+        householdId: UUID,
+        categoryId: UUID,
+        closestTo: LocalDate,
+        throughInclusive: LocalDate,
+        limit: Int,
+    ): List<RecurringOccurrenceView>
+
     fun findOccurrence(
         householdId: UUID,
         id: UUID,
