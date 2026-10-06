@@ -5,6 +5,8 @@ spring:
     password: ${DATABASE_PASSWORD:${POSTGRES_PASSWORD}}
 
 app:
+  mobile-api:
+    enabled: ${MOBILE_API_ENABLED:false}
   exchange-rates:
     enabled: ${EXCHANGE_RATES_ENABLED:false}
     access-key: ${CURRENCYLAYER_ACCESS_KEY:}

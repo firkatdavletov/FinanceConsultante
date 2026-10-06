@@ -1,4 +1,6 @@
 app:
+  mobile-api:
+    enabled: false
   recurring:
     scheduler-enabled: false
   exchange-rates:

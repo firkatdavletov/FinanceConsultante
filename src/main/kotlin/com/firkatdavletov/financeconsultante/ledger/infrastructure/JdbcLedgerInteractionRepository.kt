@@ -134,7 +134,34 @@ class JdbcLedgerInteractionRepository(
             }.list()
     }
 
+    override fun purchaseHistory(
+        householdId: UUID,
+        before: Long,
+        limit: Int,
+    ): List<HistoryItem> {
+        require(before > 0 && limit in 1..MAX_PURCHASE_HISTORY_ROWS)
+        return jdbc
+            .sql(
+                """
+                SELECT l.*, c.name AS category_name, r.source AS rate_source,
+                    r.quoted_at AS rate_quoted_at, r.fetched_at AS rate_fetched_at
+                FROM ledger_entry l JOIN category c ON c.id = l.category_id AND c.household_id = l.household_id
+                LEFT JOIN daily_exchange_rate r ON r.rate_date = l.occurred_on AND r.rub_kzt = l.rub_kzt
+                WHERE l.household_id = ? AND l.direction = 'EXPENSE' AND l.history_sequence < ?
+                ORDER BY l.history_sequence DESC LIMIT ?
+                """.trimIndent(),
+            ).params(householdId, before, limit)
+            .query { row, index ->
+                HistoryItem(
+                    row.getLong("history_sequence"),
+                    row.getString("category_name"),
+                    LedgerRowMapper.mapRow(row, index),
+                )
+            }.list()
+    }
+
     companion object {
         private const val MAX_HISTORY_ROWS = 11
+        private const val MAX_PURCHASE_HISTORY_ROWS = 51
     }
 }

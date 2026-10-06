@@ -8,6 +8,7 @@
 поддерживают KZT/RUB; основная валюта — KZT, часовой пояс — Asia/Almaty. Telegram поддерживает защищённый
 long polling, настройку, совместный учёт, аналитику и планирование. AI-предложение всегда требует
 подтверждения участника, который его создал.
+Для мобильного приложения доступен выключенный по умолчанию read-only API истории покупок.
 
 ## Требования и версии
 
@@ -73,7 +74,7 @@ java -jar build/libs/FinanceConsultante-0.0.1-SNAPSHOT.jar --spring.profiles.act
 | Профиль | Назначение |
 | --- | --- |
 | `local` | Профиль по умолчанию; datasource использует `POSTGRES_*` из окружения либо явные `DATABASE_*` |
-| `test` | Загрузчик курса, Telegram, OpenAI и уведомления выключены; datasource тестовый и задаётся интеграционным набором |
+| `test` | Загрузчик курса, Telegram, OpenAI, mobile API и уведомления выключены; datasource тестовый и задаётся интеграционным набором |
 | `prod` | Обязательны `DATABASE_URL` в формате JDBC, `DATABASE_USERNAME`, `DATABASE_PASSWORD`; интеграции по умолчанию выключены |
 
 Telegram-клиент и все его worker создаются только при `app.telegram.enabled=true`. OpenAI-распознавание
@@ -106,6 +107,60 @@ docker compose up -d --wait postgres
 ```
 
 Не сохраняйте реальные ключи в `application*.yaml`, Gradle, CI или тестовых фикстурах. Файлы `.env` и `.env.*` исключены из Git, кроме `.env.example`. Неиспользуемые интеграции оставляйте выключенными, а их credentials — пустыми.
+
+## Мобильный API
+
+API выключен по умолчанию. Для личного мобильного клиента создайте случайный токен не короче
+32 символов, привяжите его к Telegram ID активного OWNER или MEMBER и передайте все три значения
+через окружение:
+
+```bash
+export MOBILE_API_ENABLED=true
+export MOBILE_API_TOKEN='<случайный-токен-не-короче-32-символов>'
+export MOBILE_API_TELEGRAM_USER_ID='<Telegram ID активного участника>'
+```
+
+Единственный текущий endpoint:
+
+```http
+GET /api/v1/purchases?limit=20&cursor=12345
+Authorization: Bearer <MOBILE_API_TOKEN>
+Accept: application/json
+```
+
+`cursor` необязателен и задаёт exclusive-границу по порядку добавления; `limit` по умолчанию 20, допустимы
+значения 1–50. Для следующей страницы передайте полученный `nextCursor`; `null` означает конец истории.
+Выдаются только расходы `EXPENSE`; доходы и возвраты исключены, отменённые покупки сохраняются со
+статусом `VOIDED`.
+
+```json
+{
+  "items": [
+    {
+      "id": "10000000-0000-0000-0000-000000000001",
+      "sequence": 42,
+      "category": { "id": "20000000-0000-0000-0000-000000000001", "name": "Продукты" },
+      "originalAmount": { "amount": "15000.00", "currency": "KZT" },
+      "amountKzt": { "amount": "15000.00", "currency": "KZT" },
+      "occurredOn": "2026-10-06",
+      "occurredAt": "2026-10-05T19:00:00Z",
+      "createdAt": "2026-10-06T08:00:00Z",
+      "modifiedAt": "2026-10-06T08:00:00Z",
+      "status": "POSTED",
+      "version": 0,
+      "description": "супермаркет",
+      "exchangeRate": null
+    }
+  ],
+  "nextCursor": 42
+}
+```
+
+Деньги передаются JSON-строками с двумя знаками, чтобы мобильный runtime не потерял точность. Ответы
+содержат `Cache-Control: no-store`; `source_key`, household/account/member ID и Telegram ID автора не выдаются. После отзыва
+членства тот же токен получает `403`; неверный или отсутствующий Bearer-токен — `401`. В production API нужно
+публиковать только через HTTPS. Текущий статический токен рассчитан на один личный клиент; login, refresh и
+ротация пользовательских токенов пока не реализованы.
 
 ## Telegram: вход и настройка бюджета
 
@@ -536,7 +591,12 @@ occurrences так же, как `/forecast`, но не создаёт ledger-ent
 | `./gradlew check` | Все тесты, ktlint, Detekt и JaCoCo |
 | `./gradlew bootJar` | Исполняемый Spring Boot JAR; сам по себе не запускает все проверки |
 
-Gradle задаёт профиль `test` и выключает четыре флага интеграций через system properties для каждой задачи `Test`: унаследованные из shell переменные включения не активируют Currencylayer, Telegram, OpenAI или отправку уведомлений. При запуске тестов прямо из IDE используйте профиль `test` и отдельную конфигурацию без production-переменных; предпочтителен запуск через Gradle. HTTP-контракты Currencylayer, Telegram и OpenAI проверяются только на локальном WireMock. Telegram/OpenAI-тесты отключают HTTP/2 cleartext в WireMock из-за EOF при h2c upgrade в связке JDK 17 / Jetty; production HTTP-клиенты сохраняют стандартное согласование протокола.
+Gradle задаёт профиль `test` и выключает пять флагов интеграций через system properties для каждой задачи `Test`:
+унаследованные из shell переменные включения не активируют Currencylayer, Telegram, OpenAI, mobile API или отправку
+уведомлений. При запуске тестов прямо из IDE используйте профиль `test` и отдельную конфигурацию без production-переменных;
+предпочтителен запуск через Gradle. HTTP-контракты Currencylayer, Telegram и OpenAI проверяются только на локальном WireMock.
+Telegram/OpenAI-тесты отключают HTTP/2 cleartext в WireMock из-за EOF при h2c upgrade в связке JDK 17 / Jetty; production HTTP-клиенты
+сохраняют стандартное согласование протокола. Mobile API проверяется через MockMvc и ту же Testcontainers-БД.
 
 Для диагностики без Docker можно **явно** выбрать отдельный локальный PostgreSQL 17: `./gradlew check bootJar -PtestPostgresUrl=jdbc:postgresql://127.0.0.1:55432/financeconsultante_test`. Заранее создайте изолированный тестовый кластер с ролью `test_owner`, паролем `synthetic-test-password` и пустой БД `financeconsultante_test`. Допускается только такой localhost URL с явным портом. Тесты применяют миграции и меняют данные/схему этой БД. Это дополнительный режим проверки SQL; он не подтверждает работу Compose/Testcontainers. Без параметра запускается только Testcontainers, без автоматического fallback. CI использует обычный режим Docker.
 

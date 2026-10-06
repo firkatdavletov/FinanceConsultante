@@ -38,6 +38,7 @@ dependencies {
     implementation("org.jetbrains.kotlin:kotlin-reflect")
     runtimeOnly("org.postgresql:postgresql")
     testImplementation("org.springframework.boot:spring-boot-starter-test")
+    testImplementation("org.springframework.boot:spring-boot-webmvc-test")
     testImplementation("org.jetbrains.kotlin:kotlin-test-junit5")
     testImplementation("org.wiremock:wiremock-standalone:3.13.2")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
@@ -91,6 +92,7 @@ tasks.withType<Test>().configureEach {
     systemProperty("app.openai.enabled", "false")
     systemProperty("app.notifications.enabled", "false")
     systemProperty("app.exchange-rates.enabled", "false")
+    systemProperty("app.mobile-api.enabled", "false")
 
     testLogging {
         events("failed", "skipped")

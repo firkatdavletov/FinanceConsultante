@@ -48,6 +48,10 @@ management:
       application: ${spring.application.name}
 
 app:
+  mobile-api:
+    enabled: false
+    token: ${MOBILE_API_TOKEN:}
+    telegram-user-id: ${MOBILE_API_TELEGRAM_USER_ID:0}
   operations:
     metrics-enabled: true
   recurring:
