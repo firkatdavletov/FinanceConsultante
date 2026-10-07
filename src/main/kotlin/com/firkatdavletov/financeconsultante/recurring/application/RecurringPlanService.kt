@@ -86,6 +86,19 @@ class RecurringPlanService(
         )
     }
 
+    fun plannedExpenses(
+        owner: OwnedLedger,
+        asOf: LocalDate,
+    ): PlannedExpenseSchedule {
+        val through = horizon(asOf)
+        generate(owner.householdId, through)
+        return PlannedExpenseSchedule(
+            asOf,
+            through,
+            plans.plannedExpenses(owner.householdId, through),
+        )
+    }
+
     fun updateRuleAmount(
         owner: OwnedLedger,
         ruleId: UUID,

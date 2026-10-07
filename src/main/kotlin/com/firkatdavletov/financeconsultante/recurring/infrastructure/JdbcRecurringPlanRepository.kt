@@ -201,6 +201,16 @@ class JdbcRecurringPlanRepository(
             .list()
     }
 
+    override fun plannedExpenses(
+        householdId: UUID,
+        throughInclusive: LocalDate,
+    ): List<RecurringOccurrenceView> =
+        jdbc
+            .sql(PLANNED_EXPENSE_VIEW)
+            .params(mapOf("household" to householdId, "through" to throughInclusive))
+            .query { row, _ -> mapOccurrenceView(row) }
+            .list()
+
     override fun matchableOccurrences(
         householdId: UUID,
         categoryId: UUID,
@@ -508,6 +518,20 @@ class JdbcRecurringPlanRepository(
                 ON p.household_id = o.household_id AND p.occurrence_id = o.id
             LEFT JOIN ledger_entry l ON l.household_id = p.household_id AND l.id = p.ledger_entry_id
             WHERE o.household_id = ? AND o.id = ? GROUP BY o.id, c.name
+            """.trimIndent()
+        private val PLANNED_EXPENSE_VIEW =
+            """
+            SELECT o.*, c.name AS category_name,
+                COALESCE(SUM(l.original_amount) FILTER (WHERE l.status = 'POSTED'), 0) AS paid_amount
+            FROM recurring_occurrence o
+            JOIN category c ON c.household_id = o.household_id AND c.id = o.category_id
+            LEFT JOIN recurring_occurrence_payment p
+                ON p.household_id = o.household_id AND p.occurrence_id = o.id
+            LEFT JOIN ledger_entry l ON l.household_id = p.household_id AND l.id = p.ledger_entry_id
+            WHERE o.household_id = :household AND o.due_on <= :through AND o.status = 'SCHEDULED'
+            GROUP BY o.id, c.name
+            HAVING COALESCE(SUM(l.original_amount) FILTER (WHERE l.status = 'POSTED'), 0) < o.planned_amount
+            ORDER BY o.due_on, o.id
             """.trimIndent()
         private val MATCHABLE_OCCURRENCES =
             """

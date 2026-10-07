@@ -56,6 +56,11 @@ interface RecurringPlanRepository {
         limit: Int? = null,
     ): List<RecurringOccurrenceView>
 
+    fun plannedExpenses(
+        householdId: UUID,
+        throughInclusive: LocalDate,
+    ): List<RecurringOccurrenceView>
+
     fun matchableOccurrences(
         householdId: UUID,
         categoryId: UUID,
@@ -141,6 +146,12 @@ interface RecurringPlanRepository {
 data class RecurringOverview(
     val rules: List<RecurringRuleView>,
     val occurrences: List<RecurringOccurrenceView>,
+)
+
+data class PlannedExpenseSchedule(
+    val asOf: LocalDate,
+    val throughInclusive: LocalDate,
+    val expenses: List<RecurringOccurrenceView>,
 )
 
 sealed interface PlanChange<out T> {

@@ -120,7 +120,7 @@ export MOBILE_API_TOKEN='<случайный-токен-не-короче-32-с�
 export MOBILE_API_TELEGRAM_USER_ID='<Telegram ID активного участника>'
 ```
 
-Единственный текущий endpoint:
+История покупок:
 
 ```http
 GET /api/v1/purchases?limit=20&cursor=12345
@@ -153,6 +153,40 @@ Accept: application/json
     }
   ],
   "nextCursor": 42
+}
+```
+
+Открытые плановые расходы:
+
+```http
+GET /api/v1/planned-expenses
+Authorization: Bearer <MOBILE_API_TOKEN>
+Accept: application/json
+```
+
+Endpoint возвращает просроченные и будущие обязательства с ненулевым остатком до конца месяца через два
+месяца от местной даты запроса. Полностью оплаченные и отменённые обязательства не выдаются. Перед чтением
+occurrences активных правил идемпотентно достраиваются; ledger и баланс от этого не меняются.
+
+```json
+{
+  "asOf": "2026-10-07",
+  "throughInclusive": "2026-12-31",
+  "items": [
+    {
+      "id": "30000000-0000-0000-0000-000000000001",
+      "category": { "id": "20000000-0000-0000-0000-000000000001", "name": "Жильё" },
+      "plannedAmount": { "amount": "120000.00", "currency": "KZT" },
+      "paidAmount": { "amount": "20000.00", "currency": "KZT" },
+      "remainingAmount": { "amount": "100000.00", "currency": "KZT" },
+      "dueOn": "2026-10-10",
+      "overdue": false,
+      "status": "SCHEDULED",
+      "version": 1,
+      "createdAt": "2026-10-01T04:00:00Z",
+      "modifiedAt": "2026-10-07T03:00:00Z"
+    }
+  ]
 }
 ```
 
