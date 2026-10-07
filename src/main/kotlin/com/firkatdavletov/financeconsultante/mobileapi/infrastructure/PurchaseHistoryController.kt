@@ -2,8 +2,12 @@ package com.firkatdavletov.financeconsultante.mobileapi.infrastructure
 
 import com.firkatdavletov.financeconsultante.ledger.application.HistoryItem
 import com.firkatdavletov.financeconsultante.ledger.domain.DailyExchangeRate
+import com.firkatdavletov.financeconsultante.mobileapi.application.InvalidCategoryRequest
 import com.firkatdavletov.financeconsultante.mobileapi.application.InvalidPurchaseHistoryRequest
 import com.firkatdavletov.financeconsultante.mobileapi.application.MobileApiAccessDenied
+import com.firkatdavletov.financeconsultante.mobileapi.application.MobileApiCategoryConflict
+import com.firkatdavletov.financeconsultante.mobileapi.application.MobileApiCategoryNotFound
+import com.firkatdavletov.financeconsultante.mobileapi.application.MobileApiOwnerRequired
 import com.firkatdavletov.financeconsultante.mobileapi.application.PurchaseHistoryPage
 import com.firkatdavletov.financeconsultante.mobileapi.application.PurchaseHistoryService
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty
@@ -12,6 +16,7 @@ import org.springframework.http.HttpHeaders
 import org.springframework.http.HttpStatus
 import org.springframework.http.MediaType
 import org.springframework.http.ResponseEntity
+import org.springframework.http.converter.HttpMessageNotReadableException
 import org.springframework.web.bind.annotation.ExceptionHandler
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.RequestHeader
@@ -165,10 +170,45 @@ class MobileApiExceptionHandler {
             .cacheControl(CacheControl.noStore())
             .body(MobileApiError("access_denied", "Active budget membership is required"))
 
-    @ExceptionHandler(InvalidPurchaseHistoryRequest::class, MethodArgumentTypeMismatchException::class)
-    fun invalidRequest(): ResponseEntity<MobileApiError> =
+    @ExceptionHandler(MobileApiOwnerRequired::class)
+    fun ownerRequired(): ResponseEntity<MobileApiError> =
+        ResponseEntity
+            .status(HttpStatus.FORBIDDEN)
+            .cacheControl(CacheControl.noStore())
+            .body(MobileApiError("owner_required", "Category management requires OWNER membership"))
+
+    @ExceptionHandler(InvalidCategoryRequest::class)
+    fun invalidCategory(error: InvalidCategoryRequest): ResponseEntity<MobileApiError> =
+        ResponseEntity
+            .badRequest()
+            .cacheControl(CacheControl.noStore())
+            .body(MobileApiError("invalid_category", checkNotNull(error.message)))
+
+    @ExceptionHandler(MobileApiCategoryNotFound::class)
+    fun categoryNotFound(): ResponseEntity<MobileApiError> =
+        ResponseEntity
+            .status(HttpStatus.NOT_FOUND)
+            .cacheControl(CacheControl.noStore())
+            .body(MobileApiError("category_not_found", "Category is unavailable"))
+
+    @ExceptionHandler(MobileApiCategoryConflict::class)
+    fun categoryConflict(error: MobileApiCategoryConflict): ResponseEntity<MobileApiError> =
+        ResponseEntity
+            .status(HttpStatus.CONFLICT)
+            .cacheControl(CacheControl.noStore())
+            .body(MobileApiError("category_conflict", checkNotNull(error.message)))
+
+    @ExceptionHandler(InvalidPurchaseHistoryRequest::class)
+    fun invalidPurchaseHistoryRequest(): ResponseEntity<MobileApiError> =
         ResponseEntity
             .badRequest()
             .cacheControl(CacheControl.noStore())
             .body(MobileApiError("invalid_request", "cursor and limit must be valid positive numbers"))
+
+    @ExceptionHandler(MethodArgumentTypeMismatchException::class, HttpMessageNotReadableException::class)
+    fun invalidRequest(): ResponseEntity<MobileApiError> =
+        ResponseEntity
+            .badRequest()
+            .cacheControl(CacheControl.noStore())
+            .body(MobileApiError("invalid_request", "Request parameters or body are invalid"))
 }

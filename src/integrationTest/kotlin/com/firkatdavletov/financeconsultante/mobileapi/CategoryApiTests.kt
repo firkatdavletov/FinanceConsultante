@@ -2,14 +2,17 @@ package com.firkatdavletov.financeconsultante.mobileapi
 
 import com.firkatdavletov.financeconsultante.PostgresIntegrationTest
 import com.firkatdavletov.financeconsultante.ledger.application.AccountingService
+import com.firkatdavletov.financeconsultante.ledger.application.RecordEntry
 import com.firkatdavletov.financeconsultante.ledger.domain.Account
 import com.firkatdavletov.financeconsultante.ledger.domain.BudgetSetup
 import com.firkatdavletov.financeconsultante.ledger.domain.Category
 import com.firkatdavletov.financeconsultante.ledger.domain.CategoryIcon
 import com.firkatdavletov.financeconsultante.ledger.domain.CategoryKind
+import com.firkatdavletov.financeconsultante.ledger.domain.Direction
 import com.firkatdavletov.financeconsultante.ledger.domain.Household
 import com.firkatdavletov.financeconsultante.ledger.domain.Member
 import com.firkatdavletov.financeconsultante.shared.domain.Money
+import org.assertj.core.api.Assertions.assertThat
 import org.hamcrest.Matchers.hasItem
 import org.hamcrest.Matchers.not
 import org.junit.jupiter.api.AfterEach
@@ -17,10 +20,14 @@ import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc
 import org.springframework.http.HttpHeaders
+import org.springframework.http.MediaType
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.test.context.TestPropertySource
 import org.springframework.test.web.servlet.MockMvc
+import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get
+import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch
+import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.header
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.status
@@ -47,6 +54,9 @@ class CategoryApiTests
         @AfterEach
         fun cleanup() {
             households.forEach { household ->
+                jdbc.update("DELETE FROM category_rule WHERE household_id = ?", household)
+                jdbc.update("DELETE FROM entry_revision WHERE household_id = ?", household)
+                jdbc.update("DELETE FROM ledger_entry WHERE household_id = ?", household)
                 jdbc.update("DELETE FROM category WHERE household_id = ?", household)
                 jdbc.update("DELETE FROM account WHERE household_id = ?", household)
                 jdbc.update("DELETE FROM member WHERE household_id = ?", household)
@@ -105,6 +115,158 @@ class CategoryApiTests
                 .perform(get("/api/v1/categories").header(HttpHeaders.AUTHORIZATION, AUTHORIZATION))
                 .andExpect(status().isForbidden)
                 .andExpect(jsonPath("$.code").value("access_denied"))
+        }
+
+        @Test
+        fun `owner creates and edits category`() {
+            val setup = openBudget(API_USER_ID)
+
+            mockMvc
+                .perform(
+                    post("/api/v1/categories")
+                        .header(HttpHeaders.AUTHORIZATION, AUTHORIZATION)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(
+                            """
+                            {
+                              "name": "Кафе",
+                              "kind": "EXPENSE",
+                              "icon": "ENTERTAINMENT"
+                            }
+                            """.trimIndent(),
+                        ),
+                ).andExpect(status().isCreated)
+                .andExpect(header().string(HttpHeaders.CACHE_CONTROL, "no-store"))
+                .andExpect(jsonPath("$.name").value("Кафе"))
+                .andExpect(jsonPath("$.kind").value("EXPENSE"))
+                .andExpect(jsonPath("$.icon.code").value("ENTERTAINMENT"))
+
+            val categoryId =
+                checkNotNull(
+                    jdbc.queryForObject(
+                        "SELECT id FROM category WHERE household_id = ? AND name = 'Кафе'",
+                        UUID::class.java,
+                        setup.household.id,
+                    ),
+                )
+
+            mockMvc
+                .perform(
+                    patch("/api/v1/categories/{categoryId}", categoryId)
+                        .header(HttpHeaders.AUTHORIZATION, AUTHORIZATION)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""{"name":"Рестораны","icon":"FOOD"}"""),
+                ).andExpect(status().isOk)
+                .andExpect(header().string(HttpHeaders.CACHE_CONTROL, "no-store"))
+                .andExpect(jsonPath("$.id").value(categoryId.toString()))
+                .andExpect(jsonPath("$.name").value("Рестораны"))
+                .andExpect(jsonPath("$.kind").value("EXPENSE"))
+                .andExpect(jsonPath("$.icon.code").value("FOOD"))
+
+            mockMvc
+                .perform(get("/api/v1/categories").header(HttpHeaders.AUTHORIZATION, AUTHORIZATION))
+                .andExpect(status().isOk)
+                .andExpect(jsonPath("$.items[?(@.id == '$categoryId')].name", hasItem("Рестораны")))
+        }
+
+        @Test
+        fun `deleting expense archives category and reassigns its history`() {
+            val setup = openBudget(API_USER_ID)
+            val category = setup.categories.first { it.kind == CategoryKind.EXPENSE }
+            val entry =
+                accounting
+                    .record(
+                        RecordEntry(
+                            setup.household.id,
+                            setup.owner.id,
+                            category.id,
+                            Direction.EXPENSE,
+                            Money.of("1200"),
+                            ACCOUNTING_START.plusSeconds(3600),
+                            "mobile-api-category-delete-fixture",
+                        ),
+                    ).entry
+
+            mockMvc
+                .perform(
+                    delete("/api/v1/categories/{categoryId}", category.id)
+                        .header(HttpHeaders.AUTHORIZATION, AUTHORIZATION),
+                ).andExpect(status().isNoContent)
+                .andExpect(header().string(HttpHeaders.CACHE_CONTROL, "no-store"))
+
+            val archived =
+                jdbc.queryForObject(
+                    "SELECT archived FROM category WHERE household_id = ? AND id = ?",
+                    Boolean::class.java,
+                    setup.household.id,
+                    category.id,
+                )
+            val reassignedCategory =
+                jdbc.queryForObject(
+                    "SELECT category_id FROM ledger_entry WHERE household_id = ? AND id = ?",
+                    UUID::class.java,
+                    setup.household.id,
+                    entry.id,
+                )
+            val fallbackKey =
+                jdbc.queryForObject(
+                    "SELECT dictionary_key FROM category WHERE household_id = ? AND id = ?",
+                    String::class.java,
+                    setup.household.id,
+                    reassignedCategory,
+                )
+            val deletionRevision =
+                jdbc.queryForObject(
+                    "SELECT COUNT(*) FROM entry_revision WHERE household_id = ? AND entry_id = ? " +
+                        "AND reason = 'CATEGORY_DELETED'",
+                    Long::class.java,
+                    setup.household.id,
+                    entry.id,
+                )
+            assertThat(archived).isTrue()
+            assertThat(reassignedCategory).isNotEqualTo(category.id)
+            assertThat(fallbackKey).isEqualTo("OTHER")
+            assertThat(deletionRevision).isEqualTo(1)
+        }
+
+        @Test
+        fun `category mutations require owner and valid input`() {
+            val memberBudget = openBudget(OWNER_ID)
+            addMember(memberBudget, API_USER_ID)
+
+            mockMvc
+                .perform(
+                    post("/api/v1/categories")
+                        .header(HttpHeaders.AUTHORIZATION, AUTHORIZATION)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""{"name":"Кафе","kind":"EXPENSE","icon":"FOOD"}"""),
+                ).andExpect(status().isForbidden)
+                .andExpect(jsonPath("$.code").value("owner_required"))
+
+            jdbc.update(
+                "UPDATE member SET revoked_at = CURRENT_TIMESTAMP WHERE household_id = ? AND telegram_user_id = ?",
+                memberBudget.household.id,
+                API_USER_ID,
+            )
+            openBudget(API_USER_ID)
+
+            mockMvc
+                .perform(
+                    post("/api/v1/categories")
+                        .header(HttpHeaders.AUTHORIZATION, AUTHORIZATION)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""{"name":"Кафе","kind":"UNKNOWN","icon":"FOOD"}"""),
+                ).andExpect(status().isBadRequest)
+                .andExpect(jsonPath("$.code").value("invalid_category"))
+
+            mockMvc
+                .perform(
+                    patch("/api/v1/categories/{categoryId}", UUID.randomUUID())
+                        .header(HttpHeaders.AUTHORIZATION, AUTHORIZATION)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""{"name":"Новое имя"}"""),
+                ).andExpect(status().isNotFound)
+                .andExpect(jsonPath("$.code").value("category_not_found"))
         }
 
         private fun openBudget(telegramUserId: Long): BudgetSetup {

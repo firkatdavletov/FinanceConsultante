@@ -145,6 +145,42 @@ Endpoint возвращает активные категории текущег
 }
 ```
 
+Управление категориями доступно только токену, привязанному к активному `OWNER`:
+
+```http
+POST /api/v1/categories
+Authorization: Bearer <MOBILE_API_TOKEN>
+Content-Type: application/json
+
+{
+  "name": "Кафе",
+  "kind": "EXPENSE",
+  "icon": "FOOD"
+}
+```
+
+```http
+PATCH /api/v1/categories/20000000-0000-0000-0000-000000000001
+Authorization: Bearer <MOBILE_API_TOKEN>
+Content-Type: application/json
+
+{
+  "name": "Рестораны",
+  "icon": "ENTERTAINMENT"
+}
+```
+
+```http
+DELETE /api/v1/categories/20000000-0000-0000-0000-000000000001
+Authorization: Bearer <MOBILE_API_TOKEN>
+```
+
+`POST` требует имя, направление `EXPENSE`/`INCOME` и код иконки. `PATCH` меняет имя и/или иконку;
+направление существующей категории неизменно. `DELETE` поддерживается только для расходной категории:
+категория архивируется, её правила удаляются, а проведённые операции с аудитом переносятся в системную
+категорию `OTHER`. Саму `OTHER` нельзя переименовать или удалить. Успешное создание возвращает `201`,
+редактирование — `200`, удаление — `204`.
+
 История покупок:
 
 ```http
