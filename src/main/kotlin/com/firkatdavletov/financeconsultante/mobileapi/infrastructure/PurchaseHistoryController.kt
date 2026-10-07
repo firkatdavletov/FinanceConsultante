@@ -140,7 +140,13 @@ class PurchaseHistoryController(
     }
 }
 
-@RestControllerAdvice(assignableTypes = [PurchaseHistoryController::class, PlannedExpenseController::class])
+@RestControllerAdvice(
+    assignableTypes = [
+        PurchaseHistoryController::class,
+        PlannedExpenseController::class,
+        PlannedIncomeController::class,
+    ],
+)
 @ConditionalOnProperty(prefix = "app.mobile-api", name = ["enabled"], havingValue = "true")
 class MobileApiExceptionHandler {
     @ExceptionHandler(InvalidMobileApiToken::class)

@@ -1,0 +1,42 @@
+package com.firkatdavletov.financeconsultante.mobileapi.application
+
+import com.firkatdavletov.financeconsultante.access.application.FamilyBudgetAccess
+import com.firkatdavletov.financeconsultante.ledger.application.LedgerInteractionRepository
+import com.firkatdavletov.financeconsultante.recurring.application.RecurringPlanService
+import com.firkatdavletov.financeconsultante.recurring.domain.ExpectedIncomeView
+import org.springframework.stereotype.Service
+import org.springframework.transaction.annotation.Isolation
+import org.springframework.transaction.annotation.Transactional
+import java.time.Clock
+import java.time.LocalDate
+import java.time.ZoneId
+
+data class PlannedIncomeList(
+    val asOf: LocalDate,
+    val items: List<ExpectedIncomeView>,
+)
+
+@Service
+class PlannedIncomeService(
+    private val access: FamilyBudgetAccess,
+    private val ledger: LedgerInteractionRepository,
+    private val recurring: RecurringPlanService,
+    private val clock: Clock,
+) {
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
+    fun plannedIncomes(telegramUserId: Long): PlannedIncomeList {
+        val owner =
+            access.activeMember(telegramUserId)?.let { member ->
+                ledger
+                    .owned(telegramUserId)
+                    ?.takeIf { it.householdId == member.householdId && it.memberId == member.id }
+            } ?: throw MobileApiAccessDenied()
+
+        val asOf = LocalDate.now(clock.withZone(API_ZONE))
+        return PlannedIncomeList(asOf, recurring.plannedIncomes(owner))
+    }
+
+    companion object {
+        private val API_ZONE = ZoneId.of("Asia/Almaty")
+    }
+}

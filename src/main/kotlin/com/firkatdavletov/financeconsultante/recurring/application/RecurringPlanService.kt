@@ -320,6 +320,11 @@ class RecurringPlanService(
     fun expectedIncomes(owner: OwnedLedger): List<ExpectedIncomeView> =
         plans.expectedIncomes(owner.householdId, limit = LIST_LIMIT)
 
+    fun plannedIncomes(owner: OwnedLedger): List<ExpectedIncomeView> =
+        plans
+            .expectedIncomes(owner.householdId)
+            .filter { it.forecastAmount.amount.signum() > 0 }
+
     fun expectedIncomeForecast(
         owner: OwnedLedger,
         throughInclusive: LocalDate,

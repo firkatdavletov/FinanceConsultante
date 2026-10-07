@@ -190,6 +190,36 @@ occurrences активных правил идемпотентно достра�
 }
 ```
 
+Открытые запланированные доходы:
+
+```http
+GET /api/v1/planned-incomes
+Authorization: Bearer <MOBILE_API_TOKEN>
+Accept: application/json
+```
+
+Endpoint возвращает все открытые ожидаемые доходы household в порядке срока, включая просроченные.
+Полученные и отменённые планы не выдаются и не учитываются повторно как будущий доход.
+
+```json
+{
+  "asOf": "2026-10-07",
+  "items": [
+    {
+      "id": "40000000-0000-0000-0000-000000000001",
+      "category": { "id": "20000000-0000-0000-0000-000000000002", "name": "Зарплата" },
+      "plannedAmount": { "amount": "1300000.00", "currency": "KZT" },
+      "dueOn": "2026-10-10",
+      "overdue": false,
+      "status": "SCHEDULED",
+      "version": 0,
+      "createdAt": "2026-10-01T04:00:00Z",
+      "modifiedAt": "2026-10-01T04:00:00Z"
+    }
+  ]
+}
+```
+
 Деньги передаются JSON-строками с двумя знаками, чтобы мобильный runtime не потерял точность. Ответы
 содержат `Cache-Control: no-store`; `source_key`, household/account/member ID и Telegram ID автора не выдаются. После отзыва
 членства тот же токен получает `403`; неверный или отсутствующий Bearer-токен — `401`. В production API нужно
