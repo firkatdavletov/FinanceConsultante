@@ -23,7 +23,7 @@ class PlannedIncomeService(
     private val recurring: RecurringPlanService,
     private val clock: Clock,
 ) {
-    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
+    @Transactional(isolation = Isolation.REPEATABLE_READ)
     fun plannedIncomes(telegramUserId: Long): PlannedIncomeList {
         val owner =
             access.activeMember(telegramUserId)?.let { member ->
