@@ -20,10 +20,14 @@ import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc
 import org.springframework.http.HttpHeaders
+import org.springframework.http.MediaType
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.test.context.TestPropertySource
 import org.springframework.test.web.servlet.MockMvc
+import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get
+import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch
+import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.header
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.status
@@ -70,6 +74,7 @@ class PlannedExpenseApiTests
         }
 
         @Test
+        @Suppress("LongMethod") // One response contract includes access scope, payments, recurrence, and filtering.
         fun `returns open household planned expenses with paid and remaining amounts`() {
             val today = LocalDate.now(clock.withZone(API_ZONE))
             val setup = openBudget(OWNER_ID)
@@ -123,6 +128,10 @@ class PlannedExpenseApiTests
                 .andExpect(jsonPath("$.items[*].id", not(hasItem(cancelled.occurrence.id.toString()))))
                 .andExpect(jsonPath("$.items[*].id", not(hasItem(foreignOccurrence.occurrence.id.toString()))))
                 .andExpect(jsonPath("$.items[0].category.name").value("Тестовый расход"))
+                .andExpect(jsonPath("$.items[0].rule.id").value(rule.rule.id.toString()))
+                .andExpect(jsonPath("$.items[0].rule.frequency").value("MONTHLY"))
+                .andExpect(jsonPath("$.items[0].rule.scheduleValue").value(today.dayOfMonth))
+                .andExpect(jsonPath("$.items[0].rule.version").value(0))
                 .andExpect(jsonPath("$.items[0].plannedAmount.amount").value("100.00"))
                 .andExpect(jsonPath("$.items[0].paidAmount.amount").value("40.00"))
                 .andExpect(jsonPath("$.items[0].remainingAmount.amount").value("60.00"))
@@ -151,6 +160,121 @@ class PlannedExpenseApiTests
                 .perform(get("/api/v1/planned-expenses").header(HttpHeaders.AUTHORIZATION, AUTHORIZATION))
                 .andExpect(status().isForbidden)
                 .andExpect(jsonPath("$.code").value("access_denied"))
+        }
+
+        @Test
+        fun `owner creates edits and deletes a planned expense rule`() {
+            val today = LocalDate.now(clock.withZone(API_ZONE))
+            val setup = openBudget(API_USER_ID)
+            val category = setup.expenseCategory()
+
+            mockMvc
+                .perform(
+                    post("/api/v1/planned-expenses")
+                        .header(HttpHeaders.AUTHORIZATION, AUTHORIZATION)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(
+                            """
+                            {
+                              "categoryId": "${category.id}",
+                              "amount": "100.00",
+                              "frequency": "MONTHLY",
+                              "scheduleValue": ${today.dayOfMonth},
+                              "startsOn": "$today"
+                            }
+                            """.trimIndent(),
+                        ),
+                ).andExpect(status().isCreated)
+                .andExpect(header().string(HttpHeaders.CACHE_CONTROL, "no-store"))
+                .andExpect(jsonPath("$.category.id").value(category.id.toString()))
+                .andExpect(jsonPath("$.plannedAmount.amount").value("100.00"))
+                .andExpect(jsonPath("$.frequency").value("MONTHLY"))
+                .andExpect(jsonPath("$.version").value(0))
+
+            val ruleId =
+                checkNotNull(
+                    jdbc.queryForObject(
+                        "SELECT id FROM recurring_rule WHERE household_id = ?",
+                        UUID::class.java,
+                        setup.household.id,
+                    ),
+                )
+
+            mockMvc
+                .perform(
+                    patch("/api/v1/planned-expenses/{ruleId}", ruleId)
+                        .header(HttpHeaders.AUTHORIZATION, AUTHORIZATION)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""{"version":0,"amount":"125.50"}"""),
+                ).andExpect(status().isOk)
+                .andExpect(header().string(HttpHeaders.CACHE_CONTROL, "no-store"))
+                .andExpect(jsonPath("$.id").value(ruleId.toString()))
+                .andExpect(jsonPath("$.plannedAmount.amount").value("125.50"))
+                .andExpect(jsonPath("$.version").value(1))
+
+            mockMvc
+                .perform(
+                    delete("/api/v1/planned-expenses/{ruleId}", ruleId)
+                        .queryParam("version", "1")
+                        .header(HttpHeaders.AUTHORIZATION, AUTHORIZATION),
+                ).andExpect(status().isNoContent)
+                .andExpect(header().string(HttpHeaders.CACHE_CONTROL, "no-store"))
+
+            mockMvc
+                .perform(get("/api/v1/planned-expenses").header(HttpHeaders.AUTHORIZATION, AUTHORIZATION))
+                .andExpect(status().isOk)
+                .andExpect(jsonPath("$.items.length()").value(0))
+        }
+
+        @Test
+        fun `planned expense mutations require owner valid input and current version`() {
+            val today = LocalDate.now(clock.withZone(API_ZONE))
+            val memberBudget = openBudget(OWNER_ID)
+            addMember(memberBudget, API_USER_ID)
+
+            mockMvc
+                .perform(
+                    post("/api/v1/planned-expenses")
+                        .header(HttpHeaders.AUTHORIZATION, AUTHORIZATION)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(createRequest(memberBudget.expenseCategory(), today, "100")),
+                ).andExpect(status().isForbidden)
+                .andExpect(jsonPath("$.code").value("owner_required"))
+
+            jdbc.update(
+                "UPDATE member SET revoked_at = CURRENT_TIMESTAMP WHERE household_id = ? AND telegram_user_id = ?",
+                memberBudget.household.id,
+                API_USER_ID,
+            )
+            val ownerBudget = openBudget(API_USER_ID)
+
+            mockMvc
+                .perform(
+                    post("/api/v1/planned-expenses")
+                        .header(HttpHeaders.AUTHORIZATION, AUTHORIZATION)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(createRequest(ownerBudget.expenseCategory(), today, "1.001")),
+                ).andExpect(status().isBadRequest)
+                .andExpect(jsonPath("$.code").value("invalid_planned_expense"))
+
+            val rule = createRule(owner(ownerBudget, API_USER_ID), ownerBudget.expenseCategory(), today, "100")
+            mockMvc
+                .perform(
+                    patch("/api/v1/planned-expenses/{ruleId}", rule.rule.id)
+                        .header(HttpHeaders.AUTHORIZATION, AUTHORIZATION)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""{"version":7,"amount":"200"}"""),
+                ).andExpect(status().isConflict)
+                .andExpect(jsonPath("$.code").value("planned_expense_conflict"))
+
+            mockMvc
+                .perform(
+                    patch("/api/v1/planned-expenses/{ruleId}", UUID.randomUUID())
+                        .header(HttpHeaders.AUTHORIZATION, AUTHORIZATION)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""{"version":0,"amount":"200"}"""),
+                ).andExpect(status().isNotFound)
+                .andExpect(jsonPath("$.code").value("planned_expense_not_found"))
         }
 
         private fun createRule(
@@ -205,6 +329,20 @@ class PlannedExpenseApiTests
             setup: BudgetSetup,
             telegramUserId: Long,
         ) = OwnedLedger(setup.household.id, setup.owner.id, telegramUserId, ACCOUNTING_START)
+
+        private fun createRequest(
+            category: Category,
+            startsOn: LocalDate,
+            amount: String,
+        ) = """
+            {
+              "categoryId": "${category.id}",
+              "amount": "$amount",
+              "frequency": "MONTHLY",
+              "scheduleValue": ${startsOn.dayOfMonth},
+              "startsOn": "$startsOn"
+            }
+            """.trimIndent()
 
         private fun BudgetSetup.expenseCategory(): Category = categories.single { it.kind == CategoryKind.EXPENSE }
 

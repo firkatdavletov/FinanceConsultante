@@ -98,6 +98,22 @@ class JdbcRecurringPlanRepository(
             .optional()
             .orElse(null)
 
+    override fun ruleView(
+        householdId: UUID,
+        id: UUID,
+    ): RecurringRuleView? =
+        jdbc
+            .sql(
+                """
+                SELECT r.*, c.name AS category_name FROM recurring_rule r
+                JOIN category c ON c.household_id = r.household_id AND c.id = r.category_id
+                WHERE r.household_id = ? AND r.id = ?
+                """.trimIndent(),
+            ).params(householdId, id)
+            .query { row, _ -> RecurringRuleView(mapRule(row), row.getString("category_name")) }
+            .optional()
+            .orElse(null)
+
     override fun updateRuleAmount(
         rule: RecurringRule,
         previousVersion: Long,

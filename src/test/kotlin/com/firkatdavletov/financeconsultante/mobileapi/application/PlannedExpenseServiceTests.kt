@@ -11,8 +11,10 @@ import com.firkatdavletov.financeconsultante.ledger.domain.Category
 import com.firkatdavletov.financeconsultante.ledger.domain.TransactionCategory
 import com.firkatdavletov.financeconsultante.recurring.application.PlannedExpenseSchedule
 import com.firkatdavletov.financeconsultante.recurring.application.RecurringPlanService
+import com.firkatdavletov.financeconsultante.recurring.domain.RecurrenceFrequency
 import com.firkatdavletov.financeconsultante.recurring.domain.RecurringOccurrence
 import com.firkatdavletov.financeconsultante.recurring.domain.RecurringOccurrenceView
+import com.firkatdavletov.financeconsultante.recurring.domain.RecurringRule
 import com.firkatdavletov.financeconsultante.shared.domain.Money
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.assertThatThrownBy
@@ -35,6 +37,8 @@ class PlannedExpenseServiceTests {
         Mockito
             .`when`(recurring.plannedExpenses(owner, AS_OF))
             .thenReturn(PlannedExpenseSchedule(AS_OF, THROUGH, listOf(expense)))
+        val rule = rule(expense)
+        Mockito.`when`(recurring.rule(owner, expense.occurrence.ruleId)).thenReturn(rule)
         val service =
             PlannedExpenseService(
                 FakeAccess(member),
@@ -47,7 +51,7 @@ class PlannedExpenseServiceTests {
 
         assertThat(result.asOf).isEqualTo(AS_OF)
         assertThat(result.throughInclusive).isEqualTo(THROUGH)
-        assertThat(result.items).containsExactly(expense)
+        assertThat(result.items).containsExactly(PlannedExpenseItem(expense, rule))
     }
 
     @Test
@@ -103,6 +107,19 @@ class PlannedExpenseServiceTests {
             Money.of("40"),
         )
     }
+
+    private fun rule(expense: RecurringOccurrenceView): RecurringRule =
+        RecurringRule(
+            expense.occurrence.ruleId,
+            expense.occurrence.householdId,
+            UUID.randomUUID(),
+            expense.occurrence.categoryId,
+            RecurrenceFrequency.MONTHLY,
+            AS_OF.dayOfMonth,
+            expense.occurrence.plannedAmount,
+            AS_OF,
+            createdAt = expense.occurrence.createdAt,
+        )
 
     private class FakeAccess(
         private val member: FamilyMember?,

@@ -3,11 +3,15 @@ package com.firkatdavletov.financeconsultante.mobileapi.infrastructure
 import com.firkatdavletov.financeconsultante.ledger.application.HistoryItem
 import com.firkatdavletov.financeconsultante.ledger.domain.DailyExchangeRate
 import com.firkatdavletov.financeconsultante.mobileapi.application.InvalidCategoryRequest
+import com.firkatdavletov.financeconsultante.mobileapi.application.InvalidPlannedExpenseRequest
 import com.firkatdavletov.financeconsultante.mobileapi.application.InvalidPurchaseHistoryRequest
 import com.firkatdavletov.financeconsultante.mobileapi.application.MobileApiAccessDenied
 import com.firkatdavletov.financeconsultante.mobileapi.application.MobileApiCategoryConflict
 import com.firkatdavletov.financeconsultante.mobileapi.application.MobileApiCategoryNotFound
 import com.firkatdavletov.financeconsultante.mobileapi.application.MobileApiOwnerRequired
+import com.firkatdavletov.financeconsultante.mobileapi.application.MobileApiPlannedExpenseConflict
+import com.firkatdavletov.financeconsultante.mobileapi.application.MobileApiPlannedExpenseNotFound
+import com.firkatdavletov.financeconsultante.mobileapi.application.MobileApiPlannedExpenseOwnerRequired
 import com.firkatdavletov.financeconsultante.mobileapi.application.PurchaseHistoryPage
 import com.firkatdavletov.financeconsultante.mobileapi.application.PurchaseHistoryService
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty
@@ -154,6 +158,7 @@ class PurchaseHistoryController(
     ],
 )
 @ConditionalOnProperty(prefix = "app.mobile-api", name = ["enabled"], havingValue = "true")
+@Suppress("TooManyFunctions") // One advice keeps the complete mobile API error contract consistent.
 class MobileApiExceptionHandler {
     @ExceptionHandler(InvalidMobileApiToken::class)
     fun unauthorized(): ResponseEntity<MobileApiError> =
@@ -177,6 +182,13 @@ class MobileApiExceptionHandler {
             .cacheControl(CacheControl.noStore())
             .body(MobileApiError("owner_required", "Category management requires OWNER membership"))
 
+    @ExceptionHandler(MobileApiPlannedExpenseOwnerRequired::class)
+    fun plannedExpenseOwnerRequired(): ResponseEntity<MobileApiError> =
+        ResponseEntity
+            .status(HttpStatus.FORBIDDEN)
+            .cacheControl(CacheControl.noStore())
+            .body(MobileApiError("owner_required", "Planned expense management requires OWNER membership"))
+
     @ExceptionHandler(InvalidCategoryRequest::class)
     fun invalidCategory(error: InvalidCategoryRequest): ResponseEntity<MobileApiError> =
         ResponseEntity
@@ -197,6 +209,27 @@ class MobileApiExceptionHandler {
             .status(HttpStatus.CONFLICT)
             .cacheControl(CacheControl.noStore())
             .body(MobileApiError("category_conflict", checkNotNull(error.message)))
+
+    @ExceptionHandler(InvalidPlannedExpenseRequest::class)
+    fun invalidPlannedExpense(error: InvalidPlannedExpenseRequest): ResponseEntity<MobileApiError> =
+        ResponseEntity
+            .badRequest()
+            .cacheControl(CacheControl.noStore())
+            .body(MobileApiError("invalid_planned_expense", checkNotNull(error.message)))
+
+    @ExceptionHandler(MobileApiPlannedExpenseNotFound::class)
+    fun plannedExpenseNotFound(): ResponseEntity<MobileApiError> =
+        ResponseEntity
+            .status(HttpStatus.NOT_FOUND)
+            .cacheControl(CacheControl.noStore())
+            .body(MobileApiError("planned_expense_not_found", "Planned expense is unavailable"))
+
+    @ExceptionHandler(MobileApiPlannedExpenseConflict::class)
+    fun plannedExpenseConflict(error: MobileApiPlannedExpenseConflict): ResponseEntity<MobileApiError> =
+        ResponseEntity
+            .status(HttpStatus.CONFLICT)
+            .cacheControl(CacheControl.noStore())
+            .body(MobileApiError("planned_expense_conflict", checkNotNull(error.message)))
 
     @ExceptionHandler(InvalidPurchaseHistoryRequest::class)
     fun invalidPurchaseHistoryRequest(): ResponseEntity<MobileApiError> =

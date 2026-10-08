@@ -32,6 +32,11 @@ interface RecurringPlanRepository {
         lock: Boolean = false,
     ): RecurringRule?
 
+    fun ruleView(
+        householdId: UUID,
+        id: UUID,
+    ): RecurringRuleView?
+
     fun updateRuleAmount(
         rule: RecurringRule,
         previousVersion: Long,

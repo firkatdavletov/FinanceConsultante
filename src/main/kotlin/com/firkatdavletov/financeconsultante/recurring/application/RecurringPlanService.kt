@@ -99,6 +99,11 @@ class RecurringPlanService(
         )
     }
 
+    fun rule(
+        owner: OwnedLedger,
+        ruleId: UUID,
+    ): RecurringRule? = plans.findRule(owner.householdId, ruleId)
+
     fun updateRuleAmount(
         owner: OwnedLedger,
         ruleId: UUID,
@@ -464,7 +469,7 @@ class RecurringPlanService(
     private fun ruleView(
         householdId: UUID,
         ruleId: UUID,
-    ): RecurringRuleView = checkNotNull(plans.rules(householdId, LIST_LIMIT).firstOrNull { it.rule.id == ruleId })
+    ): RecurringRuleView = checkNotNull(plans.ruleView(householdId, ruleId))
 
     private fun expectedView(
         householdId: UUID,
