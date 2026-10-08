@@ -152,6 +152,7 @@ class PurchaseHistoryController(
 @RestControllerAdvice(
     assignableTypes = [
         CategoryController::class,
+        DashboardController::class,
         PurchaseHistoryController::class,
         PlannedExpenseController::class,
         PlannedIncomeController::class,

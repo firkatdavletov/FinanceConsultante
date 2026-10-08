@@ -353,6 +353,96 @@ Endpoint возвращает все открытые ожидаемые дох�
 }
 ```
 
+Сводка для главного экрана:
+
+```http
+GET /api/v1/dashboard
+Authorization: Bearer <MOBILE_API_TOKEN>
+Accept: application/json
+```
+
+Endpoint возвращает один согласованный срез текущего месяца. Основные поля:
+
+- `availableMoney` — текущий учётный баланс B;
+- `freeMoney.amount` — `B − R − E − G`, рядом передаются обязательства, защищённый резерв, allocations целей,
+  их сумма `reservedTotal` и безопасный дневной лимит;
+- `monthActuals` и `cashFlow` — только фактические POSTED-операции месяца; резервирование не является расходом
+  или денежным оттоком;
+- `budgetExecution` — факт и прогнозный план отдельно для всех и для переменных расходов;
+- `forecast` — базовый и осторожный сценарии T13 до конца текущего месяца;
+- `expenseStructure` — до пяти категорий по положительным чистым расходам и их доле;
+- `upcomingPayments` — до пяти открытых обязательств в порядке срока.
+
+Отдельный пользовательский месячный лимит пока не хранится. Поэтому `budgetExecution.basis` имеет значение
+`FORECAST`, а `plannedAmount` равен уже понесённым неотрицательным чистым расходам плюс ожидаемым обязательствам
+и обычным расходам до конца месяца. Для темпа ориентируйтесь прежде всего на `variable.paceStatus`: связанные
+обязательные платежи из него исключены. Возможные статусы: `AHEAD_OF_PLAN`, `ON_PLAN`, `BELOW_PLAN` и
+`INSUFFICIENT_DATA`; последний используется, если завершённой истории обычных расходов меньше 14 дней.
+Проценты и деньги передаются десятичными строками.
+
+Сокращённый пример ответа (часть служебных и вложенных полей опущена):
+
+```json
+{
+  "date": "2026-10-08",
+  "availableMoney": { "amount": "620000.00", "currency": "KZT" },
+  "freeMoney": {
+    "amount": { "amount": "280000.00", "currency": "KZT" },
+    "state": "AVAILABLE",
+    "remainingObligations": { "amount": "200000.00", "currency": "KZT" },
+    "protectedReserve": { "amount": "100000.00", "currency": "KZT" },
+    "goalReserve": { "amount": "40000.00", "currency": "KZT" },
+    "reservedTotal": { "amount": "340000.00", "currency": "KZT" },
+    "daysRemaining": 24,
+    "safeDailyLimit": { "amount": "11666.00", "currency": "KZT" }
+  },
+  "monthActuals": {
+    "income": { "amount": "850000.00", "currency": "KZT" },
+    "expenses": { "amount": "550000.00", "currency": "KZT" },
+    "refunds": { "amount": "20000.00", "currency": "KZT" },
+    "netExpenses": { "amount": "530000.00", "currency": "KZT" }
+  },
+  "cashFlow": {
+    "net": { "amount": "320000.00", "currency": "KZT" }
+  },
+  "budgetExecution": {
+    "basis": "FORECAST",
+    "total": {
+      "spent": { "amount": "530000.00", "currency": "KZT" },
+      "plannedAmount": { "amount": "1200000.00", "currency": "KZT" },
+      "usedPercent": "44.2",
+      "paceStatus": "AHEAD_OF_PLAN"
+    },
+    "variable": { "usedPercent": "25.8", "paceStatus": "ON_PLAN" }
+  },
+  "forecast": {
+    "throughInclusive": "2026-10-31",
+    "estimateSource": "HISTORICAL_AVERAGE",
+    "base": {
+      "expectedIncome": { "amount": "100000.00", "currency": "KZT" },
+      "expectedExpenses": { "amount": "670000.00", "currency": "KZT" },
+      "endingBalance": { "amount": "50000.00", "currency": "KZT" }
+    }
+  },
+  "expenseStructure": {
+    "categories": [
+      {
+        "name": "Жильё",
+        "amount": { "amount": "240000.00", "currency": "KZT" },
+        "sharePercent": "45.3"
+      }
+    ]
+  },
+  "upcomingPayments": [
+    {
+      "category": { "name": "Кредит" },
+      "dueOn": "2026-10-12",
+      "remainingAmount": { "amount": "55000.00", "currency": "KZT" }
+    }
+  ]
+}
+```
+
 Деньги передаются JSON-строками с двумя знаками, чтобы мобильный runtime не потерял точность. Все ответы
 содержат `Cache-Control: no-store`; `source_key`, household/account/member ID и Telegram ID автора не выдаются. После отзыва
 членства тот же токен получает `403`; неверный или отсутствующий Bearer-токен — `401`. В production API нужно
