@@ -12,7 +12,10 @@ import com.firkatdavletov.financeconsultante.ledger.domain.TransactionCategory
 import com.firkatdavletov.financeconsultante.recurring.application.PlanChange
 import com.firkatdavletov.financeconsultante.recurring.application.RecurringPlanService
 import com.firkatdavletov.financeconsultante.recurring.application.RecurringRuleView
+import com.firkatdavletov.financeconsultante.recurring.domain.OccurrenceStatus
 import com.firkatdavletov.financeconsultante.recurring.domain.RecurrenceFrequency
+import com.firkatdavletov.financeconsultante.recurring.domain.RecurringOccurrence
+import com.firkatdavletov.financeconsultante.recurring.domain.RecurringOccurrenceView
 import com.firkatdavletov.financeconsultante.recurring.domain.RecurringRule
 import com.firkatdavletov.financeconsultante.shared.domain.Money
 import org.assertj.core.api.Assertions.assertThat
@@ -132,6 +135,43 @@ class PlannedExpenseMutationServiceTests {
 
         Mockito.verify(fixture.recurring, Mockito.times(2)).rule(fixture.owner, ruleId)
         Mockito.verifyNoMoreInteractions(fixture.recurring)
+    }
+
+    @Test
+    fun `owner closes a partially paid occurrence without adding another payment`() {
+        val fixture = fixture(MemberRole.OWNER)
+        val rule = ruleView(fixture.owner, version = 0, amount = "40500")
+        val occurrence =
+            RecurringOccurrence(
+                UUID.randomUUID(),
+                fixture.owner.householdId,
+                rule.rule.id,
+                CATEGORY_ID,
+                Money.of("40500"),
+                TODAY.minusMonths(1),
+                version = 1,
+                createdAt = NOW,
+            )
+        val current = RecurringOccurrenceView(occurrence, "Жильё", Money.of("39000"))
+        val closed =
+            RecurringOccurrenceView(
+                occurrence.copy(status = OccurrenceStatus.PAID, version = 2),
+                "Жильё",
+                Money.of("39000"),
+            )
+        Mockito.`when`(fixture.recurring.occurrence(fixture.owner, occurrence.id)).thenReturn(current)
+        Mockito
+            .`when`(fixture.recurring.closeOccurrence(fixture.owner, occurrence.id, 1))
+            .thenReturn(PlanChange.Applied(closed))
+        Mockito.`when`(fixture.recurring.rule(fixture.owner, rule.rule.id)).thenReturn(rule.rule)
+
+        val result = fixture.service.close(API_USER_ID, occurrence.id, 1)
+
+        assertThat(result.asOf).isEqualTo(TODAY)
+        assertThat(result.item.expense.occurrence.status).isEqualTo(OccurrenceStatus.PAID)
+        assertThat(result.item.expense.paidAmount).isEqualTo(Money.of("39000"))
+        assertThat(result.item.expense.remainingAmount).isEqualTo(Money.of("0"))
+        Mockito.verify(fixture.recurring).closeOccurrence(fixture.owner, occurrence.id, 1)
     }
 
     private fun fixture(role: MemberRole): Fixture {

@@ -89,6 +89,7 @@ data class RecurringRule(
 
 enum class OccurrenceStatus {
     SCHEDULED,
+    PAID,
     CANCELLED,
 }
 
@@ -123,7 +124,7 @@ data class RecurringOccurrenceView(
 
     val remainingAmount: Money
         get() =
-            if (occurrence.status == OccurrenceStatus.CANCELLED) {
+            if (occurrence.status != OccurrenceStatus.SCHEDULED) {
                 Money.of(BigDecimal.ZERO, occurrence.plannedAmount.currency)
             } else {
                 Money.of(
@@ -139,7 +140,9 @@ data class RecurringOccurrenceView(
             remainingAmount.amount.signum() > 0 && occurrence.dueOn < on
 
     val paidInFull: Boolean
-        get() = occurrence.status == OccurrenceStatus.SCHEDULED && remainingAmount.amount.signum() == 0
+        get() =
+            occurrence.status == OccurrenceStatus.PAID ||
+                (occurrence.status == OccurrenceStatus.SCHEDULED && remainingAmount.amount.signum() == 0)
 }
 
 enum class ExpectedIncomeStatus {

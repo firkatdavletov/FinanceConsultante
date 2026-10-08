@@ -134,4 +134,80 @@ class RecurringPlanMigrationTests
                 jdbc.execute("DROP SCHEMA IF EXISTS $schema CASCADE")
             }
         }
+
+        @Test
+        @Suppress("LongMethod") // Migration verification prepares a complete V17 occurrence before upgrading.
+        fun `V18 preserves occurrences and allows explicit paid status`() {
+            val schema = "recurring_paid_migration_${UUID.randomUUID().toString().replace("-", "")}"
+            val jdbc = JdbcTemplate(dataSource)
+            try {
+                val configuration =
+                    Flyway
+                        .configure()
+                        .dataSource(dataSource)
+                        .schemas(schema)
+                        .defaultSchema(schema)
+                        .locations("classpath:db/migration")
+                configuration.target(MigrationVersion.fromVersion("17")).load().migrate()
+                val household = UUID.randomUUID()
+                val member = UUID.randomUUID()
+                val category = UUID.randomUUID()
+                val rule = UUID.randomUUID()
+                val occurrence = UUID.randomUUID()
+                jdbc.update("INSERT INTO $schema.household(id) VALUES (?)", household)
+                jdbc.update(
+                    "INSERT INTO $schema.member(id, household_id, telegram_user_id) VALUES (?, ?, 556)",
+                    member,
+                    household,
+                )
+                jdbc.update(
+                    "INSERT INTO $schema.category(id, household_id, name, kind) VALUES (?, ?, 'Жильё', 'EXPENSE')",
+                    category,
+                    household,
+                )
+                jdbc.update(
+                    """INSERT INTO $schema.recurring_rule(id, household_id, member_id, category_id, frequency,
+                    schedule_value, amount, starts_on, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, 'MONTHLY', 5, 40500, '2026-08-05', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)""",
+                    rule,
+                    household,
+                    member,
+                    category,
+                )
+                jdbc.update(
+                    """INSERT INTO $schema.recurring_occurrence(id, household_id, rule_id, category_id,
+                    planned_amount, due_on, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, 40500, '2026-08-05', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)""",
+                    occurrence,
+                    household,
+                    rule,
+                    category,
+                )
+
+                val current = configuration.target(MigrationVersion.fromVersion("18")).load()
+                assertThat(current.migrate().migrationsExecuted).isEqualTo(1)
+                assertThat(
+                    jdbc.queryForObject(
+                        "SELECT status FROM $schema.recurring_occurrence WHERE id = ?",
+                        String::class.java,
+                        occurrence,
+                    ),
+                ).isEqualTo("SCHEDULED")
+                assertThat(
+                    jdbc.update(
+                        "UPDATE $schema.recurring_occurrence SET status = 'PAID' WHERE id = ?",
+                        occurrence,
+                    ),
+                ).isEqualTo(1)
+                assertThatThrownBy {
+                    jdbc.update(
+                        "UPDATE $schema.recurring_occurrence SET status = 'UNKNOWN' WHERE id = ?",
+                        occurrence,
+                    )
+                }.isInstanceOf(RuntimeException::class.java)
+                assertThat(current.migrate().migrationsExecuted).isZero()
+            } finally {
+                jdbc.execute("DROP SCHEMA IF EXISTS $schema CASCADE")
+            }
+        }
     }

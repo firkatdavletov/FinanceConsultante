@@ -298,6 +298,25 @@ class JdbcRecurringPlanRepository(
             ).params(offset(now), occurrenceId, previousVersion)
             .update() == 1
 
+    override fun markOccurrencePaid(
+        occurrenceId: UUID,
+        previousVersion: Long,
+        now: Instant,
+    ): Boolean =
+        jdbc
+            .sql(
+                """
+                UPDATE recurring_occurrence o SET status = 'PAID', version = version + 1, updated_at = ?
+                WHERE o.id = ? AND o.version = ? AND o.status = 'SCHEDULED'
+                    AND EXISTS (
+                        SELECT 1 FROM recurring_occurrence_payment p
+                        JOIN ledger_entry l ON l.household_id = p.household_id AND l.id = p.ledger_entry_id
+                        WHERE p.household_id = o.household_id AND p.occurrence_id = o.id AND l.status = 'POSTED'
+                    )
+                """.trimIndent(),
+            ).params(offset(now), occurrenceId, previousVersion)
+            .update() == 1
+
     override fun linkPayment(
         householdId: UUID,
         occurrenceId: UUID,

@@ -97,6 +97,12 @@ interface RecurringPlanRepository {
         now: Instant,
     ): Boolean
 
+    fun markOccurrencePaid(
+        occurrenceId: UUID,
+        previousVersion: Long,
+        now: Instant,
+    ): Boolean
+
     fun linkPayment(
         householdId: UUID,
         occurrenceId: UUID,

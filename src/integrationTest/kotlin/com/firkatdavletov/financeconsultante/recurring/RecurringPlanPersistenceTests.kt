@@ -13,6 +13,7 @@ import com.firkatdavletov.financeconsultante.ledger.domain.Household
 import com.firkatdavletov.financeconsultante.ledger.domain.Member
 import com.firkatdavletov.financeconsultante.recurring.application.PlanChange
 import com.firkatdavletov.financeconsultante.recurring.application.RecurringPlanService
+import com.firkatdavletov.financeconsultante.recurring.domain.OccurrenceStatus
 import com.firkatdavletov.financeconsultante.recurring.domain.RecurrenceFrequency
 import com.firkatdavletov.financeconsultante.shared.domain.Currency
 import com.firkatdavletov.financeconsultante.shared.domain.Money
@@ -159,6 +160,51 @@ class RecurringPlanPersistenceTests
             assertThat(service.remainingObligations(owner, today)).isEqualTo(Money.of("0"))
             assertThat(accounting.currentBalance(owner.householdId, owner.memberId).amount).isEqualTo(Money.of("-110"))
             assertThat(linkCount("recurring_occurrence_payment")).isEqualTo(2)
+        }
+
+        @Test
+        fun `partially paid occurrence can be closed without a fictitious ledger expense`() {
+            service.createRule(owner, RecurrenceFrequency.MONTHLY, 6, Money.of("40500"), expenseCategory(), today)
+            val occurrence = service.overview(owner, today).occurrences.first { it.occurrence.dueOn == today }
+            val partial =
+                applied(
+                    service.pay(
+                        owner,
+                        occurrence.occurrence.id,
+                        occurrence.occurrence.version,
+                        Money.of("39000"),
+                        today,
+                        "synthetic:recurring:rent",
+                    ),
+                )
+            assertThat(partial.occurrence.remainingAmount).isEqualTo(Money.of("1500"))
+            val balanceBeforeClose = accounting.currentBalance(owner.householdId, owner.memberId).amount
+
+            val closed =
+                applied(
+                    service.closeOccurrence(
+                        owner,
+                        partial.occurrence.occurrence.id,
+                        partial.occurrence.occurrence.version,
+                    ),
+                )
+
+            assertThat(closed.occurrence.status).isEqualTo(OccurrenceStatus.PAID)
+            assertThat(closed.paidAmount).isEqualTo(Money.of("39000"))
+            assertThat(closed.remainingAmount).isEqualTo(Money.of("0"))
+            assertThat(service.remainingObligations(owner, today)).isEqualTo(Money.of("0"))
+            assertThat(
+                accounting.currentBalance(owner.householdId, owner.memberId).amount,
+            ).isEqualTo(balanceBeforeClose)
+            assertThat(linkCount("recurring_occurrence_payment")).isEqualTo(1)
+            assertThat(service.plannedExpenses(owner, today).expenses.map { it.occurrence.id })
+                .doesNotContain(closed.occurrence.id)
+            assertThat(
+                service.closeOccurrence(owner, closed.occurrence.id, partial.occurrence.occurrence.version),
+            ).isInstanceOf(PlanChange.Rejected::class.java)
+            assertThat(
+                accounting.currentBalance(owner.householdId, owner.memberId).amount,
+            ).isEqualTo(balanceBeforeClose)
         }
 
         @Test

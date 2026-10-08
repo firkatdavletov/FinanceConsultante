@@ -45,6 +45,7 @@ class RecurringModelsTests {
         val occurrence = occurrence("100", LocalDate.parse("2026-09-05"))
         val partial = RecurringOccurrenceView(occurrence, "Связь", Money.of("40"))
         val overpaid = RecurringOccurrenceView(occurrence, "Связь", Money.of("120"))
+        val paid = RecurringOccurrenceView(occurrence.copy(status = OccurrenceStatus.PAID), "Связь", Money.of("40"))
         val cancelled =
             RecurringOccurrenceView(occurrence.copy(status = OccurrenceStatus.CANCELLED), "Связь", Money.of("40"))
 
@@ -52,6 +53,9 @@ class RecurringModelsTests {
         assertThat(partial.overdue(LocalDate.parse("2026-09-06"))).isTrue()
         assertThat(overpaid.remainingAmount).isEqualTo(Money.of("0"))
         assertThat(overpaid.paidInFull).isTrue()
+        assertThat(paid.remainingAmount).isEqualTo(Money.of("0"))
+        assertThat(paid.paidInFull).isTrue()
+        assertThat(paid.overdue(LocalDate.parse("2026-09-06"))).isFalse()
         assertThat(cancelled.remainingAmount).isEqualTo(Money.of("0"))
         assertThat(cancelled.overdue(LocalDate.parse("2026-09-06"))).isFalse()
     }

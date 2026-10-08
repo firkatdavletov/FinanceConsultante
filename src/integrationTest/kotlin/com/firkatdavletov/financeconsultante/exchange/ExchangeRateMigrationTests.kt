@@ -40,7 +40,7 @@ class ExchangeRateMigrationTests
                 )
 
                 val current = flyway(schema)
-                assertThat(current.migrate().migrationsExecuted).isEqualTo(16)
+                assertThat(current.migrate().migrationsExecuted).isEqualTo(17)
                 val timestamps =
                     jdbc.queryForMap(
                         "SELECT fetched_at, quoted_at FROM $schema.daily_exchange_rate WHERE rate_date = ?",
@@ -68,6 +68,7 @@ class ExchangeRateMigrationTests
                     "15",
                     "16",
                     "17",
+                    "18",
                 )
             } finally {
                 jdbc.execute("DROP SCHEMA IF EXISTS $schema CASCADE")

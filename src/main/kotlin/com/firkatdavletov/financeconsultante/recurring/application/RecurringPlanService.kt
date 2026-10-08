@@ -104,6 +104,11 @@ class RecurringPlanService(
         ruleId: UUID,
     ): RecurringRule? = plans.findRule(owner.householdId, ruleId)
 
+    fun occurrence(
+        owner: OwnedLedger,
+        occurrenceId: UUID,
+    ): RecurringOccurrenceView? = plans.occurrenceView(owner.householdId, occurrenceId)
+
     fun updateRuleAmount(
         owner: OwnedLedger,
         ruleId: UUID,
@@ -159,6 +164,30 @@ class RecurringPlanService(
             )
         }
         if (!plans.cancelOccurrence(occurrenceId, version, now())) return PlanChange.Rejected(STALE_OCCURRENCE)
+        return PlanChange.Applied(checkNotNull(plans.occurrenceView(owner.householdId, occurrenceId)))
+    }
+
+    fun closeOccurrence(
+        owner: OwnedLedger,
+        occurrenceId: UUID,
+        version: Long,
+    ): PlanChange<RecurringOccurrenceView> {
+        if (!owner.canManageHousehold) return ownerOnly()
+        val occurrence =
+            plans.findOccurrence(owner.householdId, occurrenceId, lock = true)
+                ?: return PlanChange.Rejected(STALE_OCCURRENCE)
+        if (occurrence.version != version || occurrence.status != OccurrenceStatus.SCHEDULED) {
+            return PlanChange.Rejected(STALE_OCCURRENCE)
+        }
+        val current =
+            plans.occurrenceView(owner.householdId, occurrenceId)
+                ?: return PlanChange.Rejected(STALE_OCCURRENCE)
+        if (current.paidAmount.amount.signum() == 0) {
+            return PlanChange.Rejected("Обязательство нельзя закрыть без проведённой оплаты.")
+        }
+        if (!plans.markOccurrencePaid(occurrenceId, version, now())) {
+            return PlanChange.Rejected(STALE_OCCURRENCE)
+        }
         return PlanChange.Applied(checkNotNull(plans.occurrenceView(owner.householdId, occurrenceId)))
     }
 

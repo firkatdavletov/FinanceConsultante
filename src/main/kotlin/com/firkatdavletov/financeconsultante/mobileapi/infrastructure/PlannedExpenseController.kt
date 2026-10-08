@@ -148,6 +148,10 @@ data class UpdatePlannedExpenseRequest(
     val amount: String? = null,
 )
 
+data class ClosePlannedExpenseRequest(
+    val version: Long? = null,
+)
+
 data class PlannedExpenseCategoryResponse(
     val id: UUID,
     val name: String,
@@ -221,5 +225,19 @@ class PlannedExpenseController(
             .noContent()
             .cacheControl(CacheControl.noStore())
             .build()
+    }
+
+    @PostMapping("/{occurrenceId}/close", consumes = [MediaType.APPLICATION_JSON_VALUE])
+    fun close(
+        @RequestHeader(name = HttpHeaders.AUTHORIZATION, required = false) authorization: String?,
+        @PathVariable occurrenceId: UUID,
+        @RequestBody request: ClosePlannedExpenseRequest,
+    ): ResponseEntity<PlannedExpenseResponse> {
+        val telegramUserId = authenticator.authenticate(authorization)
+        val closed = mutations.close(telegramUserId, occurrenceId, request.version)
+        return ResponseEntity
+            .ok()
+            .cacheControl(CacheControl.noStore())
+            .body(PlannedExpenseResponse.from(closed.item, closed.asOf))
     }
 }

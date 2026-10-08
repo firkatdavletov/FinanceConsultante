@@ -7,6 +7,7 @@ import com.firkatdavletov.financeconsultante.ledger.application.OwnedLedger
 import com.firkatdavletov.financeconsultante.recurring.application.PlanChange
 import com.firkatdavletov.financeconsultante.recurring.application.RecurringPlanService
 import com.firkatdavletov.financeconsultante.recurring.application.RecurringRuleView
+import com.firkatdavletov.financeconsultante.recurring.domain.OccurrenceStatus
 import com.firkatdavletov.financeconsultante.recurring.domain.RecurrenceFrequency
 import com.firkatdavletov.financeconsultante.shared.domain.Money
 import org.springframework.stereotype.Service
@@ -28,6 +29,11 @@ class MobileApiPlannedExpenseNotFound : NoSuchElementException("Planned expense 
 class MobileApiPlannedExpenseConflict(
     message: String,
 ) : IllegalStateException(message)
+
+data class ClosedPlannedExpense(
+    val asOf: LocalDate,
+    val item: PlannedExpenseItem,
+)
 
 @Service
 @Suppress("TooManyFunctions", "ThrowsCount") // Guards keep validation and access failures explicit at the API boundary.
@@ -102,6 +108,30 @@ class PlannedExpenseMutationService(
         }
     }
 
+    @Transactional
+    fun close(
+        telegramUserId: Long,
+        occurrenceId: UUID,
+        version: Long?,
+    ): ClosedPlannedExpense {
+        val owner = requireOwner(telegramUserId)
+        val expectedVersion = parseVersion(version)
+        val current = recurring.occurrence(owner, occurrenceId) ?: notFound()
+        if (current.occurrence.version != expectedVersion || current.occurrence.status != OccurrenceStatus.SCHEDULED) {
+            conflict()
+        }
+        if (current.paidAmount.amount.signum() == 0) {
+            conflict("Planned expense must have at least one posted payment before it can be closed")
+        }
+        val closed =
+            when (val result = recurring.closeOccurrence(owner, occurrenceId, expectedVersion)) {
+                is PlanChange.Applied -> result.value
+                is PlanChange.Rejected -> conflict("Planned expense or its payment changed")
+            }
+        val rule = recurring.rule(owner, closed.occurrence.ruleId) ?: notFound()
+        return ClosedPlannedExpense(today(), PlannedExpenseItem(closed, rule))
+    }
+
     private fun requireOwner(telegramUserId: Long): OwnedLedger {
         val member = access.activeMember(telegramUserId) ?: throw MobileApiAccessDenied()
         if (member.role != MemberRole.OWNER) throw MobileApiPlannedExpenseOwnerRequired()
@@ -157,7 +187,8 @@ class PlannedExpenseMutationService(
 
     private fun notFound(): Nothing = throw MobileApiPlannedExpenseNotFound()
 
-    private fun conflict(): Nothing = throw MobileApiPlannedExpenseConflict("Planned expense changed or is inactive")
+    private fun conflict(message: String = "Planned expense changed or is inactive"): Nothing =
+        throw MobileApiPlannedExpenseConflict(message)
 
     companion object {
         private val API_ZONE = ZoneId.of("Asia/Almaty")

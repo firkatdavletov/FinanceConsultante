@@ -13,6 +13,7 @@ import com.firkatdavletov.financeconsultante.recurring.application.PlanChange
 import com.firkatdavletov.financeconsultante.recurring.application.RecurringPlanService
 import com.firkatdavletov.financeconsultante.recurring.domain.RecurrenceFrequency
 import com.firkatdavletov.financeconsultante.shared.domain.Money
+import org.assertj.core.api.Assertions.assertThat
 import org.hamcrest.Matchers.hasItem
 import org.hamcrest.Matchers.not
 import org.junit.jupiter.api.AfterEach
@@ -46,7 +47,7 @@ import java.util.UUID
         "app.mobile-api.telegram-user-id=991002",
     ],
 )
-@Suppress("MagicNumber")
+@Suppress("MagicNumber", "TooManyFunctions") // Contract tests keep each mobile API behavior independently readable.
 class PlannedExpenseApiTests
     @Autowired
     constructor(
@@ -163,6 +164,78 @@ class PlannedExpenseApiTests
         }
 
         @Test
+        @Suppress("LongMethod") // One scenario verifies the close response, balance, filtering, and safe retry.
+        fun `owner closes last month expense when actual payment is below plan`() {
+            val today = LocalDate.now(clock.withZone(API_ZONE))
+            val accountingStart = Instant.parse("2026-08-01T00:00:00Z")
+            val dueOn = LocalDate.parse("2026-08-05")
+            val setup = openBudget(API_USER_ID, accountingStart)
+            val owner = owner(setup, API_USER_ID)
+            val rule = createRule(owner, setup.expenseCategory(), dueOn, "40500")
+            val occurrence =
+                recurring
+                    .overview(owner, today)
+                    .occurrences
+                    .single { it.occurrence.ruleId == rule.rule.id && it.occurrence.dueOn == dueOn }
+            val partial =
+                recurring.pay(
+                    owner,
+                    occurrence.occurrence.id,
+                    occurrence.occurrence.version,
+                    Money.of("39000"),
+                    dueOn,
+                    "mobile:planned:rent",
+                )
+            check(partial is PlanChange.Applied)
+            val partialVersion = partial.value.occurrence.occurrence.version
+            val balanceBeforeClose = accounting.currentBalance(owner.householdId, owner.memberId).amount
+
+            mockMvc
+                .perform(
+                    post("/api/v1/planned-expenses/{occurrenceId}/close", occurrence.occurrence.id)
+                        .header(HttpHeaders.AUTHORIZATION, AUTHORIZATION)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""{"version":$partialVersion}"""),
+                ).andExpect(status().isOk)
+                .andExpect(header().string(HttpHeaders.CACHE_CONTROL, "no-store"))
+                .andExpect(jsonPath("$.id").value(occurrence.occurrence.id.toString()))
+                .andExpect(jsonPath("$.plannedAmount.amount").value("40500.00"))
+                .andExpect(jsonPath("$.paidAmount.amount").value("39000.00"))
+                .andExpect(jsonPath("$.remainingAmount.amount").value("0.00"))
+                .andExpect(jsonPath("$.status").value("PAID"))
+                .andExpect(jsonPath("$.version").value(partialVersion + 1))
+
+            assertThat(
+                accounting.currentBalance(owner.householdId, owner.memberId).amount,
+            ).isEqualTo(balanceBeforeClose)
+            assertThat(
+                jdbc.queryForObject(
+                    "SELECT status FROM recurring_occurrence WHERE household_id = ? AND id = ?",
+                    String::class.java,
+                    owner.householdId,
+                    occurrence.occurrence.id,
+                ),
+            ).isEqualTo("PAID")
+
+            mockMvc
+                .perform(get("/api/v1/planned-expenses").header(HttpHeaders.AUTHORIZATION, AUTHORIZATION))
+                .andExpect(status().isOk)
+                .andExpect(jsonPath("$.items[*].id", not(hasItem(occurrence.occurrence.id.toString()))))
+
+            mockMvc
+                .perform(
+                    post("/api/v1/planned-expenses/{occurrenceId}/close", occurrence.occurrence.id)
+                        .header(HttpHeaders.AUTHORIZATION, AUTHORIZATION)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""{"version":$partialVersion}"""),
+                ).andExpect(status().isConflict)
+                .andExpect(jsonPath("$.code").value("planned_expense_conflict"))
+            assertThat(
+                accounting.currentBalance(owner.householdId, owner.memberId).amount,
+            ).isEqualTo(balanceBeforeClose)
+        }
+
+        @Test
         fun `owner creates edits and deletes a planned expense rule`() {
             val today = LocalDate.now(clock.withZone(API_ZONE))
             val setup = openBudget(API_USER_ID)
@@ -227,6 +300,7 @@ class PlannedExpenseApiTests
         }
 
         @Test
+        @Suppress("LongMethod") // Mutation guards share one prepared owner budget and HTTP contract.
         fun `planned expense mutations require owner valid input and current version`() {
             val today = LocalDate.now(clock.withZone(API_ZONE))
             val memberBudget = openBudget(OWNER_ID)
@@ -258,6 +332,29 @@ class PlannedExpenseApiTests
                 .andExpect(jsonPath("$.code").value("invalid_planned_expense"))
 
             val rule = createRule(owner(ownerBudget, API_USER_ID), ownerBudget.expenseCategory(), today, "100")
+            val occurrence =
+                recurring
+                    .overview(owner(ownerBudget, API_USER_ID), today)
+                    .occurrences
+                    .single { it.occurrence.ruleId == rule.rule.id && it.occurrence.dueOn == today }
+            mockMvc
+                .perform(
+                    post("/api/v1/planned-expenses/{occurrenceId}/close", occurrence.occurrence.id)
+                        .header(HttpHeaders.AUTHORIZATION, AUTHORIZATION)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""{"version":0}"""),
+                ).andExpect(status().isConflict)
+                .andExpect(jsonPath("$.code").value("planned_expense_conflict"))
+
+            mockMvc
+                .perform(
+                    post("/api/v1/planned-expenses/{occurrenceId}/close", UUID.randomUUID())
+                        .header(HttpHeaders.AUTHORIZATION, AUTHORIZATION)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""{"version":0}"""),
+                ).andExpect(status().isNotFound)
+                .andExpect(jsonPath("$.code").value("planned_expense_not_found"))
+
             mockMvc
                 .perform(
                     patch("/api/v1/planned-expenses/{ruleId}", rule.rule.id)
@@ -295,13 +392,16 @@ class PlannedExpenseApiTests
                 result.value
             }
 
-        private fun openBudget(telegramUserId: Long): BudgetSetup {
+        private fun openBudget(
+            telegramUserId: Long,
+            accountingStart: Instant = ACCOUNTING_START,
+        ): BudgetSetup {
             val household = Household(UUID.randomUUID())
             val setup =
                 BudgetSetup(
                     household,
                     Member(UUID.randomUUID(), household.id, telegramUserId),
-                    Account(UUID.randomUUID(), household.id, Money.of("0"), ACCOUNTING_START),
+                    Account(UUID.randomUUID(), household.id, Money.of("0"), accountingStart),
                     listOf(
                         Category(UUID.randomUUID(), household.id, "Тестовый доход", CategoryKind.INCOME),
                         Category(UUID.randomUUID(), household.id, "Тестовый расход", CategoryKind.EXPENSE),
@@ -328,7 +428,7 @@ class PlannedExpenseApiTests
         private fun owner(
             setup: BudgetSetup,
             telegramUserId: Long,
-        ) = OwnedLedger(setup.household.id, setup.owner.id, telegramUserId, ACCOUNTING_START)
+        ) = OwnedLedger(setup.household.id, setup.owner.id, telegramUserId, setup.account.accountingStartedAt)
 
         private fun createRequest(
             category: Category,
