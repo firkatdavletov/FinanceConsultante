@@ -451,6 +451,57 @@ class RecurringPlanPersistenceTests
         }
 
         @Test
+        fun `expected income update is optimistic and does not create ledger entries`() {
+            val created =
+                applied(
+                    service.createExpectedIncome(
+                        owner,
+                        Money.of("100"),
+                        today.plusDays(1),
+                        incomeCategory(),
+                        today,
+                    ),
+                ).expectedIncome
+
+            val updated =
+                applied(
+                    service.updateExpectedIncome(
+                        owner,
+                        created.id,
+                        created.version,
+                        Money.of("125.50"),
+                        incomeCategory(),
+                        today.plusDays(2),
+                        today,
+                    ),
+                ).expectedIncome
+
+            assertThat(updated.plannedAmount).isEqualTo(Money.of("125.50"))
+            assertThat(updated.dueOn).isEqualTo(today.plusDays(2))
+            assertThat(updated.version).isEqualTo(1)
+            assertThat(accounting.currentBalance(owner.householdId, owner.memberId).amount).isEqualTo(Money.of("0"))
+            assertThat(
+                jdbc.queryForObject(
+                    "SELECT count(*) FROM ledger_entry WHERE household_id = ?",
+                    Long::class.java,
+                    owner.householdId,
+                ),
+            ).isZero()
+
+            assertThat(
+                service.updateExpectedIncome(
+                    owner,
+                    created.id,
+                    created.version,
+                    Money.of("200"),
+                    incomeCategory(),
+                    today.plusDays(3),
+                    today,
+                ),
+            ).isInstanceOf(PlanChange.Rejected::class.java)
+        }
+
+        @Test
         fun `existing actual income can be matched to a plan once`() {
             val expected =
                 applied(

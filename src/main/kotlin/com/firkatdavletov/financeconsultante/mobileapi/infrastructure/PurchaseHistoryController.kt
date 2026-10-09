@@ -4,6 +4,7 @@ import com.firkatdavletov.financeconsultante.ledger.application.HistoryItem
 import com.firkatdavletov.financeconsultante.ledger.domain.DailyExchangeRate
 import com.firkatdavletov.financeconsultante.mobileapi.application.InvalidCategoryRequest
 import com.firkatdavletov.financeconsultante.mobileapi.application.InvalidPlannedExpenseRequest
+import com.firkatdavletov.financeconsultante.mobileapi.application.InvalidPlannedIncomeRequest
 import com.firkatdavletov.financeconsultante.mobileapi.application.InvalidPurchaseHistoryRequest
 import com.firkatdavletov.financeconsultante.mobileapi.application.MobileApiAccessDenied
 import com.firkatdavletov.financeconsultante.mobileapi.application.MobileApiCategoryConflict
@@ -12,6 +13,9 @@ import com.firkatdavletov.financeconsultante.mobileapi.application.MobileApiOwne
 import com.firkatdavletov.financeconsultante.mobileapi.application.MobileApiPlannedExpenseConflict
 import com.firkatdavletov.financeconsultante.mobileapi.application.MobileApiPlannedExpenseNotFound
 import com.firkatdavletov.financeconsultante.mobileapi.application.MobileApiPlannedExpenseOwnerRequired
+import com.firkatdavletov.financeconsultante.mobileapi.application.MobileApiPlannedIncomeConflict
+import com.firkatdavletov.financeconsultante.mobileapi.application.MobileApiPlannedIncomeNotFound
+import com.firkatdavletov.financeconsultante.mobileapi.application.MobileApiPlannedIncomeOwnerRequired
 import com.firkatdavletov.financeconsultante.mobileapi.application.PurchaseHistoryPage
 import com.firkatdavletov.financeconsultante.mobileapi.application.PurchaseHistoryService
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty
@@ -231,6 +235,34 @@ class MobileApiExceptionHandler {
             .status(HttpStatus.CONFLICT)
             .cacheControl(CacheControl.noStore())
             .body(MobileApiError("planned_expense_conflict", checkNotNull(error.message)))
+
+    @ExceptionHandler(MobileApiPlannedIncomeOwnerRequired::class)
+    fun plannedIncomeOwnerRequired(): ResponseEntity<MobileApiError> =
+        ResponseEntity
+            .status(HttpStatus.FORBIDDEN)
+            .cacheControl(CacheControl.noStore())
+            .body(MobileApiError("owner_required", "Planned income management requires OWNER membership"))
+
+    @ExceptionHandler(InvalidPlannedIncomeRequest::class)
+    fun invalidPlannedIncome(error: InvalidPlannedIncomeRequest): ResponseEntity<MobileApiError> =
+        ResponseEntity
+            .badRequest()
+            .cacheControl(CacheControl.noStore())
+            .body(MobileApiError("invalid_planned_income", checkNotNull(error.message)))
+
+    @ExceptionHandler(MobileApiPlannedIncomeNotFound::class)
+    fun plannedIncomeNotFound(): ResponseEntity<MobileApiError> =
+        ResponseEntity
+            .status(HttpStatus.NOT_FOUND)
+            .cacheControl(CacheControl.noStore())
+            .body(MobileApiError("planned_income_not_found", "Planned income is unavailable"))
+
+    @ExceptionHandler(MobileApiPlannedIncomeConflict::class)
+    fun plannedIncomeConflict(error: MobileApiPlannedIncomeConflict): ResponseEntity<MobileApiError> =
+        ResponseEntity
+            .status(HttpStatus.CONFLICT)
+            .cacheControl(CacheControl.noStore())
+            .body(MobileApiError("planned_income_conflict", checkNotNull(error.message)))
 
     @ExceptionHandler(InvalidPurchaseHistoryRequest::class)
     fun invalidPurchaseHistoryRequest(): ResponseEntity<MobileApiError> =

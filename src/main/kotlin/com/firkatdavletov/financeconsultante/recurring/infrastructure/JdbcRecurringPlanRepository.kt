@@ -398,6 +398,35 @@ class JdbcRecurringPlanRepository(
             .optional()
             .orElse(null)
 
+    override fun updateExpectedIncome(
+        expectedIncome: ExpectedIncome,
+        previousVersion: Long,
+    ): Boolean =
+        jdbc
+            .sql(
+                """
+                UPDATE expected_income
+                SET category_id = ?, planned_amount = ?, due_on = ?, version = ?, updated_at = ?
+                WHERE household_id = ? AND id = ? AND version = ? AND status = 'SCHEDULED'
+                    AND NOT EXISTS (
+                        SELECT 1 FROM expected_income_match m
+                        JOIN ledger_entry l ON l.household_id = m.household_id AND l.id = m.ledger_entry_id
+                        WHERE m.household_id = expected_income.household_id
+                            AND m.expected_income_id = expected_income.id
+                            AND l.status = 'POSTED'
+                    )
+                """.trimIndent(),
+            ).params(
+                expectedIncome.categoryId,
+                expectedIncome.plannedAmount.amount,
+                expectedIncome.dueOn,
+                expectedIncome.version,
+                offset(expectedIncome.updatedAt),
+                expectedIncome.householdId,
+                expectedIncome.id,
+                previousVersion,
+            ).update() == 1
+
     override fun cancelExpectedIncome(
         expectedIncomeId: UUID,
         previousVersion: Long,

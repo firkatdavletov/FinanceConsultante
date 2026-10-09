@@ -359,6 +359,48 @@ class RecurringPlanService(
             .expectedIncomes(owner.householdId)
             .filter { it.forecastAmount.amount.signum() > 0 }
 
+    fun expectedIncome(
+        owner: OwnedLedger,
+        expectedIncomeId: UUID,
+    ): ExpectedIncomeView? = plans.expectedIncomeView(owner.householdId, expectedIncomeId)
+
+    @Suppress("LongParameterList") // Updating one expected-income aggregate keeps its optimistic version atomic.
+    fun updateExpectedIncome(
+        owner: OwnedLedger,
+        expectedIncomeId: UUID,
+        version: Long,
+        amount: Money,
+        categoryId: UUID,
+        dueOn: LocalDate,
+        today: LocalDate,
+    ): PlanChange<ExpectedIncomeView> {
+        if (!owner.canManageHousehold) return ownerOnly()
+        planAmountError(amount)?.let { return PlanChange.Rejected(it) }
+        category(owner, categoryId, CategoryKind.INCOME)?.let { return PlanChange.Rejected(it) }
+        val current =
+            plans.findExpectedIncome(owner.householdId, expectedIncomeId, lock = true)
+                ?: return PlanChange.Rejected(STALE_EXPECTED)
+        val view =
+            plans.expectedIncomeView(owner.householdId, expectedIncomeId)
+                ?: return PlanChange.Rejected(STALE_EXPECTED)
+        if (current.version != version || current.status != ExpectedIncomeStatus.SCHEDULED || view.fulfilled) {
+            return PlanChange.Rejected(STALE_EXPECTED)
+        }
+        if (dueOn != current.dueOn && dueOn < today) {
+            return PlanChange.Rejected("Новая дата ожидаемого дохода должна быть сегодня или в будущем.")
+        }
+        val updated =
+            current.copy(
+                categoryId = categoryId,
+                plannedAmount = amount,
+                dueOn = dueOn,
+                version = version + 1,
+                updatedAt = now(),
+            )
+        if (!plans.updateExpectedIncome(updated, version)) return PlanChange.Rejected(STALE_EXPECTED)
+        return PlanChange.Applied(expectedView(owner.householdId, expectedIncomeId))
+    }
+
     fun expectedIncomeForecast(
         owner: OwnedLedger,
         throughInclusive: LocalDate,

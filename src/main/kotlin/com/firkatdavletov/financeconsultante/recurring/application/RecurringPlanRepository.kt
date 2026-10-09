@@ -129,6 +129,11 @@ interface RecurringPlanRepository {
         id: UUID,
     ): ExpectedIncomeView?
 
+    fun updateExpectedIncome(
+        expectedIncome: ExpectedIncome,
+        previousVersion: Long,
+    ): Boolean
+
     fun cancelExpectedIncome(
         expectedIncomeId: UUID,
         previousVersion: Long,

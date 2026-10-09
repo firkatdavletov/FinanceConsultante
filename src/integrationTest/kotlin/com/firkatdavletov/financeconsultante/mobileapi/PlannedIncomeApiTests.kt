@@ -13,6 +13,7 @@ import com.firkatdavletov.financeconsultante.recurring.application.PlanChange
 import com.firkatdavletov.financeconsultante.recurring.application.RecurringPlanService
 import com.firkatdavletov.financeconsultante.recurring.domain.ExpectedIncomeView
 import com.firkatdavletov.financeconsultante.shared.domain.Money
+import org.assertj.core.api.Assertions.assertThat
 import org.hamcrest.Matchers.hasItem
 import org.hamcrest.Matchers.not
 import org.junit.jupiter.api.AfterEach
@@ -20,10 +21,13 @@ import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc
 import org.springframework.http.HttpHeaders
+import org.springframework.http.MediaType
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.test.context.TestPropertySource
 import org.springframework.test.web.servlet.MockMvc
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get
+import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch
+import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.header
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.status
@@ -41,7 +45,7 @@ import java.util.UUID
         "app.mobile-api.telegram-user-id=991002",
     ],
 )
-@Suppress("MagicNumber")
+@Suppress("MagicNumber", "TooManyFunctions")
 class PlannedIncomeApiTests
     @Autowired
     constructor(
@@ -151,6 +155,130 @@ class PlannedIncomeApiTests
                 .andExpect(jsonPath("$.code").value("access_denied"))
         }
 
+        @Test
+        @Suppress("LongMethod") // One contract scenario verifies create, patch, readback, and ledger invariance.
+        fun `owner creates and edits a planned income without changing balance`() {
+            val today = LocalDate.now(clock.withZone(API_ZONE))
+            val setup = openBudget(API_USER_ID)
+            val originalCategory = setup.incomeCategory()
+            val updatedCategory = setup.categories.last { it.kind == CategoryKind.INCOME }
+
+            mockMvc
+                .perform(
+                    post("/api/v1/planned-incomes")
+                        .header(HttpHeaders.AUTHORIZATION, AUTHORIZATION)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(
+                            """
+                            {
+                              "categoryId": "${originalCategory.id}",
+                              "amount": "100000.00",
+                              "dueOn": "${today.plusDays(2)}"
+                            }
+                            """.trimIndent(),
+                        ),
+                ).andExpect(status().isCreated)
+                .andExpect(header().string(HttpHeaders.CACHE_CONTROL, "no-store"))
+                .andExpect(jsonPath("$.category.id").value(originalCategory.id.toString()))
+                .andExpect(jsonPath("$.plannedAmount.amount").value("100000.00"))
+                .andExpect(jsonPath("$.dueOn").value(today.plusDays(2).toString()))
+                .andExpect(jsonPath("$.version").value(0))
+
+            val expectedIncomeId =
+                checkNotNull(
+                    jdbc.queryForObject(
+                        "SELECT id FROM expected_income WHERE household_id = ?",
+                        UUID::class.java,
+                        setup.household.id,
+                    ),
+                )
+            assertThatBalanceIsZero(setup)
+
+            mockMvc
+                .perform(
+                    patch("/api/v1/planned-incomes/{expectedIncomeId}", expectedIncomeId)
+                        .header(HttpHeaders.AUTHORIZATION, AUTHORIZATION)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(
+                            """
+                            {
+                              "version": 0,
+                              "categoryId": "${updatedCategory.id}",
+                              "amount": "125000.50",
+                              "dueOn": "${today.plusDays(4)}"
+                            }
+                            """.trimIndent(),
+                        ),
+                ).andExpect(status().isOk)
+                .andExpect(header().string(HttpHeaders.CACHE_CONTROL, "no-store"))
+                .andExpect(jsonPath("$.id").value(expectedIncomeId.toString()))
+                .andExpect(jsonPath("$.category.id").value(updatedCategory.id.toString()))
+                .andExpect(jsonPath("$.category.name").value("Тестовый бонус"))
+                .andExpect(jsonPath("$.plannedAmount.amount").value("125000.50"))
+                .andExpect(jsonPath("$.dueOn").value(today.plusDays(4).toString()))
+                .andExpect(jsonPath("$.version").value(1))
+            assertThatBalanceIsZero(setup)
+
+            mockMvc
+                .perform(get("/api/v1/planned-incomes").header(HttpHeaders.AUTHORIZATION, AUTHORIZATION))
+                .andExpect(status().isOk)
+                .andExpect(jsonPath("$.items.length()").value(1))
+                .andExpect(jsonPath("$.items[0].id").value(expectedIncomeId.toString()))
+                .andExpect(jsonPath("$.items[0].plannedAmount.amount").value("125000.50"))
+                .andExpect(jsonPath("$.items[0].version").value(1))
+        }
+
+        @Test
+        fun `planned income mutations require owner valid input and current version`() {
+            val today = LocalDate.now(clock.withZone(API_ZONE))
+            val memberBudget = openBudget(OWNER_ID)
+            addMember(memberBudget, API_USER_ID)
+
+            mockMvc
+                .perform(
+                    post("/api/v1/planned-incomes")
+                        .header(HttpHeaders.AUTHORIZATION, AUTHORIZATION)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(createRequest(memberBudget.incomeCategory(), today, "100")),
+                ).andExpect(status().isForbidden)
+                .andExpect(jsonPath("$.code").value("owner_required"))
+
+            jdbc.update(
+                "UPDATE member SET revoked_at = CURRENT_TIMESTAMP WHERE household_id = ? AND telegram_user_id = ?",
+                memberBudget.household.id,
+                API_USER_ID,
+            )
+            val ownerBudget = openBudget(API_USER_ID)
+
+            mockMvc
+                .perform(
+                    post("/api/v1/planned-incomes")
+                        .header(HttpHeaders.AUTHORIZATION, AUTHORIZATION)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(createRequest(ownerBudget.incomeCategory(), today, "1.001")),
+                ).andExpect(status().isBadRequest)
+                .andExpect(jsonPath("$.code").value("invalid_planned_income"))
+
+            val expected = createIncome(owner(ownerBudget, API_USER_ID), ownerBudget.incomeCategory(), today, "100")
+            mockMvc
+                .perform(
+                    patch("/api/v1/planned-incomes/{expectedIncomeId}", expected.expectedIncome.id)
+                        .header(HttpHeaders.AUTHORIZATION, AUTHORIZATION)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""{"version":7,"amount":"200"}"""),
+                ).andExpect(status().isConflict)
+                .andExpect(jsonPath("$.code").value("planned_income_conflict"))
+
+            mockMvc
+                .perform(
+                    patch("/api/v1/planned-incomes/{expectedIncomeId}", UUID.randomUUID())
+                        .header(HttpHeaders.AUTHORIZATION, AUTHORIZATION)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""{"version":0,"amount":"200"}"""),
+                ).andExpect(status().isNotFound)
+                .andExpect(jsonPath("$.code").value("planned_income_not_found"))
+        }
+
         private fun createIncome(
             owner: OwnedLedger,
             category: Category,
@@ -178,6 +306,7 @@ class PlannedIncomeApiTests
                     Account(UUID.randomUUID(), household.id, Money.of("0"), ACCOUNTING_START),
                     listOf(
                         Category(UUID.randomUUID(), household.id, "Тестовый доход", CategoryKind.INCOME),
+                        Category(UUID.randomUUID(), household.id, "Тестовый бонус", CategoryKind.INCOME),
                         Category(UUID.randomUUID(), household.id, "Тестовый расход", CategoryKind.EXPENSE),
                     ),
                 )
@@ -204,7 +333,23 @@ class PlannedIncomeApiTests
             telegramUserId: Long,
         ) = OwnedLedger(setup.household.id, setup.owner.id, telegramUserId, ACCOUNTING_START)
 
-        private fun BudgetSetup.incomeCategory(): Category = categories.single { it.kind == CategoryKind.INCOME }
+        private fun BudgetSetup.incomeCategory(): Category = categories.first { it.kind == CategoryKind.INCOME }
+
+        private fun assertThatBalanceIsZero(setup: BudgetSetup) {
+            assertThat(accounting.currentBalance(setup.household.id, setup.owner.id).amount).isEqualTo(Money.of("0"))
+        }
+
+        private fun createRequest(
+            category: Category,
+            dueOn: LocalDate,
+            amount: String,
+        ) = """
+            {
+              "categoryId": "${category.id}",
+              "amount": "$amount",
+              "dueOn": "$dueOn"
+            }
+            """.trimIndent()
 
         companion object {
             private const val API_USER_ID = 991002L
