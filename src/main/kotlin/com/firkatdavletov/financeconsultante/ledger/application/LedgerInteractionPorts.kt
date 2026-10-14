@@ -46,6 +46,12 @@ interface LedgerInteractionRepository {
         before: Long,
         limit: Int,
     ): List<HistoryItem>
+
+    /** Returns one expense from the household history; income and refund entries are not purchases. */
+    fun purchase(
+        householdId: UUID,
+        entryId: UUID,
+    ): HistoryItem? = null
 }
 
 interface TransactionDraftRepository {

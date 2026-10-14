@@ -6,6 +6,7 @@ import com.firkatdavletov.financeconsultante.mobileapi.application.InvalidCatego
 import com.firkatdavletov.financeconsultante.mobileapi.application.InvalidPlannedExpenseRequest
 import com.firkatdavletov.financeconsultante.mobileapi.application.InvalidPlannedIncomeRequest
 import com.firkatdavletov.financeconsultante.mobileapi.application.InvalidPurchaseHistoryRequest
+import com.firkatdavletov.financeconsultante.mobileapi.application.InvalidPurchaseMutationRequest
 import com.firkatdavletov.financeconsultante.mobileapi.application.MobileApiAccessDenied
 import com.firkatdavletov.financeconsultante.mobileapi.application.MobileApiCategoryConflict
 import com.firkatdavletov.financeconsultante.mobileapi.application.MobileApiCategoryNotFound
@@ -16,8 +17,11 @@ import com.firkatdavletov.financeconsultante.mobileapi.application.MobileApiPlan
 import com.firkatdavletov.financeconsultante.mobileapi.application.MobileApiPlannedIncomeConflict
 import com.firkatdavletov.financeconsultante.mobileapi.application.MobileApiPlannedIncomeNotFound
 import com.firkatdavletov.financeconsultante.mobileapi.application.MobileApiPlannedIncomeOwnerRequired
+import com.firkatdavletov.financeconsultante.mobileapi.application.MobileApiPurchaseConflict
+import com.firkatdavletov.financeconsultante.mobileapi.application.MobileApiPurchaseNotFound
 import com.firkatdavletov.financeconsultante.mobileapi.application.PurchaseHistoryPage
 import com.firkatdavletov.financeconsultante.mobileapi.application.PurchaseHistoryService
+import com.firkatdavletov.financeconsultante.mobileapi.application.PurchaseMutationService
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty
 import org.springframework.http.CacheControl
 import org.springframework.http.HttpHeaders
@@ -25,8 +29,12 @@ import org.springframework.http.HttpStatus
 import org.springframework.http.MediaType
 import org.springframework.http.ResponseEntity
 import org.springframework.http.converter.HttpMessageNotReadableException
+import org.springframework.web.bind.annotation.DeleteMapping
 import org.springframework.web.bind.annotation.ExceptionHandler
 import org.springframework.web.bind.annotation.GetMapping
+import org.springframework.web.bind.annotation.PatchMapping
+import org.springframework.web.bind.annotation.PathVariable
+import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RequestHeader
 import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RequestParam
@@ -130,11 +138,17 @@ data class MobileApiError(
     val message: String,
 )
 
+data class UpdatePurchaseRequest(
+    val version: Long? = null,
+    val amount: String? = null,
+)
+
 @RestController
 @RequestMapping("/api/v1/purchases", produces = [MediaType.APPLICATION_JSON_VALUE])
 @ConditionalOnProperty(prefix = "app.mobile-api", name = ["enabled"], havingValue = "true")
 class PurchaseHistoryController(
     private val history: PurchaseHistoryService,
+    private val mutations: PurchaseMutationService,
     properties: MobileApiProperties,
 ) {
     private val authenticator = MobileApiAuthenticator(properties)
@@ -150,6 +164,37 @@ class PurchaseHistoryController(
             .ok()
             .cacheControl(CacheControl.noStore())
             .body(PurchaseHistoryResponse.from(history.history(telegramUserId, cursor, limit)))
+    }
+
+    @PatchMapping("/{purchaseId}", consumes = [MediaType.APPLICATION_JSON_VALUE])
+    fun updateAmount(
+        @RequestHeader(name = HttpHeaders.AUTHORIZATION, required = false) authorization: String?,
+        @PathVariable purchaseId: UUID,
+        @RequestBody request: UpdatePurchaseRequest,
+    ): ResponseEntity<PurchaseResponse> {
+        val telegramUserId = authenticator.authenticate(authorization)
+        return ResponseEntity
+            .ok()
+            .cacheControl(CacheControl.noStore())
+            .body(
+                PurchaseResponse.from(
+                    mutations.updateAmount(telegramUserId, purchaseId, request.version, request.amount),
+                ),
+            )
+    }
+
+    @DeleteMapping("/{purchaseId}")
+    fun refund(
+        @RequestHeader(name = HttpHeaders.AUTHORIZATION, required = false) authorization: String?,
+        @PathVariable purchaseId: UUID,
+        @RequestParam(required = false) version: Long?,
+    ): ResponseEntity<Void> {
+        val telegramUserId = authenticator.authenticate(authorization)
+        mutations.refund(telegramUserId, purchaseId, version)
+        return ResponseEntity
+            .noContent()
+            .cacheControl(CacheControl.noStore())
+            .build()
     }
 }
 
@@ -270,6 +315,27 @@ class MobileApiExceptionHandler {
             .badRequest()
             .cacheControl(CacheControl.noStore())
             .body(MobileApiError("invalid_request", "cursor and limit must be valid positive numbers"))
+
+    @ExceptionHandler(InvalidPurchaseMutationRequest::class)
+    fun invalidPurchase(error: InvalidPurchaseMutationRequest): ResponseEntity<MobileApiError> =
+        ResponseEntity
+            .badRequest()
+            .cacheControl(CacheControl.noStore())
+            .body(MobileApiError("invalid_purchase", checkNotNull(error.message)))
+
+    @ExceptionHandler(MobileApiPurchaseNotFound::class)
+    fun purchaseNotFound(): ResponseEntity<MobileApiError> =
+        ResponseEntity
+            .status(HttpStatus.NOT_FOUND)
+            .cacheControl(CacheControl.noStore())
+            .body(MobileApiError("purchase_not_found", "Purchase is unavailable"))
+
+    @ExceptionHandler(MobileApiPurchaseConflict::class)
+    fun purchaseConflict(error: MobileApiPurchaseConflict): ResponseEntity<MobileApiError> =
+        ResponseEntity
+            .status(HttpStatus.CONFLICT)
+            .cacheControl(CacheControl.noStore())
+            .body(MobileApiError("purchase_conflict", checkNotNull(error.message)))
 
     @ExceptionHandler(MethodArgumentTypeMismatchException::class, HttpMessageNotReadableException::class)
     fun invalidRequest(): ResponseEntity<MobileApiError> =

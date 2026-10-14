@@ -274,7 +274,8 @@ household, поэтому одни свободные деньги нельзя 
 плановых расходов `POST /api/v1/planned-expenses`, `PATCH /api/v1/planned-expenses/{ruleId}`,
 `DELETE /api/v1/planned-expenses/{ruleId}`, а также закрытие конкретного оплаченного occurrence
 `POST /api/v1/planned-expenses/{occurrenceId}/close` и OWNER-мутации ожидаемых доходов
-`POST /api/v1/planned-incomes`, `PATCH /api/v1/planned-incomes/{expectedIncomeId}`. Она выключена по умолчанию
+`POST /api/v1/planned-incomes`, `PATCH /api/v1/planned-incomes/{expectedIncomeId}`, а также мутации истории
+`PATCH /api/v1/purchases/{purchaseId}` и `DELETE /api/v1/purchases/{purchaseId}`. Она выключена по умолчанию
 и включается только при заданных
 `MOBILE_API_TOKEN` и `MOBILE_API_TELEGRAM_USER_ID`. Bearer-токен серверно привязан к одному Telegram ID;
 после проверки токена application use case повторно проверяет активное членство и только затем читает данные
@@ -285,6 +286,14 @@ household, поэтому одни свободные деньги нельзя 
 не входят в выдачу, а `VOIDED`-покупка остаётся в истории с явным status. Деньги передаются
 десятичными строками, а ответ запрещает HTTP-кэширование. Это конфигурация одного личного
 клиента; выдача/ротация отдельных пользовательских токенов остаётся следующим auth-срезом.
+
+Исправление суммы покупки сохраняет её UUID, категорию, дату и исходную валюту, увеличивает optimistic version
+и добавляет audit revision. При наличии проведённого возврата сумма исходного расхода не меняется до явной
+отмены возвратов. DELETE является финансовым полным возвратом оставшейся исходной суммы на текущую местную
+дату: исходная `EXPENSE` не удаляется и остаётся POSTED, а отдельная `EXPENSE_REFUND` уменьшает чистые расходы
+и восстанавливает баланс по правилам её валютной даты. OWNER может менять расходы всего household, MEMBER —
+только записи своего текущего `member_id`. Версия, блокировка account и уникальный mutation source не позволяют
+повторному или конкурентному запросу изменить деньги второй раз.
 
 Список категорий содержит только активные категории household в порядке имени и UUID. Transport DTO выдаёт
 UUID, отображаемое имя, направление `EXPENSE`/`INCOME`, стабильный код и emoji иконки; `household_id`, parser

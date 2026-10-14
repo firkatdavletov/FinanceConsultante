@@ -1,7 +1,11 @@
 package com.firkatdavletov.financeconsultante.mobileapi
 
 import com.firkatdavletov.financeconsultante.PostgresIntegrationTest
+import com.firkatdavletov.financeconsultante.access.domain.MemberRole
 import com.firkatdavletov.financeconsultante.ledger.application.AccountingService
+import com.firkatdavletov.financeconsultante.ledger.application.CorrectionResult
+import com.firkatdavletov.financeconsultante.ledger.application.EntryCorrections
+import com.firkatdavletov.financeconsultante.ledger.application.EntryTarget
 import com.firkatdavletov.financeconsultante.ledger.application.RecordEntry
 import com.firkatdavletov.financeconsultante.ledger.domain.Account
 import com.firkatdavletov.financeconsultante.ledger.domain.BudgetSetup
@@ -11,20 +15,26 @@ import com.firkatdavletov.financeconsultante.ledger.domain.Direction
 import com.firkatdavletov.financeconsultante.ledger.domain.Household
 import com.firkatdavletov.financeconsultante.ledger.domain.Member
 import com.firkatdavletov.financeconsultante.shared.domain.Money
+import org.assertj.core.api.Assertions.assertThat
 import org.hamcrest.Matchers.nullValue
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc
 import org.springframework.http.HttpHeaders
+import org.springframework.http.MediaType
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.test.context.TestPropertySource
 import org.springframework.test.web.servlet.MockMvc
+import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get
+import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.header
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.status
+import java.math.BigDecimal
 import java.time.Instant
+import java.time.LocalDate
 import java.util.UUID
 
 @AutoConfigureMockMvc
@@ -41,6 +51,7 @@ class PurchaseHistoryApiTests
     constructor(
         private val mockMvc: MockMvc,
         private val accounting: AccountingService,
+        private val corrections: EntryCorrections,
         private val jdbc: JdbcTemplate,
     ) : PostgresIntegrationTest() {
         private val households = mutableListOf<UUID>()
@@ -134,6 +145,133 @@ class PurchaseHistoryApiTests
                 .andExpect(status().isForbidden)
         }
 
+        @Test
+        @Suppress("LongMethod") // One contract scenario verifies correction, partial refund, delete, and retry.
+        fun `member edits own purchase amount and deletes it through a full refund`() {
+            val setup = openBudget(OWNER_ID)
+            val memberId = addMember(setup, API_USER_ID)
+            val purchase = record(setup, "1300", Direction.EXPENSE, "mobile:test:mutable", memberId)
+
+            mockMvc
+                .perform(
+                    patch("/api/v1/purchases/{purchaseId}", purchase.id)
+                        .header(HttpHeaders.AUTHORIZATION, AUTHORIZATION)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""{"version":0,"amount":"700.50"}"""),
+                ).andExpect(status().isOk)
+                .andExpect(header().string(HttpHeaders.CACHE_CONTROL, "no-store"))
+                .andExpect(jsonPath("$.id").value(purchase.id.toString()))
+                .andExpect(jsonPath("$.originalAmount.amount").value("700.50"))
+                .andExpect(jsonPath("$.amountKzt.amount").value("700.50"))
+                .andExpect(jsonPath("$.version").value(1))
+
+            assertThat(
+                jdbc.queryForObject(
+                    "SELECT count(*) FROM entry_revision WHERE entry_id = ? AND reason = 'AMOUNT_CHANGED'",
+                    Long::class.java,
+                    purchase.id,
+                ),
+            ).isEqualTo(1)
+
+            val partialRefund =
+                corrections.refund(
+                    EntryTarget(setup.household.id, memberId, purchase.id, 1, MemberRole.MEMBER),
+                    Money.of("200"),
+                    LocalDate.parse("2026-09-05"),
+                    "mobile:test:partial-refund",
+                )
+            assertThat(partialRefund).isInstanceOf(CorrectionResult.Updated::class.java)
+
+            mockMvc
+                .perform(
+                    delete("/api/v1/purchases/{purchaseId}", purchase.id)
+                        .header(HttpHeaders.AUTHORIZATION, AUTHORIZATION)
+                        .param("version", "2"),
+                ).andExpect(status().isNoContent)
+                .andExpect(header().string(HttpHeaders.CACHE_CONTROL, "no-store"))
+
+            assertThat(
+                jdbc.queryForObject(
+                    "SELECT count(*) FROM ledger_entry WHERE household_id = ? AND refund_of = ? AND status = 'POSTED'",
+                    Long::class.java,
+                    setup.household.id,
+                    purchase.id,
+                ),
+            ).isEqualTo(2)
+            assertThat(
+                jdbc.queryForObject(
+                    "SELECT sum(original_amount) FROM ledger_entry WHERE household_id = ? AND refund_of = ? " +
+                        "AND status = 'POSTED'",
+                    BigDecimal::class.java,
+                    setup.household.id,
+                    purchase.id,
+                ),
+            ).isEqualByComparingTo("700.50")
+            assertThat(
+                jdbc.queryForObject("SELECT status FROM ledger_entry WHERE id = ?", String::class.java, purchase.id),
+            ).isEqualTo("POSTED")
+            assertThat(
+                jdbc.queryForObject("SELECT version FROM ledger_entry WHERE id = ?", Long::class.java, purchase.id),
+            ).isEqualTo(3)
+            assertThat(accounting.currentBalance(setup.household.id, setup.owner.id).amount).isEqualTo(Money.of("0"))
+
+            mockMvc
+                .perform(
+                    delete("/api/v1/purchases/{purchaseId}", purchase.id)
+                        .header(HttpHeaders.AUTHORIZATION, AUTHORIZATION)
+                        .param("version", "2"),
+                ).andExpect(status().isConflict)
+                .andExpect(jsonPath("$.code").value("purchase_conflict"))
+            assertThat(
+                jdbc.queryForObject(
+                    "SELECT count(*) FROM ledger_entry WHERE household_id = ? AND refund_of = ?",
+                    Long::class.java,
+                    setup.household.id,
+                    purchase.id,
+                ),
+            ).isEqualTo(2)
+        }
+
+        @Test
+        fun `purchase mutations validate input version and member ownership`() {
+            val setup = openBudget(OWNER_ID)
+            addMember(setup, API_USER_ID)
+            val ownerPurchase = record(setup, "100", Direction.EXPENSE, "mobile:test:owner-purchase")
+
+            mockMvc
+                .perform(
+                    patch("/api/v1/purchases/{purchaseId}", ownerPurchase.id)
+                        .header(HttpHeaders.AUTHORIZATION, AUTHORIZATION)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""{"version":0,"amount":"50"}"""),
+                ).andExpect(status().isNotFound)
+                .andExpect(jsonPath("$.code").value("purchase_not_found"))
+
+            jdbc.update(
+                "UPDATE member SET revoked_at = CURRENT_TIMESTAMP WHERE household_id = ? AND telegram_user_id = ?",
+                setup.household.id,
+                API_USER_ID,
+            )
+            val owned = openBudget(API_USER_ID)
+            val purchase = record(owned, "100", Direction.EXPENSE, "mobile:test:validation")
+
+            mockMvc
+                .perform(
+                    patch("/api/v1/purchases/{purchaseId}", purchase.id)
+                        .header(HttpHeaders.AUTHORIZATION, AUTHORIZATION)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""{"version":0,"amount":"1.001"}"""),
+                ).andExpect(status().isBadRequest)
+                .andExpect(jsonPath("$.code").value("invalid_purchase"))
+
+            mockMvc
+                .perform(
+                    delete("/api/v1/purchases/{purchaseId}", purchase.id)
+                        .header(HttpHeaders.AUTHORIZATION, AUTHORIZATION),
+                ).andExpect(status().isBadRequest)
+                .andExpect(jsonPath("$.code").value("invalid_purchase"))
+        }
+
         private fun openBudget(telegramUserId: Long): BudgetSetup {
             val household = Household(UUID.randomUUID())
             val setup =
@@ -154,14 +292,16 @@ class PurchaseHistoryApiTests
         private fun addMember(
             setup: BudgetSetup,
             telegramUserId: Long,
-        ) {
+        ): UUID {
+            val memberId = UUID.randomUUID()
             jdbc.update(
                 "INSERT INTO member(id, household_id, telegram_user_id, role, joined_at) " +
                     "VALUES (?, ?, ?, 'MEMBER', CURRENT_TIMESTAMP)",
-                UUID.randomUUID(),
+                memberId,
                 setup.household.id,
                 telegramUserId,
             )
+            return memberId
         }
 
         private fun record(
@@ -169,11 +309,12 @@ class PurchaseHistoryApiTests
             amount: String,
             direction: Direction,
             source: String,
+            memberId: UUID = setup.owner.id,
         ) = accounting
             .record(
                 RecordEntry(
                     setup.household.id,
-                    setup.owner.id,
+                    memberId,
                     setup.categories.single { it.kind == direction.categoryKind }.id,
                     direction,
                     Money.of(amount),

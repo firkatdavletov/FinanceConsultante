@@ -12,6 +12,7 @@ import com.firkatdavletov.financeconsultante.shared.domain.Currency
 import com.firkatdavletov.financeconsultante.shared.domain.Money
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
+import java.math.BigDecimal
 import java.time.Clock
 import java.time.LocalDate
 import java.time.LocalTime
@@ -116,13 +117,40 @@ class EntryCorrections(
         source: String,
     ): CorrectionResult {
         val expense = selected(target) ?: return rejected(STALE)
+        return refund(expense, target.memberId, amount, date, source, ledger.refunds(target.householdId, expense.id))
+    }
+
+    @Suppress("ReturnCount") // Guards finish before the expense revision and refund insert are attempted.
+    fun refundRemaining(
+        target: EntryTarget,
+        date: LocalDate,
+        source: String,
+    ): CorrectionResult {
+        val expense = selected(target) ?: return rejected(STALE)
+        if (expense.direction != Direction.EXPENSE) return rejected("Возврат возможен только для расхода.")
+        val refunds = ledger.refunds(target.householdId, expense.id)
+        val refunded = refunds.fold(BigDecimal.ZERO) { sum, refund -> sum + refund.originalAmount.amount }
+        val remaining = Money.of(expense.originalAmount.amount - refunded, expense.originalAmount.currency)
+        if (remaining.amount.signum() <= 0) return rejected("Расход уже полностью возвращён.")
+        return refund(expense, target.memberId, remaining, date, source, refunds)
+    }
+
+    @Suppress("ReturnCount") // Every refund invariant must be checked before either ledger row changes.
+    private fun refund(
+        expense: LedgerEntry,
+        memberId: UUID,
+        amount: Money,
+        date: LocalDate,
+        source: String,
+        refunds: List<LedgerEntry>,
+    ): CorrectionResult {
         if (expense.direction != Direction.EXPENSE) return rejected("Возврат возможен только для расхода.")
         val now = clock.instant().truncatedTo(ChronoUnit.MICROS)
         val template =
             expense.copy(
                 id = UUID.randomUUID(),
                 direction = Direction.EXPENSE_REFUND,
-                actorId = target.memberId,
+                actorId = memberId,
                 createdAt = now,
                 modifiedAt = now,
                 sourceKey = source,
@@ -132,11 +160,11 @@ class EntryCorrections(
         val prepared = prepare(template, amount, date, expense.categoryId)
         if (prepared is CorrectionResult.Rejected) return prepared
         val candidate = (prepared as CorrectionResult.Updated).entry
-        RefundPolicy.rejection(expense, ledger.refunds(target.householdId, expense.id), candidate)?.let {
+        RefundPolicy.rejection(expense, refunds, candidate)?.let {
             return rejected(it)
         }
         // Invalidates old refund commands as well as old correction buttons on the expense.
-        if (!ledger.revise(expense.revised(now), target.memberId, "REFUND_LINKED", source)) return rejected(STALE)
+        if (!ledger.revise(expense.revised(now), memberId, "REFUND_LINKED", source)) return rejected(STALE)
         check(ledger.insert(candidate)) { "Refund financial source conflict" }
         return CorrectionResult.Updated(candidate)
     }
