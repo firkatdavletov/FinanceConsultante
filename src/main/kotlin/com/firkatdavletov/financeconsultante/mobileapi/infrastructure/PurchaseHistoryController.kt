@@ -1,11 +1,13 @@
 package com.firkatdavletov.financeconsultante.mobileapi.infrastructure
 
 import com.firkatdavletov.financeconsultante.ledger.application.HistoryItem
+import com.firkatdavletov.financeconsultante.ledger.application.OperationHistoryFilter
 import com.firkatdavletov.financeconsultante.ledger.domain.DailyExchangeRate
+import com.firkatdavletov.financeconsultante.ledger.domain.Direction
 import com.firkatdavletov.financeconsultante.mobileapi.application.InvalidCategoryRequest
+import com.firkatdavletov.financeconsultante.mobileapi.application.InvalidOperationHistoryRequest
 import com.firkatdavletov.financeconsultante.mobileapi.application.InvalidPlannedExpenseRequest
 import com.firkatdavletov.financeconsultante.mobileapi.application.InvalidPlannedIncomeRequest
-import com.firkatdavletov.financeconsultante.mobileapi.application.InvalidPurchaseHistoryRequest
 import com.firkatdavletov.financeconsultante.mobileapi.application.InvalidPurchaseMutationRequest
 import com.firkatdavletov.financeconsultante.mobileapi.application.MobileApiAccessDenied
 import com.firkatdavletov.financeconsultante.mobileapi.application.MobileApiCategoryConflict
@@ -19,8 +21,8 @@ import com.firkatdavletov.financeconsultante.mobileapi.application.MobileApiPlan
 import com.firkatdavletov.financeconsultante.mobileapi.application.MobileApiPlannedIncomeOwnerRequired
 import com.firkatdavletov.financeconsultante.mobileapi.application.MobileApiPurchaseConflict
 import com.firkatdavletov.financeconsultante.mobileapi.application.MobileApiPurchaseNotFound
-import com.firkatdavletov.financeconsultante.mobileapi.application.PurchaseHistoryPage
-import com.firkatdavletov.financeconsultante.mobileapi.application.PurchaseHistoryService
+import com.firkatdavletov.financeconsultante.mobileapi.application.OperationHistoryPage
+import com.firkatdavletov.financeconsultante.mobileapi.application.OperationHistoryService
 import com.firkatdavletov.financeconsultante.mobileapi.application.PurchaseMutationService
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty
 import org.springframework.http.CacheControl
@@ -46,20 +48,21 @@ import java.time.LocalDate
 import java.time.ZoneId
 import java.util.UUID
 
-data class PurchaseHistoryResponse(
-    val items: List<PurchaseResponse>,
+data class OperationHistoryResponse(
+    val items: List<OperationResponse>,
     val nextCursor: Long?,
 ) {
     companion object {
-        fun from(page: PurchaseHistoryPage): PurchaseHistoryResponse =
-            PurchaseHistoryResponse(page.items.map(PurchaseResponse::from), page.nextCursor)
+        fun from(page: OperationHistoryPage): OperationHistoryResponse =
+            OperationHistoryResponse(page.items.map(OperationResponse::from), page.nextCursor)
     }
 }
 
-data class PurchaseResponse(
+data class OperationResponse(
     val id: UUID,
     val sequence: Long,
-    val category: PurchaseCategoryResponse,
+    val type: String,
+    val category: OperationCategoryResponse,
     val originalAmount: ApiMoneyResponse,
     val amountKzt: ApiMoneyResponse,
     val occurredOn: LocalDate,
@@ -69,14 +72,15 @@ data class PurchaseResponse(
     val status: String,
     val version: Long,
     val description: String?,
-    val exchangeRate: PurchaseExchangeRateResponse?,
+    val exchangeRate: OperationExchangeRateResponse?,
 ) {
     companion object {
-        fun from(item: HistoryItem): PurchaseResponse =
-            PurchaseResponse(
+        fun from(item: HistoryItem): OperationResponse =
+            OperationResponse(
                 id = item.entry.id,
                 sequence = item.sequence,
-                category = PurchaseCategoryResponse(item.entry.categoryId, item.category),
+                type = item.entry.direction.name,
+                category = OperationCategoryResponse(item.entry.categoryId, item.category),
                 originalAmount =
                     ApiMoneyResponse(
                         item.entry.originalAmount.amount
@@ -99,14 +103,14 @@ data class PurchaseResponse(
                 status = item.entry.status.name,
                 version = item.entry.version,
                 description = item.entry.normalizedDescription,
-                exchangeRate = item.entry.exchangeRate?.let(PurchaseExchangeRateResponse::from),
+                exchangeRate = item.entry.exchangeRate?.let(OperationExchangeRateResponse::from),
             )
 
         private val API_ZONE = ZoneId.of("Asia/Almaty")
     }
 }
 
-data class PurchaseCategoryResponse(
+data class OperationCategoryResponse(
     val id: UUID,
     val name: String,
 )
@@ -116,7 +120,7 @@ data class ApiMoneyResponse(
     val currency: String,
 )
 
-data class PurchaseExchangeRateResponse(
+data class OperationExchangeRateResponse(
     val rubKzt: String,
     val source: String,
     val quotedAt: Instant,
@@ -124,7 +128,7 @@ data class PurchaseExchangeRateResponse(
 ) {
     companion object {
         fun from(rate: DailyExchangeRate) =
-            PurchaseExchangeRateResponse(
+            OperationExchangeRateResponse(
                 rate.rubKzt.toPlainString(),
                 rate.source,
                 rate.quotedAt,
@@ -147,7 +151,7 @@ data class UpdatePurchaseRequest(
 @RequestMapping("/api/v1/purchases", produces = [MediaType.APPLICATION_JSON_VALUE])
 @ConditionalOnProperty(prefix = "app.mobile-api", name = ["enabled"], havingValue = "true")
 class PurchaseHistoryController(
-    private val history: PurchaseHistoryService,
+    private val history: OperationHistoryService,
     private val mutations: PurchaseMutationService,
     properties: MobileApiProperties,
 ) {
@@ -158,12 +162,16 @@ class PurchaseHistoryController(
         @RequestHeader(name = HttpHeaders.AUTHORIZATION, required = false) authorization: String?,
         @RequestParam(required = false) cursor: Long?,
         @RequestParam(defaultValue = "20") limit: Int,
-    ): ResponseEntity<PurchaseHistoryResponse> {
+    ): ResponseEntity<OperationHistoryResponse> {
         val telegramUserId = authenticator.authenticate(authorization)
         return ResponseEntity
             .ok()
             .cacheControl(CacheControl.noStore())
-            .body(PurchaseHistoryResponse.from(history.history(telegramUserId, cursor, limit)))
+            .body(
+                OperationHistoryResponse.from(
+                    history.history(telegramUserId, cursor, limit, OperationHistoryFilter(type = Direction.EXPENSE)),
+                ),
+            )
     }
 
     @PatchMapping("/{purchaseId}", consumes = [MediaType.APPLICATION_JSON_VALUE])
@@ -171,13 +179,13 @@ class PurchaseHistoryController(
         @RequestHeader(name = HttpHeaders.AUTHORIZATION, required = false) authorization: String?,
         @PathVariable purchaseId: UUID,
         @RequestBody request: UpdatePurchaseRequest,
-    ): ResponseEntity<PurchaseResponse> {
+    ): ResponseEntity<OperationResponse> {
         val telegramUserId = authenticator.authenticate(authorization)
         return ResponseEntity
             .ok()
             .cacheControl(CacheControl.noStore())
             .body(
-                PurchaseResponse.from(
+                OperationResponse.from(
                     mutations.updateAmount(telegramUserId, purchaseId, request.version, request.amount),
                 ),
             )
@@ -203,6 +211,7 @@ class PurchaseHistoryController(
         CategoryController::class,
         DashboardController::class,
         PurchaseHistoryController::class,
+        OperationHistoryController::class,
         PlannedExpenseController::class,
         PlannedIncomeController::class,
     ],
@@ -309,12 +318,12 @@ class MobileApiExceptionHandler {
             .cacheControl(CacheControl.noStore())
             .body(MobileApiError("planned_income_conflict", checkNotNull(error.message)))
 
-    @ExceptionHandler(InvalidPurchaseHistoryRequest::class)
-    fun invalidPurchaseHistoryRequest(): ResponseEntity<MobileApiError> =
+    @ExceptionHandler(InvalidOperationHistoryRequest::class)
+    fun invalidOperationHistoryRequest(error: InvalidOperationHistoryRequest): ResponseEntity<MobileApiError> =
         ResponseEntity
             .badRequest()
             .cacheControl(CacheControl.noStore())
-            .body(MobileApiError("invalid_request", "cursor and limit must be valid positive numbers"))
+            .body(MobileApiError("invalid_request", checkNotNull(error.message)))
 
     @ExceptionHandler(InvalidPurchaseMutationRequest::class)
     fun invalidPurchase(error: InvalidPurchaseMutationRequest): ResponseEntity<MobileApiError> =

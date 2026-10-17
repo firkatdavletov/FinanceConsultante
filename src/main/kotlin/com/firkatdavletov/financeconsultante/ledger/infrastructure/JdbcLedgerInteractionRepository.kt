@@ -3,6 +3,7 @@ package com.firkatdavletov.financeconsultante.ledger.infrastructure
 import com.firkatdavletov.financeconsultante.access.domain.MemberRole
 import com.firkatdavletov.financeconsultante.ledger.application.HistoryItem
 import com.firkatdavletov.financeconsultante.ledger.application.LedgerInteractionRepository
+import com.firkatdavletov.financeconsultante.ledger.application.OperationHistoryFilter
 import com.firkatdavletov.financeconsultante.ledger.application.OwnedLedger
 import com.firkatdavletov.financeconsultante.ledger.domain.Category
 import com.firkatdavletov.financeconsultante.ledger.domain.CategoryIcon
@@ -134,12 +135,32 @@ class JdbcLedgerInteractionRepository(
             }.list()
     }
 
-    override fun purchaseHistory(
+    override fun operationHistory(
         householdId: UUID,
         before: Long,
         limit: Int,
+        filter: OperationHistoryFilter,
     ): List<HistoryItem> {
-        require(before > 0 && limit in 1..MAX_PURCHASE_HISTORY_ROWS)
+        require(before > 0 && limit in 1..MAX_OPERATION_HISTORY_ROWS)
+        val conditions =
+            mutableListOf("l.household_id = ?", "l.history_sequence < ?", "l.direction IN ('EXPENSE', 'INCOME')")
+        val parameters = mutableListOf<Any>(householdId, before)
+        filter.type?.let {
+            conditions += "l.direction = ?"
+            parameters += it.name
+        }
+        filter.categoryId?.let {
+            conditions += "l.category_id = ?"
+            parameters += it
+        }
+        filter.dateFrom?.let {
+            conditions += "l.occurred_on >= ?"
+            parameters += it
+        }
+        filter.dateTo?.let {
+            conditions += "l.occurred_on <= ?"
+            parameters += it
+        }
         return jdbc
             .sql(
                 """
@@ -147,10 +168,10 @@ class JdbcLedgerInteractionRepository(
                     r.quoted_at AS rate_quoted_at, r.fetched_at AS rate_fetched_at
                 FROM ledger_entry l JOIN category c ON c.id = l.category_id AND c.household_id = l.household_id
                 LEFT JOIN daily_exchange_rate r ON r.rate_date = l.occurred_on AND r.rub_kzt = l.rub_kzt
-                WHERE l.household_id = ? AND l.direction = 'EXPENSE' AND l.history_sequence < ?
+                WHERE ${conditions.joinToString(" AND ")}
                 ORDER BY l.history_sequence DESC LIMIT ?
                 """.trimIndent(),
-            ).params(householdId, before, limit)
+            ).params(parameters + limit)
             .query { row, index ->
                 HistoryItem(
                     row.getLong("history_sequence"),
@@ -185,6 +206,6 @@ class JdbcLedgerInteractionRepository(
 
     companion object {
         private const val MAX_HISTORY_ROWS = 11
-        private const val MAX_PURCHASE_HISTORY_ROWS = 51
+        private const val MAX_OPERATION_HISTORY_ROWS = 51
     }
 }

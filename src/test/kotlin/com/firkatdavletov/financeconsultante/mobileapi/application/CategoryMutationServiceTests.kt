@@ -11,6 +11,7 @@ import com.firkatdavletov.financeconsultante.ledger.application.CategoryUsage
 import com.firkatdavletov.financeconsultante.ledger.application.EntryTarget
 import com.firkatdavletov.financeconsultante.ledger.application.LedgerInteractionRepository
 import com.firkatdavletov.financeconsultante.ledger.application.LedgerRepository
+import com.firkatdavletov.financeconsultante.ledger.application.OperationHistoryFilter
 import com.firkatdavletov.financeconsultante.ledger.application.OwnedLedger
 import com.firkatdavletov.financeconsultante.ledger.domain.Category
 import com.firkatdavletov.financeconsultante.ledger.domain.CategoryIcon
@@ -159,10 +160,11 @@ class CategoryMutationServiceTests {
             limit: Int,
         ) = error("Not used")
 
-        override fun purchaseHistory(
+        override fun operationHistory(
             householdId: UUID,
             before: Long,
             limit: Int,
+            filter: OperationHistoryFilter,
         ) = error("Not used")
     }
 

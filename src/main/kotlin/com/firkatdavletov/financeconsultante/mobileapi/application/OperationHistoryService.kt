@@ -3,23 +3,25 @@ package com.firkatdavletov.financeconsultante.mobileapi.application
 import com.firkatdavletov.financeconsultante.access.application.FamilyBudgetAccess
 import com.firkatdavletov.financeconsultante.ledger.application.HistoryItem
 import com.firkatdavletov.financeconsultante.ledger.application.LedgerInteractionRepository
+import com.firkatdavletov.financeconsultante.ledger.application.OperationHistoryFilter
+import com.firkatdavletov.financeconsultante.ledger.domain.Direction
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Isolation
 import org.springframework.transaction.annotation.Transactional
 
-data class PurchaseHistoryPage(
+data class OperationHistoryPage(
     val items: List<HistoryItem>,
     val nextCursor: Long?,
 )
 
-class InvalidPurchaseHistoryRequest(
+class InvalidOperationHistoryRequest(
     message: String,
 ) : IllegalArgumentException(message)
 
 class MobileApiAccessDenied : IllegalStateException("Active budget membership is required")
 
 @Service
-class PurchaseHistoryService(
+class OperationHistoryService(
     private val access: FamilyBudgetAccess,
     private val ledger: LedgerInteractionRepository,
 ) {
@@ -28,15 +30,26 @@ class PurchaseHistoryService(
         telegramUserId: Long,
         cursor: Long?,
         limit: Int,
-    ): PurchaseHistoryPage {
+        filter: OperationHistoryFilter = OperationHistoryFilter(),
+    ): OperationHistoryPage {
         validatePagination(cursor, limit)
+        validateFilter(filter)
         val member = access.activeMember(telegramUserId) ?: throw MobileApiAccessDenied()
-        val rows = ledger.purchaseHistory(member.householdId, cursor ?: Long.MAX_VALUE, limit + 1)
+        val rows = ledger.operationHistory(member.householdId, cursor ?: Long.MAX_VALUE, limit + 1, filter)
         val page = rows.take(limit)
-        return PurchaseHistoryPage(
+        return OperationHistoryPage(
             items = page,
             nextCursor = page.lastOrNull()?.sequence?.takeIf { rows.size > page.size },
         )
+    }
+
+    private fun validateFilter(filter: OperationHistoryFilter) {
+        if (filter.type == Direction.EXPENSE_REFUND) {
+            throw InvalidOperationHistoryRequest("type must be EXPENSE or INCOME")
+        }
+        if (filter.dateFrom != null && filter.dateTo != null && filter.dateFrom > filter.dateTo) {
+            throw InvalidOperationHistoryRequest("dateFrom must not be after dateTo")
+        }
     }
 
     private fun validatePagination(
@@ -44,10 +57,10 @@ class PurchaseHistoryService(
         limit: Int,
     ) {
         if (cursor != null && cursor <= 0) {
-            throw InvalidPurchaseHistoryRequest("cursor must be positive")
+            throw InvalidOperationHistoryRequest("cursor must be positive")
         }
         if (limit !in 1..MAX_PAGE_SIZE) {
-            throw InvalidPurchaseHistoryRequest("limit must be between 1 and $MAX_PAGE_SIZE")
+            throw InvalidOperationHistoryRequest("limit must be between 1 and $MAX_PAGE_SIZE")
         }
     }
 

@@ -40,11 +40,12 @@ interface LedgerInteractionRepository {
         limit: Int,
     ): List<HistoryItem>
 
-    /** Returns expenses only; income and refund entries are not purchases. */
-    fun purchaseHistory(
+    /** Returns expenses and income, applying all filters before pagination; refunds are excluded. */
+    fun operationHistory(
         householdId: UUID,
         before: Long,
         limit: Int,
+        filter: OperationHistoryFilter,
     ): List<HistoryItem>
 
     /** Returns one expense from the household history; income and refund entries are not purchases. */

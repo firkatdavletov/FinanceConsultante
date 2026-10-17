@@ -275,7 +275,8 @@ household, поэтому одни свободные деньги нельзя 
 ### Мобильный API
 
 Граница мобильного клиента содержит read endpoints `GET /api/v1/dashboard`, `GET /api/v1/categories`,
-`GET /api/v1/purchases`, `GET /api/v1/planned-expenses`, `GET /api/v1/planned-incomes`, OWNER-мутации категорий
+`GET /api/v1/operations`, совместимый `GET /api/v1/purchases`, `GET /api/v1/planned-expenses`,
+`GET /api/v1/planned-incomes`, OWNER-мутации категорий
 `POST /api/v1/categories`, `PATCH /api/v1/categories/{id}`, `DELETE /api/v1/categories/{id}` и правила
 плановых расходов `POST /api/v1/planned-expenses`, `PATCH /api/v1/planned-expenses/{ruleId}`,
 `DELETE /api/v1/planned-expenses/{ruleId}`, а также закрытие конкретного оплаченного occurrence
@@ -289,8 +290,15 @@ household, поэтому одни свободные деньги нельзя 
 своего `household_id`. Отзыв членства закрывает последующие запросы без удаления истории.
 
 Пагинация использует тот же монотонный `history_sequence`: `cursor` — exclusive upper bound, сортировка
-по убыванию, `limit` от 1 до 50. Покупкой считается ledger-запись `EXPENSE`; доходы и возвраты
-не входят в выдачу, а `VOIDED`-покупка остаётся в истории с явным status. Деньги передаются
+по убыванию, `limit` от 1 до 50. История операций возвращает ledger-записи `EXPENSE` и `INCOME` с явным
+`type`, исключая `EXPENSE_REFUND`; `VOIDED`-операция остаётся в истории с явным status. Необязательные
+`type=EXPENSE|INCOME`, `categoryId`, `dateFrom` и `dateTo` применяются совместно в SQL до `LIMIT`.
+Границы дат включительны и сравниваются с `occurred_on`, вычисленной PostgreSQL в `Asia/Almaty`;
+можно задать только одну границу. Невалидные значения и обратный период возвращают `400 invalid_request`.
+Чужой/неизвестный UUID категории или несовместимые фильтры дают пустую страницу без раскрытия чужих данных.
+Совместимый `GET /api/v1/purchases` использует тот же сценарий с фиксированным `type=EXPENSE`, сохраняя
+поведение текущего мобильного клиента. Фильтры при переходе между страницами должны оставаться прежними.
+Деньги передаются
 десятичными строками, а ответ запрещает HTTP-кэширование. Это конфигурация одного личного
 клиента; выдача/ротация отдельных пользовательских токенов остаётся следующим auth-срезом.
 

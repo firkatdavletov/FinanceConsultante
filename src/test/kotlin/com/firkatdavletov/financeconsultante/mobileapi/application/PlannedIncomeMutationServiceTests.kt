@@ -6,6 +6,7 @@ import com.firkatdavletov.financeconsultante.access.domain.FamilyMember
 import com.firkatdavletov.financeconsultante.access.domain.MemberRole
 import com.firkatdavletov.financeconsultante.ledger.application.HistoryItem
 import com.firkatdavletov.financeconsultante.ledger.application.LedgerInteractionRepository
+import com.firkatdavletov.financeconsultante.ledger.application.OperationHistoryFilter
 import com.firkatdavletov.financeconsultante.ledger.application.OwnedLedger
 import com.firkatdavletov.financeconsultante.ledger.domain.Category
 import com.firkatdavletov.financeconsultante.ledger.domain.TransactionCategory
@@ -206,10 +207,11 @@ class PlannedIncomeMutationServiceTests {
             limit: Int,
         ): List<HistoryItem> = error("Not used")
 
-        override fun purchaseHistory(
+        override fun operationHistory(
             householdId: UUID,
             before: Long,
             limit: Int,
+            filter: OperationHistoryFilter,
         ): List<HistoryItem> = error("Not used")
     }
 

@@ -230,7 +230,7 @@ data class DashboardExpenseCategoryResponse(
 
 data class DashboardUpcomingPaymentResponse(
     val occurrenceId: UUID,
-    val category: PurchaseCategoryResponse,
+    val category: OperationCategoryResponse,
     val dueOn: LocalDate,
     val remainingAmount: ApiMoneyResponse,
     val overdue: Boolean,
@@ -239,7 +239,7 @@ data class DashboardUpcomingPaymentResponse(
         fun from(value: DashboardUpcomingPayment) =
             DashboardUpcomingPaymentResponse(
                 value.occurrenceId,
-                PurchaseCategoryResponse(value.categoryId, value.categoryName),
+                OperationCategoryResponse(value.categoryId, value.categoryName),
                 value.dueOn,
                 money(value.remainingAmount),
                 value.overdue,
