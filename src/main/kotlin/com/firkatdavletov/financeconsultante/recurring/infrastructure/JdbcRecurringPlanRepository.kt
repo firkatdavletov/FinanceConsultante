@@ -398,6 +398,29 @@ class JdbcRecurringPlanRepository(
             .optional()
             .orElse(null)
 
+    override fun nearestExpectedIncome(
+        householdId: UUID,
+        categoryId: UUID,
+        closestTo: LocalDate,
+    ): ExpectedIncome? =
+        jdbc
+            .sql(
+                """
+                SELECT e.* FROM expected_income e
+                WHERE e.household_id = :household AND e.category_id = :category AND e.status = 'SCHEDULED'
+                    AND NOT EXISTS (
+                        SELECT 1 FROM expected_income_match m
+                        JOIN ledger_entry l ON l.household_id = m.household_id AND l.id = m.ledger_entry_id
+                        WHERE m.household_id = e.household_id AND m.expected_income_id = e.id AND l.status = 'POSTED'
+                    )
+                ORDER BY ABS(e.due_on - :closest), e.due_on, e.id
+                LIMIT 1 FOR UPDATE OF e
+                """.trimIndent(),
+            ).params(mapOf("household" to householdId, "category" to categoryId, "closest" to closestTo))
+            .query { row, _ -> mapExpected(row) }
+            .optional()
+            .orElse(null)
+
     override fun updateExpectedIncome(
         expectedIncome: ExpectedIncome,
         previousVersion: Long,

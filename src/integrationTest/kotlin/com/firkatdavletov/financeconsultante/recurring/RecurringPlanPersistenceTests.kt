@@ -503,16 +503,6 @@ class RecurringPlanPersistenceTests
 
         @Test
         fun `existing actual income can be matched to a plan once`() {
-            val expected =
-                applied(
-                    service.createExpectedIncome(
-                        owner,
-                        Money.of("100"),
-                        LocalDate.parse("2026-09-10"),
-                        incomeCategory(),
-                        today,
-                    ),
-                ).expectedIncome
             val actual =
                 accounting
                     .record(
@@ -526,7 +516,16 @@ class RecurringPlanPersistenceTests
                             "synthetic:existing:income",
                         ),
                     ).entry
-
+            val expected =
+                applied(
+                    service.createExpectedIncome(
+                        owner,
+                        Money.of("100"),
+                        LocalDate.parse("2026-09-10"),
+                        incomeCategory(),
+                        today,
+                    ),
+                ).expectedIncome
             val matched = applied(service.matchExpectedIncome(owner, expected.id, expected.version, actual.id))
 
             assertThat(matched.fulfilled).isTrue()

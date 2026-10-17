@@ -16,6 +16,8 @@ import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.ValueSource
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.context.annotation.Import
 import org.springframework.jdbc.core.JdbcTemplate
@@ -147,6 +149,36 @@ class TelegramRecurringTests
             assertThat(count("recurring_occurrence_payment")).isEqualTo(1)
             receive("/recurring")
             assertThat(reply()).contains("план 100.00 KZT, осталось 60.00 KZT")
+        }
+
+        @ParameterizedTest
+        @ValueSource(booleans = [false, true])
+        fun `recorded income automatically fulfills the nearest plan after direct input or draft confirmation`(
+            throughDraft: Boolean,
+        ) {
+            receive("/category_add income Зарплата")
+            val income = category("INCOME")
+            receive("/expected add 2026-09-20 100 $income")
+            receive("/expected add 2026-09-07 100 $income")
+            if (throughDraft) receive("/income 1.001 Зарплата")
+
+            receive("/income 130 Зарплата")
+            if (throughDraft) {
+                assertThat(count("ledger_entry")).isZero()
+                receive("/confirm")
+            }
+
+            assertThat(reply()).contains("Записано")
+            assertThat(count("ledger_entry")).isEqualTo(1)
+            assertThat(count("expected_income_match")).isEqualTo(1)
+            assertThat(
+                jdbc.queryForObject(
+                    "SELECT e.due_on::text FROM expected_income e " +
+                        "JOIN expected_income_match m ON m.expected_income_id = e.id",
+                    String::class.java,
+                ),
+            ).isEqualTo("2026-09-07")
+            assertThat(retrieveBalance()).contains("130.00 KZT", "Доходы: 130.00")
         }
 
         @Test

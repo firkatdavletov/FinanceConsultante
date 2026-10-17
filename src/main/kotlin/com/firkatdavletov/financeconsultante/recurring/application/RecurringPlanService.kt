@@ -446,6 +446,9 @@ class RecurringPlanService(
     ): PlanChange<IncomeReceipt> {
         if (!owner.canManageHousehold) return ownerOnly()
         planAmountError(amount)?.let { return PlanChange.Rejected(it) }
+        if (budgets.findOwnedAccount(owner.householdId, owner.memberId, lock = true) == null) {
+            return PlanChange.Rejected(STALE_EXPECTED)
+        }
         val expected =
             plans.findExpectedIncome(owner.householdId, expectedIncomeId, lock = true)
                 ?: return PlanChange.Rejected(STALE_EXPECTED)
@@ -470,10 +473,12 @@ class RecurringPlanService(
                     amount,
                     receivedOn.atStartOfDay(ACCOUNTING_ZONE).toInstant(),
                     source,
+                    expectedIncomeId = expectedIncomeId,
                 ),
             )
-        plans.linkExpectedIncome(owner.householdId, expectedIncomeId, recorded.entry.id, now())
-        check(plans.advanceExpectedIncome(expectedIncomeId, version, now())) { "Expected income changed while locked" }
+        if (!recorded.recorded) {
+            return PlanChange.Rejected("Этот доход уже записан. Для связи используйте /expected match.")
+        }
         val after = expectedView(owner.householdId, expectedIncomeId)
         return PlanChange.Applied(IncomeReceipt(after, recorded.entry, recorded.recorded))
     }
@@ -485,6 +490,9 @@ class RecurringPlanService(
         ledgerEntryId: UUID,
     ): PlanChange<ExpectedIncomeView> {
         if (!owner.canManageHousehold) return ownerOnly()
+        if (budgets.findOwnedAccount(owner.householdId, owner.memberId, lock = true) == null) {
+            return PlanChange.Rejected(STALE_EXPECTED)
+        }
         val expected =
             plans.findExpectedIncome(owner.householdId, expectedIncomeId, lock = true)
                 ?: return PlanChange.Rejected(STALE_EXPECTED)

@@ -129,6 +129,13 @@ interface RecurringPlanRepository {
         id: UUID,
     ): ExpectedIncomeView?
 
+    /** Locks the closest unfulfilled plan; the caller must already hold the household account lock. */
+    fun nearestExpectedIncome(
+        householdId: UUID,
+        categoryId: UUID,
+        closestTo: LocalDate,
+    ): ExpectedIncome?
+
     fun updateExpectedIncome(
         expectedIncome: ExpectedIncome,
         previousVersion: Long,

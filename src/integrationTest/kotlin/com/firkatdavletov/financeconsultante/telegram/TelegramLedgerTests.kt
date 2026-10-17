@@ -9,6 +9,7 @@ import com.firkatdavletov.financeconsultante.ledger.application.TransactionDraft
 import com.firkatdavletov.financeconsultante.ledger.infrastructure.JdbcBudgetRepository
 import com.firkatdavletov.financeconsultante.ledger.infrastructure.JdbcExchangeRateRepository
 import com.firkatdavletov.financeconsultante.ledger.infrastructure.JdbcLedgerRepository
+import com.firkatdavletov.financeconsultante.recurring.infrastructure.JdbcRecurringPlanRepository
 import com.firkatdavletov.financeconsultante.shared.domain.Money
 import com.firkatdavletov.financeconsultante.telegram.TelegramTestConfiguration.Companion.BOT
 import com.firkatdavletov.financeconsultante.telegram.TelegramTestConfiguration.Companion.OWNER
@@ -492,6 +493,7 @@ class TelegramLedgerTests
                     JdbcLedgerRepository(JdbcClient.create(jdbc)),
                     JdbcExchangeRateRepository(JdbcClient.create(jdbc)),
                     midnight,
+                    JdbcRecurringPlanRepository(JdbcClient.create(jdbc)),
                 )
             assertThat(accounting.currentBalance(household.householdId, household.memberId).amount.amount)
                 .isEqualByComparingTo("-0.01")

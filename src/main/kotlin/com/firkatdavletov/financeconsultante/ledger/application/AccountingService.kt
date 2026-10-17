@@ -5,6 +5,8 @@ import com.firkatdavletov.financeconsultante.ledger.domain.Balance
 import com.firkatdavletov.financeconsultante.ledger.domain.BudgetSetup
 import com.firkatdavletov.financeconsultante.ledger.domain.Direction
 import com.firkatdavletov.financeconsultante.ledger.domain.LedgerEntry
+import com.firkatdavletov.financeconsultante.recurring.application.RecurringPlanRepository
+import com.firkatdavletov.financeconsultante.recurring.domain.ExpectedIncomeStatus
 import com.firkatdavletov.financeconsultante.shared.domain.Currency
 import com.firkatdavletov.financeconsultante.shared.domain.Money
 import org.springframework.stereotype.Service
@@ -26,6 +28,7 @@ data class RecordEntry(
     val occurredAt: Instant,
     val sourceKey: String,
     val normalizedDescription: String? = null,
+    val expectedIncomeId: UUID? = null,
 )
 
 data class RecordResult(
@@ -43,6 +46,7 @@ class AccountingService(
     private val ledger: LedgerRepository,
     private val rates: ExchangeRateRepository,
     private val clock: Clock,
+    private val plans: RecurringPlanRepository,
 ) {
     @Transactional
     fun openBudget(setup: BudgetSetup) {
@@ -91,9 +95,40 @@ class AccountingService(
                 normalizedDescription = command.normalizedDescription,
             )
         return if (ledger.insert(entry)) {
+            matchExpectedIncome(entry, command.expectedIncomeId)
             RecordResult(entry, true)
         } else {
             RecordResult(checkNotNull(ledger.findBySource(command.householdId, command.sourceKey)), false)
+        }
+    }
+
+    private fun matchExpectedIncome(
+        entry: LedgerEntry,
+        expectedIncomeId: UUID?,
+    ) {
+        if (entry.direction != Direction.INCOME || entry.originalAmount.currency != Currency.KZT) {
+            require(expectedIncomeId == null) { "Only KZT income can fulfill an income plan" }
+            return
+        }
+        val expected =
+            if (expectedIncomeId == null) {
+                plans.nearestExpectedIncome(
+                    entry.householdId,
+                    entry.categoryId,
+                    entry.occurredAt.atZone(ZoneId.of("Asia/Almaty")).toLocalDate(),
+                ) ?: return
+            } else {
+                requireNotNull(plans.findExpectedIncome(entry.householdId, expectedIncomeId, lock = true)) {
+                    "Expected income is unavailable"
+                }
+            }
+        require(
+            expected.status == ExpectedIncomeStatus.SCHEDULED && expected.categoryId == entry.categoryId &&
+                plans.expectedIncomeView(entry.householdId, expected.id)?.fulfilled == false,
+        ) { "Expected income is unavailable" }
+        plans.linkExpectedIncome(entry.householdId, expected.id, entry.id, entry.createdAt)
+        check(plans.advanceExpectedIncome(expected.id, expected.version, entry.createdAt)) {
+            "Expected income changed while locked"
         }
     }
 
