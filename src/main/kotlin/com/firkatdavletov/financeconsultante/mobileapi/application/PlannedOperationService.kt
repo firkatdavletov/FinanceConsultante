@@ -11,6 +11,7 @@ import com.firkatdavletov.financeconsultante.recurring.domain.RecurringRule
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Isolation
 import org.springframework.transaction.annotation.Transactional
+import java.math.BigDecimal
 import java.time.Clock
 import java.time.LocalDate
 import java.time.YearMonth
@@ -93,11 +94,17 @@ sealed interface PlannedOperationItem {
     }
 }
 
+data class PlannedOperationTotals(
+    val expenses: BigDecimal,
+    val incomes: BigDecimal,
+)
+
 data class PlannedOperationList(
     val asOf: LocalDate,
     val dateFrom: LocalDate,
     val dateTo: LocalDate,
     val items: List<PlannedOperationItem>,
+    val totals: PlannedOperationTotals,
 )
 
 @Service
@@ -120,18 +127,27 @@ class PlannedOperationService(
                 ?: throw MobileApiAccessDenied()
         val asOf = LocalDate.now(clock.withZone(API_ZONE))
         val dates = filter.dates(asOf)
-        val expenses = if (filter.type != Direction.INCOME) expenses(owner, asOf, dates) else emptyList()
+        val expenses = expenses(owner, asOf, dates)
         val incomes =
-            if (filter.type != Direction.EXPENSE) {
-                recurring
-                    .expectedIncomeForecast(owner, dates.endInclusive)
-                    .filter { it.expectedIncome.dueOn in dates }
-                    .map { PlannedOperationItem.Income(it) }
-            } else {
-                emptyList()
-            }
-        val items = (expenses + incomes).sortedWith(compareBy({ it.dueOn }, { it.id.toString() }))
-        return PlannedOperationList(asOf, dates.start, dates.endInclusive, items)
+            recurring
+                .expectedIncomeForecast(owner, dates.endInclusive)
+                .filter { it.expectedIncome.dueOn in dates }
+                .map { PlannedOperationItem.Income(it) }
+        val totals =
+            PlannedOperationTotals(
+                expenses = expenses.sumOf { it.view.remainingAmount.amount },
+                incomes = incomes.sumOf { it.view.forecastAmount.amount },
+            )
+        val items =
+            (expenses + incomes)
+                .filter { item ->
+                    filter.type == null ||
+                        when (item) {
+                            is PlannedOperationItem.Expense -> filter.type == Direction.EXPENSE
+                            is PlannedOperationItem.Income -> filter.type == Direction.INCOME
+                        }
+                }.sortedWith(compareBy({ it.dueOn }, { it.id.toString() }))
+        return PlannedOperationList(asOf, dates.start, dates.endInclusive, items, totals)
     }
 
     private fun expenses(

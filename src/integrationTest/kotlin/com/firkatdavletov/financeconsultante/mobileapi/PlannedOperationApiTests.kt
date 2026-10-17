@@ -80,7 +80,7 @@ class PlannedOperationApiTests
             val owner = owner(setup)
             val expense = createExpense(setup, LocalDate.parse("2026-09-07"))
             check(
-                recurring.pay(owner, expense.id, expense.version, Money.of("40"), TODAY, "test:planned:partial")
+                recurring.pay(owner, expense.id, expense.version, Money.of("40.11"), TODAY, "test:planned:partial")
                     is PlanChange.Applied,
             )
             val income = createIncome(setup, TODAY)
@@ -110,8 +110,8 @@ class PlannedOperationApiTests
                 .andExpect(jsonPath("$.items[1].category.name").value("Тестовый расход"))
                 .andExpect(jsonPath("$.items[1].plannedAmount.amount").value("100.00"))
                 .andExpect(jsonPath("$.items[1].plannedAmount.currency").value("KZT"))
-                .andExpect(jsonPath("$.items[1].paidAmount.amount").value("40.00"))
-                .andExpect(jsonPath("$.items[1].remainingAmount.amount").value("60.00"))
+                .andExpect(jsonPath("$.items[1].paidAmount.amount").value("40.11"))
+                .andExpect(jsonPath("$.items[1].remainingAmount.amount").value("59.89"))
                 .andExpect(jsonPath("$.items[1].rule.id").value(expense.ruleId.toString()))
                 .andExpect(jsonPath("$.items[1].status").value("SCHEDULED"))
                 .andExpect(jsonPath("$.items[1].overdue").value(false))
@@ -121,6 +121,10 @@ class PlannedOperationApiTests
                 .andExpect(jsonPath("$.items[2].id").value(end.id.toString()))
                 .andExpect(jsonPath("$.items[0].householdId").doesNotExist())
                 .andExpect(jsonPath("$.items[0].memberId").doesNotExist())
+                .andExpect(jsonPath("$.totals.expenses.amount").value("59.89"))
+                .andExpect(jsonPath("$.totals.expenses.currency").value("KZT"))
+                .andExpect(jsonPath("$.totals.incomes.amount").value("400.00"))
+                .andExpect(jsonPath("$.totals.incomes.currency").value("KZT"))
 
             assertThat(accounting.currentBalance(owner.householdId, owner.memberId)).isEqualTo(balance)
         }
@@ -142,6 +146,8 @@ class PlannedOperationApiTests
                 .andExpect(jsonPath("$.items.length()").value(1))
                 .andExpect(jsonPath("$.items[0].type").value(type))
                 .andExpect(jsonPath("$.items[0].id").value(expectedId.toString()))
+                .andExpect(jsonPath("$.totals.expenses.amount").value("100.00"))
+                .andExpect(jsonPath("$.totals.incomes.amount").value("200.00"))
         }
 
         @Test
@@ -159,6 +165,8 @@ class PlannedOperationApiTests
                     .andExpect(jsonPath("$.items.length()").value(5))
                     .andExpect(jsonPath("$.items[*].dueOn", hasItem("2026-12-31")))
                     .andExpect(jsonPath("$.items[*].dueOn", not(hasItem("2027-01-01"))))
+                    .andExpect(jsonPath("$.totals.expenses.amount").value("400.00"))
+                    .andExpect(jsonPath("$.totals.incomes.amount").value("200.00"))
             }
             assertThat(
                 jdbc.queryForObject(
@@ -233,6 +241,47 @@ class PlannedOperationApiTests
                 .andExpect(jsonPath("$.items[*].id", hasItem(income.id.toString())))
                 .andExpect(jsonPath("$.items[0].overdue").value(true))
                 .andExpect(jsonPath("$.items[1].overdue").value(true))
+                .andExpect(jsonPath("$.totals.expenses.amount").value("100.00"))
+                .andExpect(jsonPath("$.totals.incomes.amount").value("200.00"))
+        }
+
+        @Test
+        fun `totals stay complete when the selected type has no items and empty period has zeros`() {
+            val setup = openBudget(API_USER_ID)
+            createExpense(setup, TODAY)
+            mockMvc
+                .perform(custom(TODAY, TODAY).queryParam("type", "INCOME"))
+                .andExpect(status().isOk)
+                .andExpect(jsonPath("$.items").isEmpty)
+                .andExpect(jsonPath("$.totals.expenses.amount").value("100.00"))
+                .andExpect(jsonPath("$.totals.incomes.amount").value("0.00"))
+            mockMvc
+                .perform(custom(TODAY.plusDays(1), TODAY.plusDays(1)))
+                .andExpect(status().isOk)
+                .andExpect(jsonPath("$.items").isEmpty)
+                .andExpect(jsonPath("$.totals.expenses.amount").value("0.00"))
+                .andExpect(jsonPath("$.totals.incomes.amount").value("0.00"))
+        }
+
+        @Test
+        fun `income request materializes the full expense horizon for totals idempotently`() {
+            val setup = openBudget(API_USER_ID)
+            createExpense(setup, LocalDate.parse("2026-09-30"), scheduleDay = 31)
+            repeat(2) {
+                mockMvc
+                    .perform(request().queryParam("type", "INCOME").queryParam("period", "END_OF_YEAR"))
+                    .andExpect(status().isOk)
+                    .andExpect(jsonPath("$.items").isEmpty)
+                    .andExpect(jsonPath("$.totals.expenses.amount").value("400.00"))
+                    .andExpect(jsonPath("$.totals.incomes.amount").value("0.00"))
+            }
+            assertThat(
+                jdbc.queryForObject(
+                    "SELECT COUNT(*) FROM recurring_occurrence WHERE household_id = ?",
+                    Int::class.java,
+                    setup.household.id,
+                ),
+            ).isEqualTo(4)
         }
 
         @Test

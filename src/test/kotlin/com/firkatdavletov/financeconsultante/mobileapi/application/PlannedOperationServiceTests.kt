@@ -90,18 +90,24 @@ class PlannedOperationServiceTests {
         assertThat(result.dateFrom).isEqualTo(TODAY)
         assertThat(result.dateTo).isEqualTo(through)
         assertThat(result.items).isEmpty()
+        assertThat(result.totals.expenses).isZero()
+        assertThat(result.totals.incomes).isZero()
         Mockito.verify(recurring).plannedExpenses(owner, TODAY, through)
     }
 
     @Test
-    fun `income filter does not materialize expenses`() {
+    fun `income filter also reads expenses to return totals for both types`() {
         val owner = allowMember()
         val through = LocalDate.parse("2027-01-31")
         Mockito.`when`(recurring.expectedIncomeForecast(owner, through)).thenReturn(emptyList())
+        Mockito
+            .`when`(recurring.plannedExpenses(owner, TODAY, through))
+            .thenReturn(PlannedExpenseSchedule(TODAY, through, emptyList()))
 
         service.plannedOperations(USER_ID, PlannedOperationFilter(type = Direction.INCOME))
 
         Mockito.verify(recurring).expectedIncomeForecast(owner, through)
+        Mockito.verify(recurring).plannedExpenses(owner, TODAY, through)
         Mockito.verifyNoMoreInteractions(recurring)
     }
 

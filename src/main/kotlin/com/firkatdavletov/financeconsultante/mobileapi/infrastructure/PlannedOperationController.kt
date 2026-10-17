@@ -27,6 +27,7 @@ data class PlannedOperationListResponse(
     val dateFrom: LocalDate,
     val dateTo: LocalDate,
     val items: List<PlannedOperationResponse>,
+    val totals: OperationTotalsResponse,
 ) {
     companion object {
         fun from(plans: PlannedOperationList) =
@@ -35,6 +36,7 @@ data class PlannedOperationListResponse(
                 plans.dateFrom,
                 plans.dateTo,
                 plans.items.map { PlannedOperationResponse.from(it, plans.asOf) },
+                OperationTotalsResponse.from(plans.totals.expenses, plans.totals.incomes),
             )
     }
 }

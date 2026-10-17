@@ -2,7 +2,6 @@ package com.firkatdavletov.financeconsultante.mobileapi.infrastructure
 
 import com.firkatdavletov.financeconsultante.ledger.application.HistoryItem
 import com.firkatdavletov.financeconsultante.ledger.application.OperationHistoryFilter
-import com.firkatdavletov.financeconsultante.ledger.application.OperationHistoryTotals
 import com.firkatdavletov.financeconsultante.ledger.domain.DailyExchangeRate
 import com.firkatdavletov.financeconsultante.ledger.domain.Direction
 import com.firkatdavletov.financeconsultante.mobileapi.application.InvalidCategoryRequest
@@ -53,27 +52,14 @@ import java.util.UUID
 data class OperationHistoryResponse(
     val items: List<OperationResponse>,
     val nextCursor: Long?,
-    val totals: OperationHistoryTotalsResponse,
+    val totals: OperationTotalsResponse,
 ) {
     companion object {
         fun from(page: OperationHistoryPage): OperationHistoryResponse =
             OperationHistoryResponse(
                 page.items.map(OperationResponse::from),
                 page.nextCursor,
-                OperationHistoryTotalsResponse.from(page.totals),
-            )
-    }
-}
-
-data class OperationHistoryTotalsResponse(
-    val expenses: ApiMoneyResponse,
-    val incomes: ApiMoneyResponse,
-) {
-    companion object {
-        fun from(totals: OperationHistoryTotals): OperationHistoryTotalsResponse =
-            OperationHistoryTotalsResponse(
-                ApiMoneyResponse(totals.expenses.setScale(2).toPlainString(), "KZT"),
-                ApiMoneyResponse(totals.incomes.setScale(2).toPlainString(), "KZT"),
+                OperationTotalsResponse.from(page.totals.expenses, page.totals.incomes),
             )
     }
 }
