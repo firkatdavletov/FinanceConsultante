@@ -8,6 +8,7 @@ import com.firkatdavletov.financeconsultante.mobileapi.application.InvalidCatego
 import com.firkatdavletov.financeconsultante.mobileapi.application.InvalidOperationHistoryRequest
 import com.firkatdavletov.financeconsultante.mobileapi.application.InvalidPlannedExpenseRequest
 import com.firkatdavletov.financeconsultante.mobileapi.application.InvalidPlannedIncomeRequest
+import com.firkatdavletov.financeconsultante.mobileapi.application.InvalidPlannedOperationRequest
 import com.firkatdavletov.financeconsultante.mobileapi.application.InvalidPurchaseMutationRequest
 import com.firkatdavletov.financeconsultante.mobileapi.application.MobileApiAccessDenied
 import com.firkatdavletov.financeconsultante.mobileapi.application.MobileApiCategoryConflict
@@ -214,6 +215,7 @@ class PurchaseHistoryController(
         OperationHistoryController::class,
         PlannedExpenseController::class,
         PlannedIncomeController::class,
+        PlannedOperationController::class,
     ],
 )
 @ConditionalOnProperty(prefix = "app.mobile-api", name = ["enabled"], havingValue = "true")
@@ -318,8 +320,8 @@ class MobileApiExceptionHandler {
             .cacheControl(CacheControl.noStore())
             .body(MobileApiError("planned_income_conflict", checkNotNull(error.message)))
 
-    @ExceptionHandler(InvalidOperationHistoryRequest::class)
-    fun invalidOperationHistoryRequest(error: InvalidOperationHistoryRequest): ResponseEntity<MobileApiError> =
+    @ExceptionHandler(InvalidOperationHistoryRequest::class, InvalidPlannedOperationRequest::class)
+    fun invalidOperationRequest(error: IllegalArgumentException): ResponseEntity<MobileApiError> =
         ResponseEntity
             .badRequest()
             .cacheControl(CacheControl.noStore())

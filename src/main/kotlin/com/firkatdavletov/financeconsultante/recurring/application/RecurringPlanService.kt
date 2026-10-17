@@ -89,13 +89,13 @@ class RecurringPlanService(
     fun plannedExpenses(
         owner: OwnedLedger,
         asOf: LocalDate,
+        throughInclusive: LocalDate = horizon(asOf),
     ): PlannedExpenseSchedule {
-        val through = horizon(asOf)
-        generate(owner.householdId, through)
+        generate(owner.householdId, throughInclusive)
         return PlannedExpenseSchedule(
             asOf,
-            through,
-            plans.plannedExpenses(owner.householdId, through),
+            throughInclusive,
+            plans.plannedExpenses(owner.householdId, throughInclusive),
         )
     }
 
