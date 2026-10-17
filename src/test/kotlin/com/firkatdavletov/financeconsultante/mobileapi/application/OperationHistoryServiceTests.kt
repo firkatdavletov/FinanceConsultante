@@ -7,6 +7,8 @@ import com.firkatdavletov.financeconsultante.access.domain.MemberRole
 import com.firkatdavletov.financeconsultante.ledger.application.HistoryItem
 import com.firkatdavletov.financeconsultante.ledger.application.LedgerInteractionRepository
 import com.firkatdavletov.financeconsultante.ledger.application.OperationHistoryFilter
+import com.firkatdavletov.financeconsultante.ledger.application.OperationHistoryTotals
+import com.firkatdavletov.financeconsultante.ledger.application.OperationHistoryTotalsRepository
 import com.firkatdavletov.financeconsultante.ledger.application.OwnedLedger
 import com.firkatdavletov.financeconsultante.ledger.domain.Category
 import com.firkatdavletov.financeconsultante.ledger.domain.Direction
@@ -16,6 +18,7 @@ import com.firkatdavletov.financeconsultante.shared.domain.Money
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.assertThatThrownBy
 import org.junit.jupiter.api.Test
+import java.math.BigDecimal
 import java.time.Instant
 import java.time.LocalDate
 import java.util.UUID
@@ -26,7 +29,7 @@ class OperationHistoryServiceTests {
         val householdId = UUID.randomUUID()
         val member = member(householdId)
         val repository = FakeLedgerRepository(householdId, listOf(item(householdId, 9), item(householdId, 7)))
-        val service = OperationHistoryService(FakeAccess(member), repository)
+        val service = OperationHistoryService(FakeAccess(member), repository, repository)
 
         val page = service.history(member.telegramUserId, null, 1)
 
@@ -35,6 +38,10 @@ class OperationHistoryServiceTests {
         assertThat(repository.requestedBefore).isEqualTo(Long.MAX_VALUE)
         assertThat(repository.requestedLimit).isEqualTo(2)
         assertThat(repository.requestedFilter).isEqualTo(OperationHistoryFilter())
+        assertThat(page.totals).isEqualTo(TOTALS)
+        assertThat(repository.totalsCalls).isEqualTo(1)
+        assertThat(repository.totalsDateFrom).isNull()
+        assertThat(repository.totalsDateTo).isNull()
     }
 
     @Test
@@ -50,12 +57,20 @@ class OperationHistoryServiceTests {
                 LocalDate.parse("2026-09-03"),
             )
 
-        val page = OperationHistoryService(FakeAccess(member), repository).history(member.telegramUserId, 7, 20, filter)
+        val page =
+            OperationHistoryService(
+                FakeAccess(member),
+                repository,
+                repository,
+            ).history(member.telegramUserId, 7, 20, filter)
 
         assertThat(page.items).isEmpty()
         assertThat(page.nextCursor).isNull()
         assertThat(repository.requestedBefore).isEqualTo(7)
         assertThat(repository.requestedFilter).isEqualTo(filter)
+        assertThat(page.totals).isEqualTo(TOTALS)
+        assertThat(repository.totalsDateFrom).isEqualTo(filter.dateFrom)
+        assertThat(repository.totalsDateTo).isEqualTo(filter.dateTo)
     }
 
     @Test
@@ -63,7 +78,7 @@ class OperationHistoryServiceTests {
         val householdId = UUID.randomUUID()
         val member = member(householdId)
         val repository = FakeLedgerRepository(householdId, emptyList())
-        val service = OperationHistoryService(FakeAccess(member), repository)
+        val service = OperationHistoryService(FakeAccess(member), repository, repository)
         val invalidFilters =
             listOf(
                 OperationHistoryFilter(type = Direction.EXPENSE_REFUND),
@@ -78,6 +93,7 @@ class OperationHistoryServiceTests {
                 .isInstanceOf(InvalidOperationHistoryRequest::class.java)
         }
         assertThat(repository.calls).isZero()
+        assertThat(repository.totalsCalls).isZero()
     }
 
     @Test
@@ -85,15 +101,16 @@ class OperationHistoryServiceTests {
         val householdId = UUID.randomUUID()
         val member = member(householdId)
         val repository = FakeLedgerRepository(householdId, emptyList())
-        val service = OperationHistoryService(FakeAccess(member), repository)
+        val service = OperationHistoryService(FakeAccess(member), repository, repository)
         assertThatThrownBy { service.history(member.telegramUserId, 0, 20) }
             .isInstanceOf(InvalidOperationHistoryRequest::class.java)
         assertThatThrownBy { service.history(member.telegramUserId, null, 51) }
             .isInstanceOf(InvalidOperationHistoryRequest::class.java)
         assertThatThrownBy {
-            OperationHistoryService(FakeAccess(null), repository).history(member.telegramUserId, null, 20)
+            OperationHistoryService(FakeAccess(null), repository, repository).history(member.telegramUserId, null, 20)
         }.isInstanceOf(MobileApiAccessDenied::class.java)
         assertThat(repository.calls).isZero()
+        assertThat(repository.totalsCalls).isZero()
     }
 
     private fun member(householdId: UUID) =
@@ -158,11 +175,27 @@ class OperationHistoryServiceTests {
     private class FakeLedgerRepository(
         private val householdId: UUID,
         private val rows: List<HistoryItem>,
-    ) : LedgerInteractionRepository {
+    ) : LedgerInteractionRepository,
+        OperationHistoryTotalsRepository {
+        var totalsCalls = 0
+        var totalsDateFrom: LocalDate? = null
+        var totalsDateTo: LocalDate? = null
         var calls = 0
         var requestedBefore: Long? = null
         var requestedLimit: Int? = null
         var requestedFilter: OperationHistoryFilter? = null
+
+        override fun totals(
+            householdId: UUID,
+            dateFrom: LocalDate?,
+            dateTo: LocalDate?,
+        ): OperationHistoryTotals {
+            check(householdId == this.householdId)
+            totalsCalls++
+            totalsDateFrom = dateFrom
+            totalsDateTo = dateTo
+            return TOTALS
+        }
 
         override fun owned(ownerId: Long): OwnedLedger? = null
 
@@ -193,6 +226,7 @@ class OperationHistoryServiceTests {
     }
 
     companion object {
+        private val TOTALS = OperationHistoryTotals(BigDecimal("123.45"), BigDecimal("678.90"))
         private val ACCOUNTING_START = Instant.parse("2026-09-01T00:00:00Z")
         private val OCCURRED_AT = Instant.parse("2026-09-02T00:00:00Z")
         private val CREATED_AT = Instant.parse("2026-09-03T00:00:00Z")

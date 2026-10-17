@@ -14,10 +14,12 @@ import com.firkatdavletov.financeconsultante.ledger.domain.Direction
 import com.firkatdavletov.financeconsultante.ledger.domain.EntryChange
 import com.firkatdavletov.financeconsultante.ledger.domain.Household
 import com.firkatdavletov.financeconsultante.ledger.domain.Member
+import com.firkatdavletov.financeconsultante.shared.domain.Currency
 import com.firkatdavletov.financeconsultante.shared.domain.Money
 import org.assertj.core.api.Assertions.assertThat
 import org.hamcrest.Matchers.nullValue
 import org.junit.jupiter.api.AfterEach
+import org.junit.jupiter.api.Nested
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.CsvSource
@@ -104,6 +106,10 @@ class OperationHistoryApiTests
                 .andExpect(jsonPath("$.items[0].sourceKey").doesNotExist())
                 .andExpect(jsonPath("$.items[1].id").value(expense.id.toString()))
                 .andExpect(jsonPath("$.items[1].type").value("EXPENSE"))
+                .andExpect(jsonPath("$.totals.expenses.amount").value("8.00"))
+                .andExpect(jsonPath("$.totals.expenses.currency").value("KZT"))
+                .andExpect(jsonPath("$.totals.incomes.amount").value("0.00"))
+                .andExpect(jsonPath("$.totals.incomes.currency").value("KZT"))
                 .andExpect(jsonPath("$.nextCursor").value(nullValue()))
         }
 
@@ -133,6 +139,8 @@ class OperationHistoryApiTests
                 .andExpect(jsonPath("$.items[0].id").value(end.id.toString()))
                 .andExpect(jsonPath("$.items[0].occurredOn").value("2026-09-03"))
                 .andExpect(jsonPath("$.nextCursor").value(nextCursor.toLong()))
+                .andExpect(jsonPath("$.totals.expenses.amount").value("30.00"))
+                .andExpect(jsonPath("$.totals.incomes.amount").value("10.00"))
 
             record(setup, Direction.EXPENSE, "newer")
             mockMvc
@@ -142,6 +150,8 @@ class OperationHistoryApiTests
                 .andExpect(jsonPath("$.items[0].id").value(start.id.toString()))
                 .andExpect(jsonPath("$.items[0].occurredOn").value("2026-09-02"))
                 .andExpect(jsonPath("$.nextCursor").value(nullValue()))
+                .andExpect(jsonPath("$.totals.expenses.amount").value("40.00"))
+                .andExpect(jsonPath("$.totals.incomes.amount").value("10.00"))
         }
 
         @Test
@@ -162,6 +172,8 @@ class OperationHistoryApiTests
                 .andExpect(status().isOk)
                 .andExpect(jsonPath("$.items[0].id").value(expense.id.toString()))
                 .andExpect(jsonPath("$.items.length()").value(1))
+                .andExpect(jsonPath("$.totals.expenses.amount").value("10.00"))
+                .andExpect(jsonPath("$.totals.incomes.amount").value("0.00"))
             mockMvc
                 .perform(request().param("dateFrom", "2026-09-02").param("dateTo", "2026-09-02"))
                 .andExpect(status().isOk)
@@ -179,6 +191,124 @@ class OperationHistoryApiTests
                 .perform(request().param("type", "INCOME").param("categoryId", expense.categoryId.toString()))
                 .andExpect(status().isOk)
                 .andExpect(jsonPath("$.items").isEmpty)
+        }
+
+        @Nested
+        inner class PeriodTotals {
+            @Test
+            fun `empty period has zero totals even when another period contains operations`() {
+                val setup = openBudget(API_USER_ID)
+                mockMvc
+                    .perform(request())
+                    .andExpect(status().isOk)
+                    .andExpect(jsonPath("$.totals.expenses.amount").value("0.00"))
+                    .andExpect(jsonPath("$.totals.incomes.amount").value("0.00"))
+                record(setup, Direction.EXPENSE, "outside-period")
+                mockMvc
+                    .perform(request().param("dateFrom", "2026-09-04").param("dateTo", "2026-09-04"))
+                    .andExpect(status().isOk)
+                    .andExpect(jsonPath("$.items").isEmpty)
+                    .andExpect(jsonPath("$.totals.expenses.amount").value("0.00"))
+                    .andExpect(jsonPath("$.totals.incomes.amount").value("0.00"))
+            }
+
+            @Test
+            fun `totals are identical on every page and independent of type and category`() {
+                val setup = openBudget(API_USER_ID)
+                val expense = record(setup, Direction.EXPENSE, "expense")
+                val income = record(setup, Direction.INCOME, "income")
+                val cursor =
+                    checkNotNull(
+                        jdbc.queryForObject(
+                            "SELECT history_sequence FROM ledger_entry WHERE id = ?",
+                            Long::class.java,
+                            expense.id,
+                        ),
+                    ).toString()
+                listOf(
+                    request(),
+                    request().param("limit", "1"),
+                    request().param("cursor", cursor),
+                    request().param("type", "EXPENSE"),
+                    request().param("type", "INCOME"),
+                    request().param("categoryId", expense.categoryId.toString()),
+                    request().param("type", "EXPENSE").param("categoryId", income.categoryId.toString()),
+                    request().param("dateFrom", "2026-09-02"),
+                ).forEach { query ->
+                    mockMvc
+                        .perform(query)
+                        .andExpect(status().isOk)
+                        .andExpect(jsonPath("$.totals.expenses.amount").value("10.00"))
+                        .andExpect(jsonPath("$.totals.incomes.amount").value("10.00"))
+                }
+            }
+
+            @Test
+            fun `refunds reduce expenses on their own date and can make the period negative`() {
+                val setup = openBudget(API_USER_ID)
+                val expense = record(setup, Direction.EXPENSE, "expense", "2026-09-01T12:00:00Z")
+                assertThat(
+                    corrections.refund(
+                        EntryTarget(setup.household.id, setup.owner.id, expense.id, 0),
+                        Money.of("2.15"),
+                        LocalDate.parse("2026-09-03"),
+                        "mobile:test:refund-period",
+                    ),
+                ).isInstanceOf(CorrectionResult.Updated::class.java)
+                mockMvc
+                    .perform(request().param("dateFrom", "2026-09-03").param("dateTo", "2026-09-03"))
+                    .andExpect(status().isOk)
+                    .andExpect(jsonPath("$.items").isEmpty)
+                    .andExpect(jsonPath("$.totals.expenses.amount").value("-2.15"))
+                    .andExpect(jsonPath("$.totals.incomes.amount").value("0.00"))
+                mockMvc
+                    .perform(request().param("dateTo", "2026-09-01"))
+                    .andExpect(status().isOk)
+                    .andExpect(jsonPath("$.totals.expenses.amount").value("10.00"))
+            }
+
+            @Test
+            fun `totals use stored KZT valuations and reflect corrections without including voided expenses`() {
+                val setup = openBudget(API_USER_ID)
+                jdbc.update(
+                    "INSERT INTO daily_exchange_rate(rate_date, rub_kzt, source, quoted_at, fetched_at) " +
+                        "VALUES ('2026-09-04', 5.125, 'MOBILE_TOTALS_TEST', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
+                )
+                try {
+                    record(
+                        setup,
+                        Direction.EXPENSE,
+                        "rub",
+                        "2026-09-04T12:00:00Z",
+                        amount = Money.of("1.23", Currency.RUB),
+                    )
+                    val expense = record(setup, Direction.EXPENSE, "changed")
+                    val voided = record(setup, Direction.EXPENSE, "voided")
+                    assertThat(
+                        corrections.change(
+                            EntryTarget(setup.household.id, setup.owner.id, expense.id, 0),
+                            EntryChange.Amount(Money.of("10.11")),
+                            "mobile:test:change-total",
+                        ),
+                    ).isInstanceOf(CorrectionResult.Updated::class.java)
+                    assertThat(
+                        corrections.change(
+                            EntryTarget(setup.household.id, setup.owner.id, voided.id, 0),
+                            EntryChange.Void,
+                            "mobile:test:void-expense",
+                        ),
+                    ).isInstanceOf(CorrectionResult.Updated::class.java)
+                    mockMvc
+                        .perform(request())
+                        .andExpect(status().isOk)
+                        .andExpect(jsonPath("$.totals.expenses.amount").value("16.41"))
+                        .andExpect(jsonPath("$.totals.incomes.amount").value("0.00"))
+                } finally {
+                    cleanup()
+                    households.clear()
+                    jdbc.update("DELETE FROM daily_exchange_rate WHERE rate_date = '2026-09-04'")
+                }
+            }
         }
 
         @ParameterizedTest
@@ -274,6 +404,7 @@ class OperationHistoryApiTests
             source: String,
             occurredAt: String = "2026-09-02T12:00:00Z",
             categoryId: UUID = setup.categories.first { it.kind == direction.categoryKind }.id,
+            amount: Money = Money.of("10"),
         ) = accounting
             .record(
                 RecordEntry(
@@ -281,7 +412,7 @@ class OperationHistoryApiTests
                     setup.owner.id,
                     categoryId,
                     direction,
-                    Money.of("10"),
+                    amount,
                     Instant.parse(occurredAt),
                     "mobile:test:$source",
                 ),

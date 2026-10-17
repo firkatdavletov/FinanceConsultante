@@ -4,6 +4,8 @@ import com.firkatdavletov.financeconsultante.access.application.FamilyBudgetAcce
 import com.firkatdavletov.financeconsultante.ledger.application.HistoryItem
 import com.firkatdavletov.financeconsultante.ledger.application.LedgerInteractionRepository
 import com.firkatdavletov.financeconsultante.ledger.application.OperationHistoryFilter
+import com.firkatdavletov.financeconsultante.ledger.application.OperationHistoryTotals
+import com.firkatdavletov.financeconsultante.ledger.application.OperationHistoryTotalsRepository
 import com.firkatdavletov.financeconsultante.ledger.domain.Direction
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Isolation
@@ -12,6 +14,7 @@ import org.springframework.transaction.annotation.Transactional
 data class OperationHistoryPage(
     val items: List<HistoryItem>,
     val nextCursor: Long?,
+    val totals: OperationHistoryTotals,
 )
 
 class InvalidOperationHistoryRequest(
@@ -24,6 +27,7 @@ class MobileApiAccessDenied : IllegalStateException("Active budget membership is
 class OperationHistoryService(
     private val access: FamilyBudgetAccess,
     private val ledger: LedgerInteractionRepository,
+    private val totalsRepository: OperationHistoryTotalsRepository,
 ) {
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     fun history(
@@ -40,6 +44,7 @@ class OperationHistoryService(
         return OperationHistoryPage(
             items = page,
             nextCursor = page.lastOrNull()?.sequence?.takeIf { rows.size > page.size },
+            totals = totalsRepository.totals(member.householdId, filter.dateFrom, filter.dateTo),
         )
     }
 
