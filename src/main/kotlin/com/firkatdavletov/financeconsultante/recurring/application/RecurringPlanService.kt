@@ -413,7 +413,6 @@ class RecurringPlanService(
         owner: OwnedLedger,
         expectedIncomeId: UUID,
         version: Long,
-        today: LocalDate,
     ): PlanChange<ExpectedIncomeView> {
         if (!owner.canManageHousehold) return ownerOnly()
         val expected =
@@ -424,12 +423,6 @@ class RecurringPlanService(
                 ?: return PlanChange.Rejected(STALE_EXPECTED)
         if (expected.version != version || expected.status != ExpectedIncomeStatus.SCHEDULED || view.fulfilled) {
             return PlanChange.Rejected(STALE_EXPECTED)
-        }
-        if (expected.dueOn < today) {
-            return PlanChange.Rejected(
-                "Просроченный ожидаемый доход нельзя отменить " +
-                    "как будущий.",
-            )
         }
         if (!plans.cancelExpectedIncome(expectedIncomeId, version, now())) return PlanChange.Rejected(STALE_EXPECTED)
         return PlanChange.Applied(expectedView(owner.householdId, expectedIncomeId))

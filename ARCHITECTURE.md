@@ -280,7 +280,8 @@ household, поэтому одни свободные деньги нельзя 
 плановых расходов `POST /api/v1/planned-expenses`, `PATCH /api/v1/planned-expenses/{ruleId}`,
 `DELETE /api/v1/planned-expenses/{ruleId}`, а также закрытие конкретного оплаченного occurrence
 `POST /api/v1/planned-expenses/{occurrenceId}/close` и OWNER-мутации ожидаемых доходов
-`POST /api/v1/planned-incomes`, `PATCH /api/v1/planned-incomes/{expectedIncomeId}`, а также мутации истории
+`POST /api/v1/planned-incomes`, `PATCH /api/v1/planned-incomes/{expectedIncomeId}`,
+`DELETE /api/v1/planned-incomes/{expectedIncomeId}`, а также мутации истории
 `PATCH /api/v1/purchases/{purchaseId}` и `DELETE /api/v1/purchases/{purchaseId}`. Она выключена по умолчанию
 и включается только при заданных
 `MOBILE_API_TOKEN` и `MOBILE_API_TELEGRAM_USER_ID`. Bearer-токен серверно привязан к одному Telegram ID;
@@ -342,6 +343,13 @@ version и атомарно меняет хотя бы одно из полей 
 чужой или изменившийся план не редактируется. Обе операции изменяют только `expected_income`: ledger и баланс
 остаются прежними до фактического поступления; новая KZT `INCOME`-запись автоматически сопоставляется
 с ближайшим открытым планом своей категории по описанным выше правилам.
+
+Удаление планового дохода — отмена открытого `SCHEDULED`-плана, в том числе просроченного. DELETE повторно
+проверяет активного OWNER и household, требует текущую неотрицательную версию в query-параметре `version` и использует
+общий сценарий `cancelExpectedIncome` с блокировкой строки. Успех атомарно сохраняет `CANCELLED`, увеличивает
+версию и возвращает `204` без тела; строка плана, связи и фактические проводки сохраняются. Полученный,
+отменённый или изменившийся план даёт `409`, чужой/отсутствующий UUID — `404`. Ledger и баланс не меняются;
+отменённый план исключается из списка и прогноза. Telegram `/expected cancel` использует то же правило.
 
 Dashboard собирается в одной `REPEATABLE_READ`-транзакции после повторной проверки активного членства и
 блокировки общего account. `availableMoney` — текущий учётный баланс B. `freeMoney.amount` использует общее

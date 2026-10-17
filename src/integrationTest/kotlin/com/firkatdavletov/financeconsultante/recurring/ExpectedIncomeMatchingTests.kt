@@ -144,7 +144,7 @@ class ExpectedIncomeMatchingTests
         @Test
         fun `cancelled fulfilled and other category plans are excluded from automatic matching`() {
             val cancelled = incomePlan(today)
-            applied(service.cancelExpectedIncome(owner, cancelled.id, cancelled.version, today))
+            applied(service.cancelExpectedIncome(owner, cancelled.id, cancelled.version))
             val fulfilled = incomePlan(today)
             applied(
                 service.receiveExpectedIncome(

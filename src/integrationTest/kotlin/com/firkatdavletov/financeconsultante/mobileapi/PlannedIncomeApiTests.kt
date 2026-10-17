@@ -18,6 +18,8 @@ import org.hamcrest.Matchers.hasItem
 import org.hamcrest.Matchers.not
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.ValueSource
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc
 import org.springframework.http.HttpHeaders
@@ -25,9 +27,11 @@ import org.springframework.http.MediaType
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.test.context.TestPropertySource
 import org.springframework.test.web.servlet.MockMvc
+import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post
+import org.springframework.test.web.servlet.result.MockMvcResultMatchers.content
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.header
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.status
@@ -85,7 +89,6 @@ class PlannedIncomeApiTests
                     owner,
                     cancelled.expectedIncome.id,
                     cancelled.expectedIncome.version,
-                    today,
                 ) is PlanChange.Applied,
             )
             val received = createIncome(owner, setup.incomeCategory(), today.plusDays(7), "4000")
@@ -226,6 +229,160 @@ class PlannedIncomeApiTests
                 .andExpect(jsonPath("$.items[0].id").value(expectedIncomeId.toString()))
                 .andExpect(jsonPath("$.items[0].plannedAmount.amount").value("125000.50"))
                 .andExpect(jsonPath("$.items[0].version").value(1))
+        }
+
+        @ParameterizedTest
+        @ValueSource(longs = [-1, 0, 3])
+        fun `owner deletes an open planned income including overdue without changing balance`(daysFromToday: Long) {
+            val today = LocalDate.now(clock.withZone(API_ZONE))
+            val setup = openBudget(API_USER_ID)
+            val owner = owner(setup, API_USER_ID)
+            val income = createIncome(owner, setup.incomeCategory(), today.plusDays(daysFromToday), "100")
+
+            mockMvc
+                .perform(
+                    delete("/api/v1/planned-incomes/{id}", income.expectedIncome.id)
+                        .header(HttpHeaders.AUTHORIZATION, AUTHORIZATION)
+                        .queryParam("version", income.expectedIncome.version.toString()),
+                ).andExpect(status().isNoContent)
+                .andExpect(header().string(HttpHeaders.CACHE_CONTROL, "no-store"))
+                .andExpect(content().string(""))
+
+            mockMvc
+                .perform(get("/api/v1/planned-incomes").header(HttpHeaders.AUTHORIZATION, AUTHORIZATION))
+                .andExpect(status().isOk)
+                .andExpect(jsonPath("$.items.length()").value(0))
+            assertThat(
+                recurring
+                    .expectedIncome(owner, income.expectedIncome.id)
+                    ?.expectedIncome
+                    ?.status
+                    ?.name,
+            ).isEqualTo("CANCELLED")
+            assertThat(recurring.expectedIncome(owner, income.expectedIncome.id)?.expectedIncome?.version).isEqualTo(1)
+            assertThat(recurring.expectedIncomeForecast(owner, today.plusDays(10))).isEmpty()
+            assertThatBalanceIsZero(setup)
+            assertThat(
+                jdbc.queryForObject(
+                    "SELECT count(*) FROM ledger_entry WHERE household_id = ?",
+                    Long::class.java,
+                    setup.household.id,
+                ),
+            ).isZero()
+
+            mockMvc
+                .perform(
+                    delete("/api/v1/planned-incomes/{id}", income.expectedIncome.id)
+                        .header(HttpHeaders.AUTHORIZATION, AUTHORIZATION)
+                        .queryParam("version", income.expectedIncome.version.toString()),
+                ).andExpect(status().isConflict)
+                .andExpect(jsonPath("$.code").value("planned_income_conflict"))
+        }
+
+        @Test
+        fun `delete requires authentication and active owner membership`() {
+            mockMvc
+                .perform(delete("/api/v1/planned-incomes/{id}", UUID.randomUUID()).queryParam("version", "0"))
+                .andExpect(status().isUnauthorized)
+                .andExpect(jsonPath("$.code").value("unauthorized"))
+
+            val setup = openBudget(OWNER_ID)
+            addMember(setup, API_USER_ID)
+            val income =
+                createIncome(
+                    owner(setup, OWNER_ID),
+                    setup.incomeCategory(),
+                    LocalDate.now(clock.withZone(API_ZONE)),
+                    "100",
+                )
+            mockMvc
+                .perform(
+                    delete("/api/v1/planned-incomes/{id}", income.expectedIncome.id)
+                        .header(HttpHeaders.AUTHORIZATION, AUTHORIZATION)
+                        .queryParam("version", "0"),
+                ).andExpect(status().isForbidden)
+                .andExpect(jsonPath("$.code").value("owner_required"))
+
+            jdbc.update(
+                "UPDATE member SET revoked_at = CURRENT_TIMESTAMP WHERE household_id = ? AND telegram_user_id = ?",
+                setup.household.id,
+                API_USER_ID,
+            )
+            mockMvc
+                .perform(
+                    delete("/api/v1/planned-incomes/{id}", income.expectedIncome.id)
+                        .header(HttpHeaders.AUTHORIZATION, AUTHORIZATION)
+                        .queryParam("version", "0"),
+                ).andExpect(status().isForbidden)
+                .andExpect(jsonPath("$.code").value("access_denied"))
+            assertThat(
+                recurring.expectedIncome(owner(setup, OWNER_ID), income.expectedIncome.id)?.expectedIncome?.version,
+            ).isZero()
+        }
+
+        @Test
+        fun `delete rejects missing and invalid versions and hides foreign or missing plans`() {
+            val today = LocalDate.now(clock.withZone(API_ZONE))
+            val setup = openBudget(API_USER_ID)
+            val owner = owner(setup, API_USER_ID)
+            val income = createIncome(owner, setup.incomeCategory(), today, "100")
+            listOf(null, "-1", "not-a-version").forEach { version ->
+                val request =
+                    delete("/api/v1/planned-incomes/{id}", income.expectedIncome.id)
+                        .header(HttpHeaders.AUTHORIZATION, AUTHORIZATION)
+                if (version != null) request.queryParam("version", version)
+                mockMvc.perform(request).andExpect(status().isBadRequest)
+            }
+
+            val foreign = openBudget(FOREIGN_OWNER_ID)
+            val foreignIncome =
+                createIncome(owner(foreign, FOREIGN_OWNER_ID), foreign.incomeCategory(), today, "200")
+            listOf(foreignIncome.expectedIncome.id, UUID.randomUUID()).forEach { id ->
+                mockMvc
+                    .perform(
+                        delete("/api/v1/planned-incomes/{id}", id)
+                            .header(HttpHeaders.AUTHORIZATION, AUTHORIZATION)
+                            .queryParam("version", "0"),
+                    ).andExpect(status().isNotFound)
+                    .andExpect(jsonPath("$.code").value("planned_income_not_found"))
+            }
+            assertThat(recurring.expectedIncome(owner, income.expectedIncome.id)?.expectedIncome?.version).isZero()
+        }
+
+        @Test
+        fun `delete rejects stale and received plans without changing actual income`() {
+            val today = LocalDate.now(clock.withZone(API_ZONE))
+            val setup = openBudget(API_USER_ID)
+            val owner = owner(setup, API_USER_ID)
+            val income = createIncome(owner, setup.incomeCategory(), today, "100")
+            mockMvc
+                .perform(
+                    delete("/api/v1/planned-incomes/{id}", income.expectedIncome.id)
+                        .header(HttpHeaders.AUTHORIZATION, AUTHORIZATION)
+                        .queryParam("version", "7"),
+                ).andExpect(status().isConflict)
+                .andExpect(jsonPath("$.code").value("planned_income_conflict"))
+
+            check(
+                recurring.receiveExpectedIncome(
+                    owner,
+                    income.expectedIncome.id,
+                    income.expectedIncome.version,
+                    Money.of("120"),
+                    today,
+                    "synthetic:mobile:received",
+                ) is PlanChange.Applied,
+            )
+            mockMvc
+                .perform(
+                    delete("/api/v1/planned-incomes/{id}", income.expectedIncome.id)
+                        .header(HttpHeaders.AUTHORIZATION, AUTHORIZATION)
+                        .queryParam("version", "1"),
+                ).andExpect(status().isConflict)
+                .andExpect(jsonPath("$.code").value("planned_income_conflict"))
+
+            assertThat(recurring.expectedIncome(owner, income.expectedIncome.id)?.fulfilled).isTrue()
+            assertThat(accounting.currentBalance(setup.household.id, setup.owner.id).amount).isEqualTo(Money.of("120"))
         }
 
         @Test

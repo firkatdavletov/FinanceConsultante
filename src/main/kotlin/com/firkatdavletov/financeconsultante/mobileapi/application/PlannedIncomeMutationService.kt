@@ -104,6 +104,28 @@ class PlannedIncomeMutationService(
         }
     }
 
+    @Transactional
+    fun delete(
+        telegramUserId: Long,
+        expectedIncomeId: UUID,
+        version: Long?,
+    ) {
+        val owner = requireOwner(telegramUserId)
+        val expectedVersion = parseVersion(version)
+        val current = recurring.expectedIncome(owner, expectedIncomeId) ?: notFound()
+        if (
+            current.expectedIncome.version != expectedVersion ||
+            current.expectedIncome.status != ExpectedIncomeStatus.SCHEDULED ||
+            current.fulfilled
+        ) {
+            conflict()
+        }
+        when (recurring.cancelExpectedIncome(owner, expectedIncomeId, expectedVersion)) {
+            is PlanChange.Applied -> Unit
+            is PlanChange.Rejected -> conflict()
+        }
+    }
+
     private fun rejectedUpdate(
         owner: OwnedLedger,
         expectedIncomeId: UUID,

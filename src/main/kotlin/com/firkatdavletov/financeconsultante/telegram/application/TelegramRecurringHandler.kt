@@ -219,7 +219,7 @@ class TelegramRecurringHandler(
 
             parts.size == 3 && parts[0] == "cancel" -> {
                 val target = versioned(parts) ?: return EXPECTED_HELP.reply()
-                renderExpected(service.cancelExpectedIncome(owner, target.first, target.second, today))
+                renderExpected(service.cancelExpectedIncome(owner, target.first, target.second))
             }
 
             parts.size in 4..5 && parts[0] == "receive" -> {
@@ -657,7 +657,7 @@ class TelegramRecurringHandler(
                 "<фактическая сумма> [ГГГГ-ММ-ДД]. " +
                 "Связать уже записанный доход: /expected match <ID> " +
                 "<версия> <ID проводки>. " +
-                "Отменить будущий план: /expected cancel <ID> <версия>."
+                "Отменить открытый план: /expected cancel <ID> <версия>."
         private val AMOUNT = Regex("[0-9]+(?:[.,][0-9]{1,2})?")
         private val DATE = Regex("[0-9]{4}-[0-9]{2}-[0-9]{2}")
         private val UUID_PATTERN = Regex("[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}")

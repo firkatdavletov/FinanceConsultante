@@ -9,6 +9,7 @@ import org.springframework.http.CacheControl
 import org.springframework.http.HttpHeaders
 import org.springframework.http.MediaType
 import org.springframework.http.ResponseEntity
+import org.springframework.web.bind.annotation.DeleteMapping
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PatchMapping
 import org.springframework.web.bind.annotation.PathVariable
@@ -16,6 +17,7 @@ import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RequestHeader
 import org.springframework.web.bind.annotation.RequestMapping
+import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.RestController
 import java.net.URI
 import java.time.Instant
@@ -142,5 +144,19 @@ class PlannedIncomeController(
             .ok()
             .cacheControl(CacheControl.noStore())
             .body(PlannedIncomeResponse.from(updated.item, updated.asOf))
+    }
+
+    @DeleteMapping("/{expectedIncomeId}")
+    fun delete(
+        @RequestHeader(name = HttpHeaders.AUTHORIZATION, required = false) authorization: String?,
+        @PathVariable expectedIncomeId: UUID,
+        @RequestParam(required = false) version: Long?,
+    ): ResponseEntity<Void> {
+        val telegramUserId = authenticator.authenticate(authorization)
+        mutations.delete(telegramUserId, expectedIncomeId, version)
+        return ResponseEntity
+            .noContent()
+            .cacheControl(CacheControl.noStore())
+            .build()
     }
 }
