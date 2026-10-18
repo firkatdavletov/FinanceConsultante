@@ -62,6 +62,7 @@ class AccountingPersistenceTests
                     "16",
                     "17",
                     "18",
+                    "19",
                 )
             assertThat(flyway.migrate().migrationsExecuted).isZero()
             flyway.validate()

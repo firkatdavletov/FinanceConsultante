@@ -2,7 +2,10 @@ package com.firkatdavletov.financeconsultante.mobileapi.infrastructure
 
 import com.firkatdavletov.financeconsultante.ledger.application.OperationHistoryFilter
 import com.firkatdavletov.financeconsultante.ledger.domain.Direction
+import com.firkatdavletov.financeconsultante.mobileapi.application.CreateOfflineOperation
+import com.firkatdavletov.financeconsultante.mobileapi.application.CreateOfflineOperationRequest
 import com.firkatdavletov.financeconsultante.mobileapi.application.OperationHistoryService
+import com.firkatdavletov.financeconsultante.mobileapi.application.RecordedMobileOperation
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty
 import org.springframework.format.annotation.DateTimeFormat
 import org.springframework.http.CacheControl
@@ -10,6 +13,8 @@ import org.springframework.http.HttpHeaders
 import org.springframework.http.MediaType
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.GetMapping
+import org.springframework.web.bind.annotation.PostMapping
+import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RequestHeader
 import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RequestParam
@@ -22,9 +27,19 @@ import java.util.UUID
 @ConditionalOnProperty(prefix = "app.mobile-api", name = ["enabled"], havingValue = "true")
 class OperationHistoryController(
     private val history: OperationHistoryService,
+    private val createOperation: CreateOfflineOperation,
     properties: MobileApiProperties,
 ) {
     private val authenticator = MobileApiAuthenticator(properties)
+
+    @PostMapping(consumes = [MediaType.APPLICATION_JSON_VALUE])
+    fun create(
+        @RequestHeader(name = HttpHeaders.AUTHORIZATION, required = false) authorization: String?,
+        @RequestBody request: CreateOfflineOperationRequest,
+    ): ResponseEntity<RecordedMobileOperation> =
+        ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(
+            createOperation.create(authenticator.authenticate(authorization), request),
+        )
 
     @GetMapping
     @Suppress("LongParameterList") // Explicit optional query parameters define the history HTTP contract.

@@ -5,6 +5,7 @@ import com.firkatdavletov.financeconsultante.ledger.application.OperationHistory
 import com.firkatdavletov.financeconsultante.ledger.domain.DailyExchangeRate
 import com.firkatdavletov.financeconsultante.ledger.domain.Direction
 import com.firkatdavletov.financeconsultante.mobileapi.application.InvalidCategoryRequest
+import com.firkatdavletov.financeconsultante.mobileapi.application.InvalidOfflineRequest
 import com.firkatdavletov.financeconsultante.mobileapi.application.InvalidOperationHistoryRequest
 import com.firkatdavletov.financeconsultante.mobileapi.application.InvalidPlannedExpenseRequest
 import com.firkatdavletov.financeconsultante.mobileapi.application.InvalidPlannedIncomeRequest
@@ -22,6 +23,7 @@ import com.firkatdavletov.financeconsultante.mobileapi.application.MobileApiPlan
 import com.firkatdavletov.financeconsultante.mobileapi.application.MobileApiPlannedIncomeOwnerRequired
 import com.firkatdavletov.financeconsultante.mobileapi.application.MobileApiPurchaseConflict
 import com.firkatdavletov.financeconsultante.mobileapi.application.MobileApiPurchaseNotFound
+import com.firkatdavletov.financeconsultante.mobileapi.application.OfflineSyncConflict
 import com.firkatdavletov.financeconsultante.mobileapi.application.OperationHistoryPage
 import com.firkatdavletov.financeconsultante.mobileapi.application.OperationHistoryService
 import com.firkatdavletov.financeconsultante.mobileapi.application.PurchaseMutationService
@@ -146,6 +148,7 @@ data class OperationExchangeRateResponse(
 data class MobileApiError(
     val code: String,
     val message: String,
+    val reason: String? = null,
 )
 
 data class UpdatePurchaseRequest(
@@ -218,6 +221,7 @@ class PurchaseHistoryController(
         DashboardController::class,
         PurchaseHistoryController::class,
         OperationHistoryController::class,
+        OfflineSyncController::class,
         PlannedExpenseController::class,
         PlannedIncomeController::class,
         PlannedOperationController::class,
@@ -226,6 +230,20 @@ class PurchaseHistoryController(
 @ConditionalOnProperty(prefix = "app.mobile-api", name = ["enabled"], havingValue = "true")
 @Suppress("TooManyFunctions") // One advice keeps the complete mobile API error contract consistent.
 class MobileApiExceptionHandler {
+    @ExceptionHandler(InvalidOfflineRequest::class)
+    fun invalidOffline(error: InvalidOfflineRequest): ResponseEntity<MobileApiError> =
+        ResponseEntity
+            .badRequest()
+            .cacheControl(CacheControl.noStore())
+            .body(MobileApiError("invalid_operation", checkNotNull(error.message), error.reason))
+
+    @ExceptionHandler(OfflineSyncConflict::class)
+    fun syncConflict(error: OfflineSyncConflict): ResponseEntity<MobileApiError> =
+        ResponseEntity
+            .status(HttpStatus.CONFLICT)
+            .cacheControl(CacheControl.noStore())
+            .body(MobileApiError(error.code, "Operation or sync scope changed"))
+
     @ExceptionHandler(InvalidMobileApiToken::class)
     fun unauthorized(): ResponseEntity<MobileApiError> =
         ResponseEntity
