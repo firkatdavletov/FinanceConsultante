@@ -1058,8 +1058,8 @@ Telegram/OpenAI-тесты отключают HTTP/2 cleartext в WireMock из-
 ## CI
 
 [GitHub Actions workflow](.github/workflows/ci.yml) запускается для push в `main`, pull request и вручную:
-устанавливает Java 17, использует Wrapper, проверяет Docker, выполняет `clean check bootJar`, сохраняет отчёты/JAR
-и собирает deployment image из корневого `Dockerfile`. Production-секреты не требуются. Публикация и deploy
+устанавливает Java 17, использует Wrapper, проверяет Docker, выполняет `clean check bootJar`
+и собирает deployment image из корневого `Dockerfile`. Загрузка отчётов и JAR в GitHub Artifacts отключена. Production-секреты не требуются. Публикация и deploy
 самим workflow не выполняются; Railway может ждать его успеха через Wait for CI.
 
 Git remote `origin` указывает на GitHub. Успешная локальная сборка не является наблюдавшимся запуском GitHub
