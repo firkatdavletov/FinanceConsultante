@@ -18,7 +18,7 @@ class OfflineSyncMigrationTests
         @Test
         // Preserve V18 data and verify backfill and runtime triggers.
         @Suppress("LongMethod", "MagicNumber")
-        fun `V19 backfills previous ledger without changing financial data and captures subsequent writes`() {
+        fun `V19 and V20 backfill ledger plans and payment links without changing financial data`() {
             val schema = "offline_${UUID.randomUUID().toString().replace("-", "")}"
             val jdbc = JdbcTemplate(dataSource)
             try {
@@ -94,6 +94,69 @@ class OfflineSyncMigrationTests
                         String::class.java,
                     ),
                 ).isEqualTo("После миграции")
+                val rule = UUID.randomUUID()
+                val occurrence = UUID.randomUUID()
+                jdbc.update(
+                    """
+                    INSERT INTO $schema.recurring_rule(id, household_id, member_id, category_id,
+                        frequency, schedule_value, amount, starts_on, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, 'MONTHLY', 31, 10.01, '2026-09-01', now(), now())
+                    """.trimIndent(),
+                    rule,
+                    household,
+                    member,
+                    category,
+                )
+                jdbc.update(
+                    """
+                    INSERT INTO $schema.recurring_occurrence(id, household_id, rule_id, category_id,
+                        planned_amount, due_on, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, 10.01, '2026-09-30', now(), now())
+                    """.trimIndent(),
+                    occurrence,
+                    household,
+                    rule,
+                    category,
+                )
+                jdbc.update(
+                    "INSERT INTO $schema.recurring_occurrence_payment " +
+                        "(household_id, occurrence_id, ledger_entry_id, created_at) VALUES (?, ?, ?, now())",
+                    household,
+                    occurrence,
+                    entry,
+                )
+                val ruleBefore =
+                    jdbc.queryForObject(
+                        "SELECT to_jsonb(r)::text FROM $schema.recurring_rule r",
+                        String::class.java,
+                    )
+                assertThat(
+                    config
+                        .target(MigrationVersion.fromVersion("20"))
+                        .load()
+                        .migrate()
+                        .migrationsExecuted,
+                ).isEqualTo(1)
+                assertThat(
+                    jdbc.queryForObject("SELECT to_jsonb(r)::text FROM $schema.recurring_rule r", String::class.java),
+                ).isEqualTo(ruleBefore)
+                assertThat(
+                    jdbc.queryForObject("SELECT to_jsonb(l)::text FROM $schema.ledger_entry l", String::class.java),
+                ).isEqualTo(before)
+                assertThat(
+                    jdbc.queryForObject(
+                        "SELECT count(*) FROM $schema.mobile_sync_change " +
+                            "WHERE kind IN ('RECURRING_RULE', 'RECURRING_OCCURRENCE', 'OCCURRENCE_PAYMENT')",
+                        Long::class.java,
+                    ),
+                ).isEqualTo(3)
+                jdbc.update("DELETE FROM $schema.recurring_occurrence_payment WHERE occurrence_id = ?", occurrence)
+                assertThat(
+                    jdbc.queryForObject(
+                        "SELECT deleted FROM $schema.mobile_sync_change ORDER BY revision DESC LIMIT 1",
+                        Boolean::class.java,
+                    ),
+                ).isTrue()
             } finally {
                 jdbc.execute("DROP SCHEMA IF EXISTS $schema CASCADE")
             }

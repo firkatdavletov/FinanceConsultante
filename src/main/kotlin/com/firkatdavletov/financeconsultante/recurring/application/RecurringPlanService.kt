@@ -46,6 +46,7 @@ class RecurringPlanService(
         categoryId: UUID,
         startsOn: LocalDate,
         normalizedDescription: String? = null,
+        id: UUID = UUID.randomUUID(),
     ): PlanChange<RecurringRuleView> {
         if (!owner.canManageHousehold) return ownerOnly()
         planAmountError(amount)?.let { return PlanChange.Rejected(it) }
@@ -58,7 +59,7 @@ class RecurringPlanService(
         val now = now()
         val rule =
             RecurringRule(
-                UUID.randomUUID(),
+                id,
                 owner.householdId,
                 owner.memberId,
                 categoryId,
@@ -327,6 +328,7 @@ class RecurringPlanService(
         dueOn: LocalDate,
         categoryId: UUID,
         today: LocalDate,
+        id: UUID = UUID.randomUUID(),
     ): PlanChange<ExpectedIncomeView> {
         if (!owner.canManageHousehold) return ownerOnly()
         planAmountError(amount)?.let { return PlanChange.Rejected(it) }
@@ -339,7 +341,7 @@ class RecurringPlanService(
         val now = now()
         val expected =
             ExpectedIncome(
-                UUID.randomUUID(),
+                id,
                 owner.householdId,
                 owner.memberId,
                 categoryId,

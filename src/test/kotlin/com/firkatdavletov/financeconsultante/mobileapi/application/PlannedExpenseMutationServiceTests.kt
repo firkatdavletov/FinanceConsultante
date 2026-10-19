@@ -44,6 +44,7 @@ class PlannedExpenseMutationServiceTests {
                     Money.of("100"),
                     CATEGORY_ID,
                     TODAY,
+                    id = created.rule.id,
                 ),
             ).thenReturn(PlanChange.Applied(created))
         Mockito.`when`(fixture.recurring.rule(fixture.owner, created.rule.id)).thenReturn(created.rule, updated.rule)
@@ -69,6 +70,7 @@ class PlannedExpenseMutationServiceTests {
                 "MONTHLY",
                 TODAY.dayOfMonth,
                 TODAY,
+                id = created.rule.id,
             )
         val updateResult = fixture.service.update(API_USER_ID, created.rule.id, 0, "125.50")
         fixture.service.delete(API_USER_ID, created.rule.id, 1)

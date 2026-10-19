@@ -47,6 +47,7 @@ class PlannedIncomeMutationServiceTests {
                     TODAY.plusDays(1),
                     CATEGORY_ID,
                     TODAY,
+                    id = created.expectedIncome.id,
                 ),
             ).thenReturn(PlanChange.Applied(created))
         Mockito
@@ -66,7 +67,7 @@ class PlannedIncomeMutationServiceTests {
             ).thenReturn(PlanChange.Applied(updated))
 
         val createResult =
-            fixture.service.create(API_USER_ID, CATEGORY_ID, "100", TODAY.plusDays(1))
+            fixture.service.create(API_USER_ID, CATEGORY_ID, "100", TODAY.plusDays(1), id = created.expectedIncome.id)
         val updateResult =
             fixture.service.update(
                 API_USER_ID,

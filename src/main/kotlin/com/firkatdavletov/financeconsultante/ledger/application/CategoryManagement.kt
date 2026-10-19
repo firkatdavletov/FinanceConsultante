@@ -190,10 +190,11 @@ class CategoryManagement(
         name: String,
         kind: CategoryKind,
         icon: CategoryIcon,
+        id: UUID = UUID.randomUUID(),
     ): Category? {
         if (nameError(ownerId, name) != null || ownerOnlyError(ownerId) != null) return null
         val owner = owner(ownerId)
-        val category = Category(UUID.randomUUID(), owner.householdId, name, kind, icon = icon)
+        val category = Category(id, owner.householdId, name, kind, icon = icon)
         return category.takeIf { repository.create(it) }
     }
 

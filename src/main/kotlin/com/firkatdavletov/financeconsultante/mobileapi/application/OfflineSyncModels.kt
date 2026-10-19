@@ -37,6 +37,7 @@ data class SyncCategory(
     val iconCode: String,
     val iconEmoji: String,
     val archived: Boolean,
+    val dictionaryKey: String? = null,
 )
 
 data class SyncChange(
@@ -45,6 +46,7 @@ data class SyncChange(
     val deleted: Boolean,
     val operation: SyncLedger? = null,
     val category: SyncCategory? = null,
+    val record: SyncPlanRecord? = null,
 )
 
 data class SyncPage(
@@ -52,6 +54,25 @@ data class SyncPage(
     val changes: List<SyncChange>,
     val nextCursor: String,
     val hasMore: Boolean,
+    val snapshotRevision: Long = 0,
+)
+
+/** Canonical plan data; amounts are decimal strings and links contain only public IDs. */
+data class SyncPlanRecord(
+    val id: String,
+    val categoryId: String? = null,
+    val ruleId: String? = null,
+    val ledgerId: String? = null,
+    val amount: String? = null,
+    val frequency: String? = null,
+    val scheduleValue: Int? = null,
+    val startsOn: LocalDate? = null,
+    val active: Boolean? = null,
+    val dueOn: LocalDate? = null,
+    val status: String? = null,
+    val version: Long? = null,
+    val createdAt: Instant? = null,
+    val modifiedAt: Instant? = null,
 )
 
 data class RecordedMobileOperation(
@@ -74,6 +95,14 @@ interface OfflineSyncRepository {
         through: Long,
         limit: Int,
     ): List<SyncChange>
+
+    fun extendedChanges(
+        householdId: UUID,
+        memberId: UUID,
+        after: Long,
+        through: Long,
+        limit: Int,
+    ): List<SyncChange> = changes(householdId, memberId, after, through, limit)
 
     fun receipt(
         householdId: UUID,

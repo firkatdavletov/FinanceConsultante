@@ -1083,3 +1083,22 @@ backup, smoke, restore drill, RPO/RTO и cost limits описана в
 - [ARCHITECTURE.md](ARCHITECTURE.md) — архитектура, code style и финансовые правила.
 - [AGENTS.md](AGENTS.md) — инструкции Codex и ссылки на ролевые навыки.
 - [docs/RAILWAY_DEPLOYMENT.md](docs/RAILWAY_DEPLOYMENT.md) — подробный production deploy/runbook для Railway.
+
+
+## Синхронизация мобильных категорий и планов
+
+Сначала выпускается сервер с V20, затем клиент Fillin с Room v2.
+`GET /api/v2/sync/changes` возвращает фиксированный срез с `snapshotRevision`,
+`scope`, `changes`, `nextCursor`, `hasMore`. Новые события содержат `record` с правилами,
+экземплярами расходов, доходами и связями оплат. Категории включают `dictionaryKey`.
+Курсор v1 не используется в v2; прежний endpoint v1 остаётся совместимым.
+
+`POST /api/v2/sync/commands` принимает `requestId`, `householdId`, `memberId`, `type`,
+`entityId`, `authoredOn`, `expectedToken` и поля конкретной команды. Типы:
+`CREATE_CATEGORY`, `UPDATE_CATEGORY`, `DELETE_CATEGORY`, `CREATE_RULE`, `UPDATE_RULE`,
+`DELETE_RULE`, `CLOSE_EXPENSE`, `CREATE_INCOME`, `UPDATE_INCOME`, `DELETE_INCOME`.
+При создании используется UUID клиента. Подтверждение содержит `requestId`, `revision`,
+`entityToken`; повтор исходного запроса безопасен после потери ответа. `entity_changed`
+означает конкурентное изменение, `idempotency_conflict` — иной payload того же requestId,
+`scope_changed` — смену бюджета/участника. Независимые команды могут продолжать отправляться
+после конфликта объекта; доступ и область проверяются для каждой команды.

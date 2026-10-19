@@ -37,6 +37,7 @@ class CategoryMutationService(
         name: String?,
         kind: String?,
         icon: String?,
+        id: UUID = UUID.randomUUID(),
     ): Category {
         requireOwner(telegramUserId)
         val categoryName = name ?: invalid("name is required")
@@ -44,7 +45,7 @@ class CategoryMutationService(
         val categoryIcon = parseIcon(icon)
         categories.nameError(telegramUserId, categoryName)?.let(::invalid)
         return try {
-            categories.create(telegramUserId, categoryName, categoryKind, categoryIcon)
+            categories.create(telegramUserId, categoryName, categoryKind, categoryIcon, id)
                 ?: conflict("Category already exists or the category limit was reached")
         } catch (error: DataIntegrityViolationException) {
             conflict("Category already exists", error)

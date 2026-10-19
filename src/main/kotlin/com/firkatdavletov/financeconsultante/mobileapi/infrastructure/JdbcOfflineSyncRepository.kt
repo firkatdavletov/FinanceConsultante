@@ -6,6 +6,7 @@ import com.firkatdavletov.financeconsultante.mobileapi.application.OfflineSyncRe
 import com.firkatdavletov.financeconsultante.mobileapi.application.SyncCategory
 import com.firkatdavletov.financeconsultante.mobileapi.application.SyncChange
 import com.firkatdavletov.financeconsultante.mobileapi.application.SyncLedger
+import com.firkatdavletov.financeconsultante.mobileapi.application.SyncPlanRecord
 import org.springframework.jdbc.core.simple.JdbcClient
 import org.springframework.stereotype.Repository
 import tools.jackson.databind.DeserializationFeature
@@ -37,6 +38,23 @@ class JdbcOfflineSyncRepository(
         after: Long,
         through: Long,
         limit: Int,
+    ): List<SyncChange> = queryChanges(householdId, memberId, after, through, limit, false)
+
+    override fun extendedChanges(
+        householdId: UUID,
+        memberId: UUID,
+        after: Long,
+        through: Long,
+        limit: Int,
+    ): List<SyncChange> = queryChanges(householdId, memberId, after, through, limit, true)
+
+    private fun queryChanges(
+        householdId: UUID,
+        memberId: UUID,
+        after: Long,
+        through: Long,
+        limit: Int,
+        extended: Boolean,
     ): List<SyncChange> =
         jdbc
             .sql(
@@ -45,6 +63,7 @@ class JdbcOfflineSyncRepository(
                 LEFT JOIN mobile_operation_request r ON r.household_id = c.household_id
                     AND r.member_id = :member AND r.entry_id = (c.snapshot ->> 'id')::uuid AND c.kind = 'LEDGER'
                 WHERE c.household_id = :household AND c.revision > :after AND c.revision <= :through
+                    AND (:extended OR c.kind IN ('LEDGER', 'CATEGORY'))
                 ORDER BY c.revision LIMIT :limit
                 """.trimIndent(),
             ).param("household", householdId)
@@ -52,6 +71,7 @@ class JdbcOfflineSyncRepository(
             .param("after", after)
             .param("through", through)
             .param("limit", limit)
+            .param("extended", extended)
             .query { rs, _ ->
                 val node = mapper.readTree(rs.getString("snapshot"))
                 val kind = rs.getString("kind")
@@ -68,6 +88,7 @@ class JdbcOfflineSyncRepository(
                             null
                         },
                     category = if (kind == "CATEGORY") category(node) else null,
+                    record = if (kind !in setOf("LEDGER", "CATEGORY")) plan(kind, node) else null,
                 )
             }.list()
 
@@ -149,6 +170,47 @@ class JdbcOfflineSyncRepository(
             icon.name,
             icon.emoji,
             node["archived"].asBoolean(),
+            node["dictionary_key"]?.takeUnless { it.isNull }?.asString(),
+        )
+    }
+
+    private fun plan(
+        kind: String,
+        node: JsonNode,
+    ): SyncPlanRecord {
+        fun string(key: String) = node[key]?.takeUnless { it.isNull }?.asString()
+
+        fun date(key: String) = string(key)?.let(LocalDate::parse)
+        val link = kind in setOf("OCCURRENCE_PAYMENT", "INCOME_MATCH")
+        val id =
+            if (link) {
+                string(
+                    if (kind ==
+                        "OCCURRENCE_PAYMENT"
+                    ) {
+                        "occurrence_id"
+                    } else {
+                        "expected_income_id"
+                    },
+                )
+            } else {
+                string("id")
+            }
+        return SyncPlanRecord(
+            id = requireNotNull(id),
+            categoryId = string("category_id"),
+            ruleId = string("rule_id"),
+            ledgerId = string("ledger_entry_id"),
+            amount = (node["amount"] ?: node["planned_amount"])?.decimalValue()?.toPlainString(),
+            frequency = string("frequency"),
+            scheduleValue = node["schedule_value"]?.asInt(),
+            startsOn = date("starts_on"),
+            active = node["active"]?.asBoolean(),
+            dueOn = date("due_on"),
+            status = string("status"),
+            version = node["version"]?.asLong(),
+            createdAt = string("created_at")?.let(::timestamp),
+            modifiedAt = string("updated_at")?.let(::timestamp),
         )
     }
 

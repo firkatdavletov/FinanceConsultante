@@ -48,9 +48,11 @@ class PlannedIncomeMutationService(
         categoryId: UUID?,
         amount: String?,
         dueOn: LocalDate?,
+        authoredOn: LocalDate? = null,
+        id: UUID = UUID.randomUUID(),
     ): MutatedPlannedIncome {
         val owner = requireOwner(telegramUserId)
-        val today = today()
+        val today = authoredOn ?: today()
         val result =
             recurring.createExpectedIncome(
                 owner,
@@ -58,6 +60,7 @@ class PlannedIncomeMutationService(
                 dueOn ?: invalid("dueOn is required"),
                 categoryId ?: invalid("categoryId is required"),
                 today,
+                id,
             )
         return when (result) {
             is PlanChange.Applied -> MutatedPlannedIncome(today, result.value)
@@ -73,6 +76,7 @@ class PlannedIncomeMutationService(
         categoryId: UUID?,
         amount: String?,
         dueOn: LocalDate?,
+        authoredOn: LocalDate? = null,
     ): MutatedPlannedIncome {
         val owner = requireOwner(telegramUserId)
         val expectedVersion = parseVersion(version)
@@ -87,7 +91,7 @@ class PlannedIncomeMutationService(
         ) {
             conflict()
         }
-        val today = today()
+        val today = authoredOn ?: today()
         val result =
             recurring.updateExpectedIncome(
                 owner,

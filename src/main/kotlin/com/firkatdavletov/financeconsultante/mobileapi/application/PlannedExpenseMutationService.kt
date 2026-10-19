@@ -51,6 +51,7 @@ class PlannedExpenseMutationService(
         frequency: String?,
         scheduleValue: Int?,
         startsOn: LocalDate?,
+        id: UUID = UUID.randomUUID(),
     ): RecurringRuleView {
         val owner = requireOwner(telegramUserId)
         val recurrenceFrequency = parseFrequency(frequency)
@@ -62,6 +63,7 @@ class PlannedExpenseMutationService(
                 parseAmount(amount),
                 categoryId ?: invalid("categoryId is required"),
                 startsOn ?: invalid("startsOn is required"),
+                id = id,
             )
         return result.appliedOrInvalid()
     }
@@ -72,6 +74,7 @@ class PlannedExpenseMutationService(
         ruleId: UUID,
         version: Long?,
         amount: String?,
+        effectiveOn: LocalDate? = null,
     ): RecurringRuleView {
         val owner = requireOwner(telegramUserId)
         val expectedVersion = parseVersion(version)
@@ -84,7 +87,7 @@ class PlannedExpenseMutationService(
                     ruleId,
                     expectedVersion,
                     parseAmount(amount),
-                    today(),
+                    effectiveOn ?: today(),
                 )
         ) {
             is PlanChange.Applied -> result.value
@@ -97,12 +100,13 @@ class PlannedExpenseMutationService(
         telegramUserId: Long,
         ruleId: UUID,
         version: Long?,
+        effectiveOn: LocalDate? = null,
     ) {
         val owner = requireOwner(telegramUserId)
         val expectedVersion = parseVersion(version)
         val current = recurring.rule(owner, ruleId) ?: notFound()
         if (current.version != expectedVersion || !current.active) conflict()
-        when (val result = recurring.deactivateRule(owner, ruleId, expectedVersion, today())) {
+        when (val result = recurring.deactivateRule(owner, ruleId, expectedVersion, effectiveOn ?: today())) {
             is PlanChange.Applied -> Unit
             is PlanChange.Rejected -> conflict()
         }
