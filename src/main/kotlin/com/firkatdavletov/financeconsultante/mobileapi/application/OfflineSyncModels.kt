@@ -4,6 +4,8 @@ import java.time.Instant
 import java.time.LocalDate
 import java.util.UUID
 
+const val DASHBOARD_SYNC_PROTOCOL = 3
+
 data class SyncScope(
     val householdId: UUID,
     val memberId: UUID,
@@ -28,6 +30,7 @@ data class SyncLedger(
     val description: String?,
     val refundOf: UUID?,
     val requestId: UUID?,
+    val occurredAt: Instant = createdAt,
 )
 
 data class SyncCategory(
@@ -47,6 +50,24 @@ data class SyncChange(
     val operation: SyncLedger? = null,
     val category: SyncCategory? = null,
     val record: SyncPlanRecord? = null,
+    val budgetSettings: SyncBudgetSettings? = null,
+    val savingsGoal: SyncSavingsGoal? = null,
+    val variableSpendingExclusion: SyncVariableSpendingExclusion? = null,
+)
+
+data class SyncBudgetSettings(
+    val id: String,
+    val openingBalance: String,
+    val protectedReserve: String,
+)
+
+data class SyncSavingsGoal(
+    val id: String,
+    val allocatedAmount: String,
+)
+
+data class SyncVariableSpendingExclusion(
+    val id: String,
 )
 
 data class SyncPage(
@@ -103,6 +124,14 @@ interface OfflineSyncRepository {
         through: Long,
         limit: Int,
     ): List<SyncChange> = changes(householdId, memberId, after, through, limit)
+
+    fun dashboardChanges(
+        householdId: UUID,
+        memberId: UUID,
+        after: Long,
+        through: Long,
+        limit: Int,
+    ): List<SyncChange> = extendedChanges(householdId, memberId, after, through, limit)
 
     fun receipt(
         householdId: UUID,

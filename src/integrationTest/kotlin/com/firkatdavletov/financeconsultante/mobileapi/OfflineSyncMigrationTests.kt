@@ -157,6 +157,31 @@ class OfflineSyncMigrationTests
                         Boolean::class.java,
                     ),
                 ).isTrue()
+                assertThat(
+                    config
+                        .target(MigrationVersion.fromVersion("21"))
+                        .load()
+                        .migrate()
+                        .migrationsExecuted,
+                ).isEqualTo(1)
+                assertThat(
+                    jdbc.queryForObject(
+                        "SELECT snapshot ->> 'opening_balance' FROM $schema.mobile_sync_change " +
+                            "WHERE kind = 'BUDGET_SETTINGS'",
+                        String::class.java,
+                    ),
+                ).isEqualTo("0")
+                jdbc.update("UPDATE $schema.household SET cash_reserve = 12.34 WHERE id = ?", household)
+                assertThat(
+                    jdbc.queryForObject(
+                        "SELECT snapshot ->> 'protected_reserve' FROM $schema.mobile_sync_change " +
+                            "ORDER BY revision DESC LIMIT 1",
+                        String::class.java,
+                    ),
+                ).isEqualTo("12.34")
+                assertThat(
+                    jdbc.queryForObject("SELECT to_jsonb(l)::text FROM $schema.ledger_entry l", String::class.java),
+                ).isEqualTo(before)
             } finally {
                 jdbc.execute("DROP SCHEMA IF EXISTS $schema CASCADE")
             }

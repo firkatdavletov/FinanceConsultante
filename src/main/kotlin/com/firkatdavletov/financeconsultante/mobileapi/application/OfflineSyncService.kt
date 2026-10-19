@@ -21,6 +21,7 @@ class OfflineSyncService(
         limit: Int,
         protocolVersion: Int = 1,
     ): SyncPage {
+        require(protocolVersion in 1..DASHBOARD_SYNC_PROTOCOL)
         if (limit !in 1..MAX_PAGE_SIZE) invalid("Invalid page size")
         val member = access.activeMember(telegramUserId) ?: throw MobileApiAccessDenied()
         val account = budgets.findOwnedAccount(member.householdId, member.id) ?: throw MobileApiAccessDenied()
@@ -30,7 +31,9 @@ class OfflineSyncService(
         val through = position.second.takeUnless { it == 0L } ?: current
         if (position.first > through || through > current) invalid("Invalid sync position")
         val rows =
-            if (protocolVersion == 2) {
+            if (protocolVersion == DASHBOARD_SYNC_PROTOCOL) {
+                repository.dashboardChanges(member.householdId, member.id, position.first, through, limit + 1)
+            } else if (protocolVersion == 2) {
                 repository.extendedChanges(member.householdId, member.id, position.first, through, limit + 1)
             } else {
                 repository.changes(member.householdId, member.id, position.first, through, limit + 1)
@@ -38,7 +41,7 @@ class OfflineSyncService(
         val page = rows.take(limit)
         val hasMore = rows.size > limit
         val after = if (hasMore) page.last().revision else through
-        val prefix = if (protocolVersion == 2) "v2:" else ""
+        val prefix = if (protocolVersion >= 2) "v$protocolVersion:" else ""
         val next = "$prefix${scope.householdId}:${scope.memberId}:$after:${if (hasMore) through else 0}"
         return SyncPage(
             scope,
@@ -60,9 +63,10 @@ class OfflineSyncService(
                 require(cursor.length <= MAX_CURSOR_LENGTH)
                 val decoded = String(Base64.getUrlDecoder().decode(cursor), UTF_8)
                 val value =
-                    if (protocolVersion == 2) {
-                        require(decoded.startsWith("v2:"))
-                        decoded.removePrefix("v2:")
+                    if (protocolVersion >= 2) {
+                        val prefix = "v$protocolVersion:"
+                        require(decoded.startsWith(prefix))
+                        decoded.removePrefix(prefix)
                     } else {
                         decoded
                     }

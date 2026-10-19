@@ -222,6 +222,8 @@ class PurchaseHistoryController(
         PurchaseHistoryController::class,
         OperationHistoryController::class,
         OfflineSyncController::class,
+        BudgetSyncController::class,
+        DashboardSyncController::class,
         PlannedExpenseController::class,
         PlannedIncomeController::class,
         PlannedOperationController::class,

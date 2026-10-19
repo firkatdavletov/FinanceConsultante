@@ -1,23 +1,29 @@
 package com.firkatdavletov.financeconsultante.mobileapi.infrastructure
 
 import com.firkatdavletov.financeconsultante.ledger.domain.CategoryIcon
+import com.firkatdavletov.financeconsultante.mobileapi.application.DASHBOARD_SYNC_PROTOCOL
 import com.firkatdavletov.financeconsultante.mobileapi.application.MobileOperationReceipt
 import com.firkatdavletov.financeconsultante.mobileapi.application.OfflineSyncRepository
+import com.firkatdavletov.financeconsultante.mobileapi.application.SyncBudgetSettings
 import com.firkatdavletov.financeconsultante.mobileapi.application.SyncCategory
 import com.firkatdavletov.financeconsultante.mobileapi.application.SyncChange
 import com.firkatdavletov.financeconsultante.mobileapi.application.SyncLedger
 import com.firkatdavletov.financeconsultante.mobileapi.application.SyncPlanRecord
+import com.firkatdavletov.financeconsultante.mobileapi.application.SyncSavingsGoal
+import com.firkatdavletov.financeconsultante.mobileapi.application.SyncVariableSpendingExclusion
 import org.springframework.jdbc.core.simple.JdbcClient
 import org.springframework.stereotype.Repository
 import tools.jackson.databind.DeserializationFeature
 import tools.jackson.databind.JsonNode
 import tools.jackson.databind.json.JsonMapper
+import java.sql.ResultSet
 import java.time.Instant
 import java.time.LocalDate
 import java.time.OffsetDateTime
 import java.util.UUID
 
 @Repository
+@Suppress("TooManyFunctions") // One repository serves three compatible journal protocols and their receipts.
 class JdbcOfflineSyncRepository(
     private val jdbc: JdbcClient,
 ) : OfflineSyncRepository {
@@ -38,7 +44,7 @@ class JdbcOfflineSyncRepository(
         after: Long,
         through: Long,
         limit: Int,
-    ): List<SyncChange> = queryChanges(householdId, memberId, after, through, limit, false)
+    ): List<SyncChange> = queryChanges(householdId, memberId, after, through, limit, 1)
 
     override fun extendedChanges(
         householdId: UUID,
@@ -46,7 +52,15 @@ class JdbcOfflineSyncRepository(
         after: Long,
         through: Long,
         limit: Int,
-    ): List<SyncChange> = queryChanges(householdId, memberId, after, through, limit, true)
+    ): List<SyncChange> = queryChanges(householdId, memberId, after, through, limit, 2)
+
+    override fun dashboardChanges(
+        householdId: UUID,
+        memberId: UUID,
+        after: Long,
+        through: Long,
+        limit: Int,
+    ): List<SyncChange> = queryChanges(householdId, memberId, after, through, limit, DASHBOARD_SYNC_PROTOCOL)
 
     private fun queryChanges(
         householdId: UUID,
@@ -54,7 +68,7 @@ class JdbcOfflineSyncRepository(
         after: Long,
         through: Long,
         limit: Int,
-        extended: Boolean,
+        protocolVersion: Int,
     ): List<SyncChange> =
         jdbc
             .sql(
@@ -63,7 +77,10 @@ class JdbcOfflineSyncRepository(
                 LEFT JOIN mobile_operation_request r ON r.household_id = c.household_id
                     AND r.member_id = :member AND r.entry_id = (c.snapshot ->> 'id')::uuid AND c.kind = 'LEDGER'
                 WHERE c.household_id = :household AND c.revision > :after AND c.revision <= :through
-                    AND (:extended OR c.kind IN ('LEDGER', 'CATEGORY'))
+                    AND (c.kind IN ('LEDGER', 'CATEGORY')
+                        OR (:protocol >= 2 AND c.kind IN ('RECURRING_RULE', 'RECURRING_OCCURRENCE',
+                            'EXPECTED_INCOME', 'OCCURRENCE_PAYMENT', 'INCOME_MATCH'))
+                        OR :protocol = 3)
                 ORDER BY c.revision LIMIT :limit
                 """.trimIndent(),
             ).param("household", householdId)
@@ -71,26 +88,54 @@ class JdbcOfflineSyncRepository(
             .param("after", after)
             .param("through", through)
             .param("limit", limit)
-            .param("extended", extended)
-            .query { rs, _ ->
-                val node = mapper.readTree(rs.getString("snapshot"))
-                val kind = rs.getString("kind")
-                SyncChange(
-                    rs.getLong("revision"),
-                    kind,
-                    rs.getBoolean("deleted"),
-                    operation =
-                        if (kind ==
-                            "LEDGER"
-                        ) {
-                            ledger(node, rs.getObject("request_id", UUID::class.java))
-                        } else {
-                            null
-                        },
-                    category = if (kind == "CATEGORY") category(node) else null,
-                    record = if (kind !in setOf("LEDGER", "CATEGORY")) plan(kind, node) else null,
-                )
-            }.list()
+            .param("protocol", protocolVersion)
+            .query { rs, _ -> mapChange(rs) }
+            .list()
+
+    private fun mapChange(rs: ResultSet): SyncChange {
+        val node = mapper.readTree(rs.getString("snapshot"))
+        val kind = rs.getString("kind")
+        return SyncChange(
+            rs.getLong("revision"),
+            kind,
+            rs.getBoolean("deleted"),
+            operation =
+                if (kind ==
+                    "LEDGER"
+                ) {
+                    ledger(node, rs.getObject("request_id", UUID::class.java))
+                } else {
+                    null
+                },
+            category = if (kind == "CATEGORY") category(node) else null,
+            record = if (kind in PLAN_KINDS) plan(kind, node) else null,
+            budgetSettings =
+                if (kind == "BUDGET_SETTINGS") {
+                    SyncBudgetSettings(
+                        node["id"].asString(),
+                        node["opening_balance"].decimalValue().setScale(2).toPlainString(),
+                        node["protected_reserve"].decimalValue().setScale(2).toPlainString(),
+                    )
+                } else {
+                    null
+                },
+            savingsGoal =
+                if (kind == "SAVINGS_GOAL") {
+                    SyncSavingsGoal(
+                        node["id"].asString(),
+                        node["allocated_amount"].decimalValue().setScale(2).toPlainString(),
+                    )
+                } else {
+                    null
+                },
+            variableSpendingExclusion =
+                if (kind == "VARIABLE_SPENDING_EXCLUSION") {
+                    SyncVariableSpendingExclusion(node["id"].asString())
+                } else {
+                    null
+                },
+        )
+    }
 
     override fun receipt(
         householdId: UUID,
@@ -159,6 +204,7 @@ class JdbcOfflineSyncRepository(
             description = node["normalized_description"]?.takeUnless { it.isNull }?.asString(),
             refundOf = node["refund_of"]?.takeUnless { it.isNull }?.asString()?.let(UUID::fromString),
             requestId = requestId,
+            occurredAt = timestamp(node["occurred_at"].asString()),
         )
 
     private fun category(node: JsonNode): SyncCategory {
@@ -212,6 +258,17 @@ class JdbcOfflineSyncRepository(
             createdAt = string("created_at")?.let(::timestamp),
             modifiedAt = string("updated_at")?.let(::timestamp),
         )
+    }
+
+    companion object {
+        private val PLAN_KINDS =
+            setOf(
+                "RECURRING_RULE",
+                "RECURRING_OCCURRENCE",
+                "EXPECTED_INCOME",
+                "OCCURRENCE_PAYMENT",
+                "INCOME_MATCH",
+            )
     }
 
     private fun timestamp(value: String): Instant = OffsetDateTime.parse(value).toInstant()
