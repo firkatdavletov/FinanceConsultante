@@ -8,15 +8,21 @@ import com.firkatdavletov.financeconsultante.ledger.domain.TransactionDraft
 import java.time.Instant
 import java.util.UUID
 
-data class OwnedLedger(
-    val householdId: UUID,
-    val memberId: UUID,
-    val ownerId: Long,
-    val startedAt: Instant,
-    val role: MemberRole = MemberRole.OWNER,
-) {
+interface BudgetActor {
+    val householdId: UUID
+    val memberId: UUID
+    val startedAt: Instant
+    val role: MemberRole
     val canManageHousehold: Boolean get() = role == MemberRole.OWNER
 }
+
+data class OwnedLedger(
+    override val householdId: UUID,
+    override val memberId: UUID,
+    val ownerId: Long,
+    override val startedAt: Instant,
+    override val role: MemberRole = MemberRole.OWNER,
+) : BudgetActor
 
 data class HistoryItem(
     val sequence: Long,

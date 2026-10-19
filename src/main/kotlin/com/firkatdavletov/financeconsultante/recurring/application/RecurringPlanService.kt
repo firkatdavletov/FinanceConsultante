@@ -1,9 +1,9 @@
 package com.firkatdavletov.financeconsultante.recurring.application
 
 import com.firkatdavletov.financeconsultante.ledger.application.AccountingService
+import com.firkatdavletov.financeconsultante.ledger.application.BudgetActor
 import com.firkatdavletov.financeconsultante.ledger.application.BudgetRepository
 import com.firkatdavletov.financeconsultante.ledger.application.LedgerRepository
-import com.firkatdavletov.financeconsultante.ledger.application.OwnedLedger
 import com.firkatdavletov.financeconsultante.ledger.application.RecordEntry
 import com.firkatdavletov.financeconsultante.ledger.domain.CategoryKind
 import com.firkatdavletov.financeconsultante.ledger.domain.Direction
@@ -39,7 +39,7 @@ class RecurringPlanService(
     private val clock: Clock,
 ) {
     fun createRule(
-        owner: OwnedLedger,
+        owner: BudgetActor,
         frequency: RecurrenceFrequency,
         scheduleValue: Int,
         amount: Money,
@@ -76,7 +76,7 @@ class RecurringPlanService(
     }
 
     fun overview(
-        owner: OwnedLedger,
+        owner: BudgetActor,
         asOf: LocalDate,
     ): RecurringOverview {
         val through = horizon(asOf)
@@ -88,7 +88,7 @@ class RecurringPlanService(
     }
 
     fun plannedExpenses(
-        owner: OwnedLedger,
+        owner: BudgetActor,
         asOf: LocalDate,
         throughInclusive: LocalDate = horizon(asOf),
     ): PlannedExpenseSchedule {
@@ -101,17 +101,17 @@ class RecurringPlanService(
     }
 
     fun rule(
-        owner: OwnedLedger,
+        owner: BudgetActor,
         ruleId: UUID,
     ): RecurringRule? = plans.findRule(owner.householdId, ruleId)
 
     fun occurrence(
-        owner: OwnedLedger,
+        owner: BudgetActor,
         occurrenceId: UUID,
     ): RecurringOccurrenceView? = plans.occurrenceView(owner.householdId, occurrenceId)
 
     fun updateRuleAmount(
-        owner: OwnedLedger,
+        owner: BudgetActor,
         ruleId: UUID,
         version: Long,
         amount: Money,
@@ -130,7 +130,7 @@ class RecurringPlanService(
     }
 
     fun deactivateRule(
-        owner: OwnedLedger,
+        owner: BudgetActor,
         ruleId: UUID,
         version: Long,
         effectiveOn: LocalDate,
@@ -146,7 +146,7 @@ class RecurringPlanService(
     }
 
     fun cancelOccurrence(
-        owner: OwnedLedger,
+        owner: BudgetActor,
         occurrenceId: UUID,
         version: Long,
         today: LocalDate,
@@ -169,7 +169,7 @@ class RecurringPlanService(
     }
 
     fun closeOccurrence(
-        owner: OwnedLedger,
+        owner: BudgetActor,
         occurrenceId: UUID,
         version: Long,
     ): PlanChange<RecurringOccurrenceView> {
@@ -194,7 +194,7 @@ class RecurringPlanService(
 
     @Suppress("LongParameterList") // The command is one atomic payment and ledger link.
     fun pay(
-        owner: OwnedLedger,
+        owner: BudgetActor,
         occurrenceId: UUID,
         version: Long,
         amount: Money,
@@ -239,7 +239,7 @@ class RecurringPlanService(
     }
 
     fun matchPayment(
-        owner: OwnedLedger,
+        owner: BudgetActor,
         occurrenceId: UUID,
         version: Long,
         ledgerEntryId: UUID,
@@ -279,7 +279,7 @@ class RecurringPlanService(
     }
 
     fun matchablePayments(
-        owner: OwnedLedger,
+        owner: BudgetActor,
         entry: LedgerEntry,
     ): List<RecurringOccurrenceView> {
         if (
@@ -303,7 +303,7 @@ class RecurringPlanService(
     }
 
     fun remainingObligations(
-        owner: OwnedLedger,
+        owner: BudgetActor,
         throughInclusive: LocalDate,
     ): Money {
         generate(owner.householdId, throughInclusive)
@@ -316,14 +316,14 @@ class RecurringPlanService(
 
     /** Materializes deterministic plan occurrences before a projection reads its horizon. */
     fun ensureOccurrences(
-        owner: OwnedLedger,
+        owner: BudgetActor,
         throughInclusive: LocalDate,
     ) {
         generate(owner.householdId, throughInclusive)
     }
 
     fun createExpectedIncome(
-        owner: OwnedLedger,
+        owner: BudgetActor,
         amount: Money,
         dueOn: LocalDate,
         categoryId: UUID,
@@ -353,22 +353,22 @@ class RecurringPlanService(
         return PlanChange.Applied(expectedView(owner.householdId, expected.id))
     }
 
-    fun expectedIncomes(owner: OwnedLedger): List<ExpectedIncomeView> =
+    fun expectedIncomes(owner: BudgetActor): List<ExpectedIncomeView> =
         plans.expectedIncomes(owner.householdId, limit = LIST_LIMIT)
 
-    fun plannedIncomes(owner: OwnedLedger): List<ExpectedIncomeView> =
+    fun plannedIncomes(owner: BudgetActor): List<ExpectedIncomeView> =
         plans
             .expectedIncomes(owner.householdId)
             .filter { it.forecastAmount.amount.signum() > 0 }
 
     fun expectedIncome(
-        owner: OwnedLedger,
+        owner: BudgetActor,
         expectedIncomeId: UUID,
     ): ExpectedIncomeView? = plans.expectedIncomeView(owner.householdId, expectedIncomeId)
 
     @Suppress("LongParameterList") // Updating one expected-income aggregate keeps its optimistic version atomic.
     fun updateExpectedIncome(
-        owner: OwnedLedger,
+        owner: BudgetActor,
         expectedIncomeId: UUID,
         version: Long,
         amount: Money,
@@ -404,7 +404,7 @@ class RecurringPlanService(
     }
 
     fun expectedIncomeForecast(
-        owner: OwnedLedger,
+        owner: BudgetActor,
         throughInclusive: LocalDate,
     ): List<ExpectedIncomeView> =
         plans
@@ -412,7 +412,7 @@ class RecurringPlanService(
             .filter { it.forecastAmount.amount.signum() > 0 }
 
     fun cancelExpectedIncome(
-        owner: OwnedLedger,
+        owner: BudgetActor,
         expectedIncomeId: UUID,
         version: Long,
     ): PlanChange<ExpectedIncomeView> {
@@ -432,7 +432,7 @@ class RecurringPlanService(
 
     @Suppress("LongParameterList") // The command is one atomic income and plan link.
     fun receiveExpectedIncome(
-        owner: OwnedLedger,
+        owner: BudgetActor,
         expectedIncomeId: UUID,
         version: Long,
         amount: Money,
@@ -479,7 +479,7 @@ class RecurringPlanService(
     }
 
     fun matchExpectedIncome(
-        owner: OwnedLedger,
+        owner: BudgetActor,
         expectedIncomeId: UUID,
         version: Long,
         ledgerEntryId: UUID,
@@ -551,7 +551,7 @@ class RecurringPlanService(
     ): ExpectedIncomeView = checkNotNull(plans.expectedIncomeView(householdId, expectedIncomeId))
 
     private fun category(
-        owner: OwnedLedger,
+        owner: BudgetActor,
         categoryId: UUID,
         kind: CategoryKind,
     ): String? {
@@ -567,7 +567,7 @@ class RecurringPlanService(
     }
 
     private fun dateForFact(
-        owner: OwnedLedger,
+        owner: BudgetActor,
         date: LocalDate,
     ): String? {
         val today = LocalDate.now(clock.withZone(ACCOUNTING_ZONE))

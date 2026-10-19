@@ -104,6 +104,11 @@ class CategoryManagement(
 ) {
     private fun owner(ownerId: Long) = requireNotNull(ownership.owned(ownerId)) { "Budget access denied" }
 
+    fun ensureFallback(owner: BudgetActor) {
+        val fallback = ownership.resolveCategory(owner.householdId, TransactionCategory.OTHER)
+        repository.archive(owner.householdId, fallback.id, false)
+    }
+
     fun categories(ownerId: Long): List<Category> {
         val owner = owner(ownerId)
         TransactionCategory.entries.forEach { ownership.resolveCategory(owner.householdId, it) }
@@ -286,9 +291,16 @@ class CategoryManagement(
         ownerId: Long,
         id: UUID,
         source: String,
+    ): CategoryDeletion? = delete(owner(ownerId), id, source)
+
+    @Suppress("ReturnCount") // Guards preserve the existing deletion invariants before any writes.
+    fun delete(
+        owner: BudgetActor,
+        id: UUID,
+        source: String,
     ): CategoryDeletion? {
-        val owner = owner(ownerId)
-        val current = categories(ownerId).firstOrNull { it.id == id && !it.archived } ?: return null
+        val current =
+            repository.categories(owner.householdId).firstOrNull { it.id == id && !it.archived } ?: return null
         if (!owner.canManageHousehold || protected(current) || current.kind != CategoryKind.EXPENSE) return null
         val fallback = ownership.resolveCategory(owner.householdId, TransactionCategory.OTHER)
         repository.archive(owner.householdId, fallback.id, false)
@@ -358,7 +370,7 @@ class CategoryManagement(
         return "Правило удалено. /rules"
     }
 
-    private fun validName(name: String) =
+    fun validName(name: String) =
         name.length in 1..MAX_NAME &&
             CATEGORY_NAME.matches(name) &&
             name.split(' ').none { it.lowercase(Locale.ROOT) in RESERVED }

@@ -25,8 +25,9 @@ class BudgetSyncController(
     private val commands: BudgetSyncCommands,
     private val bootstrap: BudgetSyncBootstrap,
     properties: MobileApiProperties,
+    private val cloud: com.firkatdavletov.financeconsultante.mobileapi.application.CloudBudgetService? = null,
 ) {
-    private val authenticator = MobileApiAuthenticator(properties)
+    private val authenticator = mobileAuthenticator(properties, cloud)
 
     @GetMapping("/changes")
     fun changes(

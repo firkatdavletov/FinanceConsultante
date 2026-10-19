@@ -253,8 +253,9 @@ data class DashboardUpcomingPaymentResponse(
 class DashboardController(
     private val dashboard: DashboardService,
     properties: MobileApiProperties,
+    private val cloud: com.firkatdavletov.financeconsultante.mobileapi.application.CloudBudgetService? = null,
 ) {
-    private val authenticator = MobileApiAuthenticator(properties)
+    private val authenticator = mobileAuthenticator(properties, cloud)
 
     @GetMapping
     fun dashboard(

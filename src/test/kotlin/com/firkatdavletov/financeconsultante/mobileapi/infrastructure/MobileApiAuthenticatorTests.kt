@@ -19,13 +19,13 @@ class MobileApiAuthenticatorTests {
     }
 
     @Test
-    fun `enabled configuration requires a strong token and positive user id`() {
+    fun `enabled configuration requires a strong token but no telegram identity`() {
         assertThatIllegalArgumentException().isThrownBy {
             MobileApiAuthenticator(MobileApiProperties("short", TELEGRAM_USER_ID))
         }
-        assertThatIllegalArgumentException().isThrownBy {
-            MobileApiAuthenticator(MobileApiProperties(TOKEN, 0))
-        }
+        MobileApiProperties(TOKEN, 0).validateEnabled()
+        assertThatThrownBy { MobileApiAuthenticator(MobileApiProperties(TOKEN, 0)).authenticate("Bearer $TOKEN") }
+            .isInstanceOf(InvalidMobileApiToken::class.java)
     }
 
     companion object {

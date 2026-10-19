@@ -10,11 +10,11 @@ app:
   mobile-api:
     enabled: ${MOBILE_API_ENABLED:false}
   exchange-rates:
-    enabled: ${EXCHANGE_RATES_ENABLED:false}
+    enabled: false
     access-key: ${CURRENCYLAYER_ACCESS_KEY:}
     base-url: https://api.currencylayer.com
   telegram:
-    enabled: ${TELEGRAM_ENABLED:false}
+    enabled: false
   openai:
     enabled: ${OPENAI_ENABLED:false}
   notifications:

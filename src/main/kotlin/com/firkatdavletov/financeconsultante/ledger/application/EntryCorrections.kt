@@ -115,9 +115,18 @@ class EntryCorrections(
         amount: Money,
         date: LocalDate,
         source: String,
+        id: UUID = UUID.randomUUID(),
     ): CorrectionResult {
         val expense = selected(target) ?: return rejected(STALE)
-        return refund(expense, target.memberId, amount, date, source, ledger.refunds(target.householdId, expense.id))
+        return refund(
+            expense,
+            target.memberId,
+            amount,
+            date,
+            source,
+            ledger.refunds(target.householdId, expense.id),
+            id,
+        )
     }
 
     @Suppress("ReturnCount") // Guards finish before the expense revision and refund insert are attempted.
@@ -143,12 +152,13 @@ class EntryCorrections(
         date: LocalDate,
         source: String,
         refunds: List<LedgerEntry>,
+        id: UUID = UUID.randomUUID(),
     ): CorrectionResult {
         if (expense.direction != Direction.EXPENSE) return rejected("Возврат возможен только для расхода.")
         val now = clock.instant().truncatedTo(ChronoUnit.MICROS)
         val template =
             expense.copy(
-                id = UUID.randomUUID(),
+                id = id,
                 direction = Direction.EXPENSE_REFUND,
                 actorId = memberId,
                 createdAt = now,

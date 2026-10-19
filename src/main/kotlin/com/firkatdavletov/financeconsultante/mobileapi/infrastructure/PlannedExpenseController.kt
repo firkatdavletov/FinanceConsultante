@@ -164,8 +164,9 @@ class PlannedExpenseController(
     private val plannedExpenses: PlannedExpenseService,
     private val mutations: PlannedExpenseMutationService,
     properties: MobileApiProperties,
+    private val cloud: com.firkatdavletov.financeconsultante.mobileapi.application.CloudBudgetService? = null,
 ) {
-    private val authenticator = MobileApiAuthenticator(properties)
+    private val authenticator = mobileAuthenticator(properties, cloud)
 
     @GetMapping
     fun plannedExpenses(

@@ -29,8 +29,9 @@ class OperationHistoryController(
     private val history: OperationHistoryService,
     private val createOperation: CreateOfflineOperation,
     properties: MobileApiProperties,
+    private val cloud: com.firkatdavletov.financeconsultante.mobileapi.application.CloudBudgetService? = null,
 ) {
-    private val authenticator = MobileApiAuthenticator(properties)
+    private val authenticator = mobileAuthenticator(properties, cloud)
 
     @PostMapping(consumes = [MediaType.APPLICATION_JSON_VALUE])
     fun create(

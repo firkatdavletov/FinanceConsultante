@@ -15,8 +15,13 @@ class MobileApiProperties(
         require(token.length in MIN_TOKEN_LENGTH..MAX_TOKEN_LENGTH && token.none(Char::isWhitespace)) {
             "Mobile API token must contain $MIN_TOKEN_LENGTH-$MAX_TOKEN_LENGTH non-whitespace characters"
         }
-        require(telegramUserId > 0) { "Mobile API Telegram user ID is required" }
+        // Telegram identity is optional: v4 owns an independent budget binding.
     }
+
+    fun tokenFingerprint(): String =
+        MessageDigest.getInstance("SHA-256").digest(token.toByteArray(StandardCharsets.UTF_8)).joinToString("") {
+            "%02x".format(it)
+        }
 
     companion object {
         private const val MIN_TOKEN_LENGTH = 32
@@ -32,6 +37,7 @@ class InvalidMobileApiToken : IllegalArgumentException("Bearer token is missing 
 
 class MobileApiAuthenticator(
     properties: MobileApiProperties,
+    private val legacyIdentity: (() -> Long?)? = null,
 ) {
     private val expectedTokenHash: ByteArray
     private val telegramUserId: Long
@@ -48,9 +54,9 @@ class MobileApiAuthenticator(
                 ?.takeIf { it.startsWith(BEARER_PREFIX, ignoreCase = true) }
                 ?.substring(BEARER_PREFIX.length)
                 ?.takeIf { it.isNotEmpty() && it.none(Char::isWhitespace) }
-                ?: throw InvalidMobileApiToken()
-        if (!MessageDigest.isEqual(expectedTokenHash, hash(token))) throw InvalidMobileApiToken()
-        return telegramUserId
+
+        if (token == null || !MessageDigest.isEqual(expectedTokenHash, hash(token))) throw InvalidMobileApiToken()
+        return telegramUserId.takeIf { it > 0 } ?: legacyIdentity?.invoke() ?: throw InvalidMobileApiToken()
     }
 
     private fun hash(value: String): ByteArray =
@@ -60,3 +66,8 @@ class MobileApiAuthenticator(
         private const val BEARER_PREFIX = "Bearer "
     }
 }
+
+fun mobileAuthenticator(
+    properties: MobileApiProperties,
+    cloud: com.firkatdavletov.financeconsultante.mobileapi.application.CloudBudgetService?,
+): MobileApiAuthenticator = MobileApiAuthenticator(properties) { cloud?.legacyUserId(properties.tokenFingerprint()) }

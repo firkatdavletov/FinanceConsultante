@@ -29,6 +29,7 @@ data class RecordEntry(
     val sourceKey: String,
     val normalizedDescription: String? = null,
     val expectedIncomeId: UUID? = null,
+    val id: UUID = UUID.randomUUID(),
 )
 
 data class RecordResult(
@@ -79,7 +80,7 @@ class AccountingService(
             }
         val entry =
             LedgerEntry(
-                id = UUID.randomUUID(),
+                id = command.id,
                 householdId = command.householdId,
                 accountId = account.id,
                 categoryId = command.categoryId,

@@ -40,6 +40,7 @@ class JdbcBudgetCommandRepository(
     ): Long? {
         val table =
             when (kind) {
+                "LEDGER" -> "ledger_entry"
                 "CATEGORY" -> "category"
                 "RECURRING_RULE" -> "recurring_rule"
                 "RECURRING_OCCURRENCE" -> "recurring_occurrence"

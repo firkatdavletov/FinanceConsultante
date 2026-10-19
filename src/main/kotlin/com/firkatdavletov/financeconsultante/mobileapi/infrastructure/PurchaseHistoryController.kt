@@ -163,8 +163,9 @@ class PurchaseHistoryController(
     private val history: OperationHistoryService,
     private val mutations: PurchaseMutationService,
     properties: MobileApiProperties,
+    private val cloud: com.firkatdavletov.financeconsultante.mobileapi.application.CloudBudgetService? = null,
 ) {
-    private val authenticator = MobileApiAuthenticator(properties)
+    private val authenticator = mobileAuthenticator(properties, cloud)
 
     @GetMapping
     fun history(
