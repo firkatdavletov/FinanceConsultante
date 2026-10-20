@@ -48,6 +48,9 @@ management:
       application: ${spring.application.name}
 
 app:
+  firebase-auth:
+    enabled: ${FIREBASE_AUTH_ENABLED:false}
+    project-id: ${FIREBASE_PROJECT_ID:}
   mobile-api:
     enabled: false
     token: ${MOBILE_API_TOKEN:}

@@ -1,5 +1,8 @@
 # FinanceConsultante
 
+Firebase-вход мобильного клиента (T03), отдельный тестовый сервер и контракт профиля:
+[Firebase Authentication](docs/firebase-authentication.md).
+
 Личный Telegram-бот для учёта доходов, расходов и семейного бюджета на Kotlin / Spring Boot.
 
 Реализованы денежный учёт T02–T06, OpenAI-распознавание T07, планы T08, отчёты T09–T10, эксплуатация T11,

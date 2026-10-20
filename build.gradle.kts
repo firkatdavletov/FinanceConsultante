@@ -33,6 +33,7 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-restclient")
     implementation("org.springframework.boot:spring-boot-starter-webmvc")
     implementation("com.openai:openai-java:4.61.0")
+    implementation("com.google.firebase:firebase-admin:9.11.0")
     implementation("io.micrometer:micrometer-registry-prometheus")
     implementation("org.flywaydb:flyway-database-postgresql")
     implementation("org.jetbrains.kotlin:kotlin-reflect")
@@ -93,6 +94,7 @@ tasks.withType<Test>().configureEach {
     systemProperty("app.notifications.enabled", "false")
     systemProperty("app.exchange-rates.enabled", "false")
     systemProperty("app.mobile-api.enabled", "false")
+    systemProperty("app.firebase-auth.enabled", "false")
 
     testLogging {
         events("failed", "skipped")
