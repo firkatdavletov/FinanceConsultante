@@ -32,7 +32,7 @@ import java.time.ZoneId
 import java.util.Base64
 import java.util.UUID
 
-/** v4 is transport-independent: all access is scoped by a persisted token-to-budget binding. */
+/** v4 financial processing uses the resolved budget actor, independently of its login provider. */
 @Service
 @Suppress("LongParameterList", "TooManyFunctions", "ThrowsCount")
 class CloudBudgetService(
@@ -106,9 +106,17 @@ class CloudBudgetService(
         cursor: String?,
         limit: Int,
     ): SyncPage {
-        require(limit in 1..MAX_PAGE_SIZE)
         repository.importLegacy(tokenHash)
-        val actor = actor(tokenHash)
+        return changes(actor(tokenHash), cursor, limit)
+    }
+
+    @Transactional(isolation = Isolation.REPEATABLE_READ)
+    fun changes(
+        actor: CloudBudgetActor,
+        cursor: String?,
+        limit: Int,
+    ): SyncPage {
+        require(limit in 1..MAX_PAGE_SIZE)
         categoryManagement.ensureFallback(actor)
         recurring.ensureOccurrences(actor, YearMonth.from(today().plusMonths(2)).atEndOfMonth())
         val position = position(cursor, actor)
@@ -135,7 +143,14 @@ class CloudBudgetService(
         c: CloudBudgetCommand,
     ): BudgetCommandReceipt {
         repository.importLegacy(tokenHash)
-        val actor = actor(tokenHash)
+        return command(actor(tokenHash), c)
+    }
+
+    @Transactional
+    fun command(
+        actor: CloudBudgetActor,
+        c: CloudBudgetCommand,
+    ): BudgetCommandReceipt {
         if (c.householdId != actor.householdId ||
             c.memberId != actor.memberId
         ) {

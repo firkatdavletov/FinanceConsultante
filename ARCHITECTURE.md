@@ -647,3 +647,28 @@ upsert обеспечивают стабильный UUID без гонки пр
 Финансовое членство и `BudgetActor` на этом шаге не создаются и не выводятся из email.
 Старые token bindings сохраняются до следующих этапов. Настройка и проверенный объём —
 в [инструкции Firebase Authentication](docs/firebase-authentication.md).
+
+### Firebase-бюджеты T05
+
+`GET /api/v4/budgets` возвращает только членства проверенного Firebase UID. V24 хранит
+`firebase_budget_access(firebase_uid, household_id, member_id)`: пара UID/budget уникальна,
+memberId связан максимум с одним UID; составной FK сохраняет принадлежность household.
+Финансовые таблицы, UUID и receipts не изменяются. `household.budget_name` получает значение
+по умолчанию для прежних бюджетов. Один Firebase UID может иметь несколько household;
+прежнее ограничение одного household на Telegram ID к Firebase не применяется.
+
+Старый member привязывается только при совместной явной настройке `FIREBASE_LEGACY_UID`
+и `FIREBASE_LEGACY_MEMBER_ID`. Частичная настройка отклоняется. Первый запрос совпавшего
+проверенного UID идемпотентно вставляет эту связь; email не используется для авторизации.
+Уже занятый memberId не перехватывается другим UID. Миграция не выдаёт доступ автоматически.
+
+Scoped endpoints `GET /api/v4/budgets/{budgetId}`, `GET …/sync/changes` и `POST …/sync/commands`
+проверяют Firebase ID token до транзакции БД. `FirebaseBudgets` выбирает активный `BudgetActor`
+по UID и budgetId и удерживает shared lock членства до завершения финансовой транзакции.
+Чужое/отозванное членство даёт 403; подмена household/member в команде даёт `scope_changed`.
+Финансовый код и fingerprint v4-команд общие с прежним v4, что сохраняет идемпотентный retry.
+
+Уточнение пользователя от 2026-10-21 снимает требование поддержки HTTP v1–v3 новым
+Firebase-клиентом. T05 использует только v4; переноса на legacy HTTP и `X-Budget-Id` нет.
+Удаление старых статических endpoints остаётся T12. Настройка и проверенный объём —
+[Firebase budgets](docs/firebase-budgets.md).

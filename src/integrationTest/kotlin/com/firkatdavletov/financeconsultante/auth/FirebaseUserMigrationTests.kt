@@ -16,7 +16,7 @@ class FirebaseUserMigrationTests
         private val dataSource: DataSource,
         private val jdbc: JdbcTemplate,
     ) : PostgresIntegrationTest() {
-        @Test fun `V23 preserves legacy UUIDs members account and token binding`() {
+        @Test fun `Firebase migrations preserve legacy UUIDs members account and token binding`() {
             val schema = "firebase_migration_${UUID.randomUUID().toString().replace("-", "")}"
             val household = UUID.randomUUID()
             val member = UUID.randomUUID()
@@ -57,12 +57,15 @@ class FirebaseUserMigrationTests
                         .schemas(schema)
                         .defaultSchema(schema)
                         .load()
-                assertThat(flyway.migrate().migrationsExecuted).isEqualTo(1)
+                assertThat(flyway.migrate().migrationsExecuted).isEqualTo(2)
                 flyway.validate()
                 assertThat(jdbc.queryForMap("SELECT * FROM $schema.account WHERE id = ?", account)).isEqualTo(before)
                 assertThat(jdbc.queryForObject("SELECT member_id FROM $schema.mobile_budget_access", UUID::class.java))
                     .isEqualTo(member)
                 assertThat(jdbc.queryForObject("SELECT count(*) FROM $schema.firebase_user", Long::class.java)).isZero()
+                assertThat(
+                    jdbc.queryForObject("SELECT count(*) FROM $schema.firebase_budget_access", Long::class.java),
+                ).isZero()
             } finally {
                 jdbc.execute("DROP SCHEMA IF EXISTS $schema CASCADE")
             }

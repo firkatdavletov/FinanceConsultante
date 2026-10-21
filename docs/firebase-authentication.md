@@ -16,7 +16,7 @@ Firebase Admin Java SDK 9.11.0 вызывает `verifyIdToken(token, true)`. П
 и атомарный PostgreSQL upsert гарантируют прежний server UUID при повторе и
 конкурентном первом входе; профиль обновляется из проверенных claims. Внешняя проверка
 Firebase выполняется до SQL, без открытой DB-транзакции. Старые таблицы и привязки
-не меняются. Членство/бюджет не создаются: доступ по UID и budgetId входит в T05.
+не меняются. Auth endpoint не создаёт членство/бюджет. Доступ по UID и budgetId реализован отдельно в T05: [Firebase budgets](firebase-budgets.md).
 Статический токен по-прежнему используется прежними budget endpoints до миграции;
 для нового auth endpoint fallback на него отсутствует.
 
