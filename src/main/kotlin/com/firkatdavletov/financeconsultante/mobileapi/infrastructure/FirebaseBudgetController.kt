@@ -5,7 +5,9 @@ import com.firkatdavletov.financeconsultante.auth.application.FirebaseAuthentica
 import com.firkatdavletov.financeconsultante.auth.application.InvalidFirebaseToken
 import com.firkatdavletov.financeconsultante.mobileapi.application.CloudBudgetCommand
 import com.firkatdavletov.financeconsultante.mobileapi.application.CloudBudgetFailure
+import com.firkatdavletov.financeconsultante.mobileapi.application.CreateFirebaseBudget
 import com.firkatdavletov.financeconsultante.mobileapi.application.FirebaseBudgetBindingUnavailable
+import com.firkatdavletov.financeconsultante.mobileapi.application.FirebaseBudgetCreation
 import com.firkatdavletov.financeconsultante.mobileapi.application.FirebaseBudgets
 import com.firkatdavletov.financeconsultante.mobileapi.application.MobileApiAccessDenied
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty
@@ -31,7 +33,14 @@ import java.util.UUID
 class FirebaseBudgetController(
     private val authentication: FirebaseAuthenticationService,
     private val budgets: FirebaseBudgets,
+    private val creation: FirebaseBudgetCreation,
 ) {
+    @PostMapping
+    fun create(
+        @RequestHeader(HttpHeaders.AUTHORIZATION, required = false) authorization: String?,
+        @RequestBody request: CreateFirebaseBudget,
+    ) = noStore(creation.create(authentication.authenticate(authorization).firebaseUid, request))
+
     @GetMapping
     fun list(
         @RequestHeader(HttpHeaders.AUTHORIZATION, required = false) authorization: String?,

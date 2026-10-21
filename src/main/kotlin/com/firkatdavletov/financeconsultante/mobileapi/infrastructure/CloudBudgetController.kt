@@ -37,7 +37,7 @@ class CloudBudgetController(
         @RequestHeader(HttpHeaders.AUTHORIZATION, required = false) authorization: String?,
     ) = noStore(service.find(authenticate(authorization)))
 
-    @PostMapping("/budgets")
+    @PostMapping("/legacy/budgets")
     fun create(
         @RequestHeader(HttpHeaders.AUTHORIZATION, required = false) authorization: String?,
         @RequestBody request: CreateCloudBudget,

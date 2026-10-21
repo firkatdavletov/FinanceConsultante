@@ -15,6 +15,7 @@ import java.util.UUID
 class JdbcCloudBudgetRepository(
     private val jdbc: JdbcClient,
     private val properties: MobileApiProperties,
+    private val bootstrap: JdbcCloudBudgetBootstrap,
 ) : CloudBudgetRepository {
     override fun lock(tokenHash: String) {
         jdbc
@@ -81,37 +82,7 @@ m.id FROM member m JOIN account a ON a.household_id = m.household_id WHERE m.tel
         request: CreateCloudBudget,
         payloadHash: String,
     ) {
-        jdbc.sql("INSERT INTO household(id) VALUES (?)").param(request.householdId).update()
-        jdbc
-            .sql(
-                """
-INSERT INTO member(id, household_id, telegram_user_id, reports_enabled) VALUES (?, ?, NULL,
-FALSE)
-                """.trimIndent(),
-            ).params(request.memberId, request.householdId)
-            .update()
-        jdbc
-            .sql(
-                """
-INSERT INTO account(id, household_id, opening_balance, accounting_started_at) VALUES (?, ?, ?,
-?)
-                """.trimIndent(),
-            ).params(
-                UUID.randomUUID(),
-                request.householdId,
-                request.openingBalance.toBigDecimal(),
-                request.accountingStartedOn.atStartOfDay(ZoneId.of("Asia/Almaty")).toOffsetDateTime(),
-            ).update()
-        request.categories.forEach { c ->
-            jdbc
-                .sql(
-                    """
-INSERT INTO category(id, household_id, name, kind, icon_code, dictionary_key) VALUES (?, ?, ?,
-?, ?, ?)
-                    """.trimIndent(),
-                ).params(c.id, request.householdId, c.name, c.kind, c.icon, c.dictionaryKey)
-                .update()
-        }
+        bootstrap.create(request)
         jdbc
             .sql(
                 """

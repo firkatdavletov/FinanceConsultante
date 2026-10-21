@@ -331,7 +331,7 @@ ledger_entry WHERE household_id = ?
         }"""
             mvc
                 .perform(
-                    post("/api/v4/budgets")
+                    post("/api/v4/legacy/budgets")
                         .header("Authorization", "Bearer $token")
                         .contentType("application/json")
                         .content(body),

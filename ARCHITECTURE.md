@@ -608,7 +608,7 @@ V20 добавляет снимки `RECURRING_RULE`, `RECURRING_OCCURRENCE`, `E
 ### Мобильная синхронизация v4 и самостоятельное создание бюджета
 
 `GET /api/v4/budget` находит привязку настроенного токена; валидный непривязанный токен
-получает `budget_not_found`. `POST /api/v4/budgets` создаёт household, мобильного OWNER,
+получает `budget_not_found`. Прежний статический `POST /api/v4/legacy/budgets` создаёт household, мобильного OWNER,
 счёт, базовые категории и привязку токена одной транзакцией. Мобильный member не требует
 Telegram ID. V22 сохраняет старые UUID и финансовое авторство. Привязка хранит SHA-256
 отпечаток токена; сырой секрет не записывается в БД. Блокировка ключа токена и PK исключают
@@ -672,3 +672,25 @@ Scoped endpoints `GET /api/v4/budgets/{budgetId}`, `GET …/sync/changes` и `PO
 Firebase-клиентом. T05 использует только v4; переноса на legacy HTTP и `X-Budget-Id` нет.
 Удаление старых статических endpoints остаётся T12. Настройка и проверенный объём —
 [Firebase budgets](docs/firebase-budgets.md).
+
+
+### Создание Firebase-бюджета T06
+
+`POST /api/v4/budgets` принимает requestId, название, строковый openingBalance, accountingStartedOn
+и currency (KZT по умолчанию). Admin проверяет ID token и создаёт серверного пользователя до DB-транзакции.
+`FirebaseBudgetCreation` валидирует название 1–80 символов, Money и дату Asia/Almaty, затем создаёт household,
+OWNER без Telegram ID, account, четыре словарные категории и Firebase-членство. Начальный баланс
+остаётся opening balance, не доходом. Общий JDBC bootstrap используется также прежним статическим адаптером.
+
+V25 вводит receipt `firebase_budget_creation`: PK UID/requestId, уникальный household, FK на членство.
+`pg_advisory_xact_lock` по однозначному UID/requestId сериализует одновременные повторы, а receipt
+и начальные данные фиксируются одной транзакцией. Совпадающий fingerprint возвращает прежний бюджет
+после проверки действующего членства; иной payload даёт `idempotency_conflict`. Новый requestId может
+создать ещё один бюджет того же UID. Статический create перенесён на `/api/v4/legacy/budgets`,
+чтобы основной путь принимал Firebase; старые чтение и синхронизация сохраняются до T12.
+
+Android сохраняет исходный запрос по UID до HTTP в Room-реестре профилей версии 2. Потеря ответа
+или остановка процесса не меняет requestId. Повтор сначала получает тот же серверный бюджет, затем
+завершает полную загрузку в отдельную базу и выбирает профиль. Удаление pending выполняется после
+выбора, даже если смена ViewModelStore отменяет вызывающий coroutine. Другой UID не видит этот запрос.
+Перенос локальной базы в облако остаётся T07, интерфейс дополнительных бюджетов — T08.
