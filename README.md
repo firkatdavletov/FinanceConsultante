@@ -4,6 +4,8 @@ Firebase-вход мобильного клиента (T03), отдельный 
 [Firebase Authentication](docs/firebase-authentication.md).
 Подключение прежнего бюджета (T05), создание Firebase-бюджета (T06) и импорт локального (T07):
 [Firebase budgets](docs/firebase-budgets.md).
+Создание, копирование и отзыв семейного кода (Firebase T09):
+[Firebase invitations](docs/firebase-budget-invitations.md).
 
 Личный Telegram-бот для учёта доходов, расходов и семейного бюджета на Kotlin / Spring Boot.
 

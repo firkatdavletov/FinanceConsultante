@@ -6,7 +6,7 @@ HTTP v1–v3 и адаптация старых очередей не входя
 
 ## Настройка
 
-Развернуть текущий JAR с миграциями V24 и V25. Сохранить существующие Firebase Admin credentials
+Развернуть текущий JAR с миграциями V24–V26. Сохранить существующие Firebase Admin credentials
 вне репозитория и Android. В дополнение к Firebase project ID и ADC задать:
 
 ```dotenv
@@ -130,3 +130,7 @@ accountingStartedOn и четыре seed-категории `{id,name,kind,icon,
 Автоматические HTTP-тесты используют Firebase verifier stub; production-развёртывание отдельно.
 
 Итоговая серверная проверка T07: `test check bootJar` успешна, 315 unit и 281 integration-тест без пропусков, PostgreSQL 17.11/Testcontainers.
+
+
+Семейный код выбранного бюджета (Firebase T09), только для OWNER: создание, статус и отзыв
+описаны в [Firebase invitations](firebase-budget-invitations.md). Принятие кода — T10.

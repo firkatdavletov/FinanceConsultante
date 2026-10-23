@@ -722,3 +722,20 @@ Firebase ID token в ней отсутствует. Обмен выполняе�
 проверяет возвращённые UUID/роль и scoped budget, после чего обычный CloudBudgetSession сохраняет
 cloudBound. Сеть находится вне блокировки переключения профиля. Уход с профиля/смена UID останавливает
 дальнейшие запросы; повтор использует прежние requestId. Старые очереди v1–v3 не преобразуются.
+
+
+### Семейное приглашение Firebase T09
+
+`FirebaseBudgetInvitationController` проверяет Firebase до транзакции, затем
+`FirebaseBudgetInvitations` проверяет активного OWNER через FirebaseBudgets по UID/budgetId.
+Shared lock членства удерживается до commit; создание и отзыв сериализуются блокировкой
+household. Внешнего HTTP внутри этой транзакции нет.
+
+V26 хранит только SHA-256 хеш случайного 100-битного кода, household, пригласившего member
+и timestamps. Частичный UNIQUE(household_id) для неотозванного/неиспользованного кода
+и атомарная замена защищают конкурентное создание. Срок — 24 часа по Clock, expiresAt
+исключён из активного интервала. Статус возвращает только metadata; plaintext повторно
+не извлекается. POST после потери ответа создаёт новый код и отменяет предыдущий.
+DELETE ограничен household/ID и не затрагивает новый код. Firebase MEMBER/чужой UID
+не получают даже metadata приглашения. Telegram family_invitation не меняется.
+Принятие и расходование кода остаются T10; [контракт](docs/firebase-budget-invitations.md).
