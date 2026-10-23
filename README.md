@@ -6,6 +6,8 @@ Firebase-вход мобильного клиента (T03), отдельный 
 [Firebase budgets](docs/firebase-budgets.md).
 Создание, копирование и отзыв семейного кода (Firebase T09):
 [Firebase invitations](docs/firebase-budget-invitations.md).
+Вступление MEMBER, список участников и отзыв доступа (Firebase T10):
+[Firebase family budgets](docs/firebase-family-budgets.md).
 
 Личный Telegram-бот для учёта доходов, расходов и семейного бюджета на Kotlin / Spring Boot.
 

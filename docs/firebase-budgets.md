@@ -6,7 +6,7 @@ HTTP v1–v3 и адаптация старых очередей не входя
 
 ## Настройка
 
-Развернуть текущий JAR с миграциями V24–V26. Сохранить существующие Firebase Admin credentials
+Развернуть текущий JAR с миграциями V24–V27. Сохранить существующие Firebase Admin credentials
 вне репозитория и Android. В дополнение к Firebase project ID и ADC задать:
 
 ```dotenv
@@ -133,4 +133,4 @@ accountingStartedOn и четыре seed-категории `{id,name,kind,icon,
 
 
 Семейный код выбранного бюджета (Firebase T09), только для OWNER: создание, статус и отзыв
-описаны в [Firebase invitations](firebase-budget-invitations.md). Принятие кода — T10.
+описаны в [Firebase invitations](firebase-budget-invitations.md). Принятие кода и управление участниками реализованы в [Firebase T10](firebase-family-budgets.md).

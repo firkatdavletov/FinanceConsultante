@@ -45,8 +45,9 @@ code_hash; plaintext не хранится и не логируется. Код 
 GET учитывает expires_at, revoked_at и accepted_at. Отзыв идемпотентен и ограничен
 одновременно household_id и invitationId.
 
-Принятие кода, привязка MEMBER и атомарное расходование приглашения относятся к T10.
-В T09 endpoint принятия отсутствует; accepted_at отражает будущий использованный статус.
+Принятие кода, привязка MEMBER и атомарное расходование приглашения реализованы в
+[Firebase T10](firebase-family-budgets.md). V27 добавляет receipt accepted_by_uid /
+accepted_member_id для повтора тем же активным членством.
 Прежние Telegram-приглашения family_invitation независимы и не меняются.
 
 ## Проверка

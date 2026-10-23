@@ -77,7 +77,13 @@ class FirebaseBudgetController(
     private fun <T> noStore(value: T) = ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(value)
 }
 
-@RestControllerAdvice(assignableTypes = [FirebaseBudgetController::class, FirebaseBudgetInvitationController::class])
+@RestControllerAdvice(
+    assignableTypes = [
+        FirebaseBudgetController::class,
+        FirebaseBudgetInvitationController::class,
+        FirebaseFamilyBudgetController::class,
+    ],
+)
 class FirebaseBudgetErrors {
     @ExceptionHandler(InvalidFirebaseToken::class)
     fun unauthorized() =
