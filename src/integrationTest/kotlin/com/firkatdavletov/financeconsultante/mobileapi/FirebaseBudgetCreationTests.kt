@@ -36,7 +36,7 @@ import java.util.concurrent.TimeUnit
 @AutoConfigureMockMvc
 @TestPropertySource(
     properties = [
-        "app.mobile-api.enabled=true", "app.mobile-api.token=synthetic-t06-static-token-1234567890",
+        "app.mobile-api.enabled=true",
         "app.mobile-api.telegram-user-id=0", "app.firebase-auth.enabled=true",
         "app.firebase-auth.project-id=synthetic-project", "FIREBASE_LEGACY_UID=", "FIREBASE_LEGACY_MEMBER_ID=",
     ],

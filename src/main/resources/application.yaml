@@ -53,7 +53,6 @@ app:
     project-id: ${FIREBASE_PROJECT_ID:}
   mobile-api:
     enabled: false
-    token: ${MOBILE_API_TOKEN:}
     telegram-user-id: ${MOBILE_API_TELEGRAM_USER_ID:0}
   operations:
     metrics-enabled: true

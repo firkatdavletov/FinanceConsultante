@@ -30,7 +30,6 @@ import java.util.concurrent.TimeUnit
 @TestPropertySource(
     properties = [
         "app.mobile-api.enabled=true",
-        "app.mobile-api.token=synthetic-independent-budget-token-12345",
         "app.mobile-api.telegram-user-id=0",
     ],
 )
@@ -74,12 +73,12 @@ class CloudBudgetApiTests
             }
         }
 
-        @Test fun `unbound token returns not found and never creates a budget`() {
+        @Test fun `retired static token never creates or opens a budget`() {
             mvc
                 .perform(
                     get("/api/v4/budget").header("Authorization", "Bearer $token"),
-                ).andExpect(status().isNotFound)
-                .andExpect(jsonPath("$.code").value("budget_not_found"))
+                ).andExpect(status().isUnauthorized)
+                .andExpect(jsonPath("$.code").value("unauthorized"))
             mvc
                 .perform(
                     get("/api/v4/budget").header("Authorization", "Bearer wrong-token"),
@@ -317,44 +316,15 @@ ledger_entry WHERE household_id = ?
             }.hasMessage("scope_changed")
         }
 
-        @Test fun `HTTP bootstrap and commands use the Android v4 JSON contract`() {
-            val request = request()
-            val categories =
-                request.categories.joinToString(",") {
-                    """{"id":"${it.id}","name":"${it.name}","kind":"${it.kind}",
-                    "icon":"${it.icon}","dictionaryKey":"${it.dictionaryKey}"}"""
-                }
-            val body = """{
-            "requestId":"${request.requestId}", "householdId":"${request.householdId}",
-            "memberId":"${request.memberId}", "openingBalance":"${request.openingBalance}",
-            "accountingStartedOn":"${request.accountingStartedOn}", "categories":[$categories]
-        }"""
+        @Test fun `retired unscoped v4 never opens financial data`() {
+            val before = jdbc.queryForObject("SELECT count(*) FROM household", Long::class.java)
             mvc
-                .perform(
-                    post("/api/v4/legacy/budgets")
-                        .header("Authorization", "Bearer $token")
-                        .contentType("application/json")
-                        .content(body),
-                ).andExpect(status().isOk)
-                .andExpect(jsonPath("$.scope.householdId").value(request.householdId.toString()))
-            val operation = UUID.randomUUID()
-            val command = """{
-            "requestId":"$operation", "householdId":"${request.householdId}", "memberId":"${request.memberId}",
-            "type":"CREATE_OPERATION", "entityId":"$operation", "authoredOn":"$authoredOn",
-            "kind":"EXPENSE", "categoryId":"${request.categories.first().id}", "amount":"12.34", "occurredOn":"$authoredOn"
-        }"""
-            mvc
-                .perform(
-                    post("/api/v4/sync/commands")
-                        .header("Authorization", "Bearer $token")
-                        .contentType("application/json")
-                        .content(command),
-                ).andExpect(status().isOk)
-                .andExpect(jsonPath("$.requestId").value(operation.toString()))
+                .perform(get("/api/v4/budget").header("Authorization", "Bearer $token"))
+                .andExpect(status().isUnauthorized)
             mvc
                 .perform(get("/api/v4/sync/changes").header("Authorization", "Bearer $token"))
-                .andExpect(status().isOk)
-                .andExpect(jsonPath("$.hasMore").value(false))
+                .andExpect(status().isUnauthorized)
+            assertThat(jdbc.queryForObject("SELECT count(*) FROM household", Long::class.java)).isEqualTo(before)
         }
 
         @Test fun `new budgets and commands reject foreign currency without partial writes`() {
@@ -378,14 +348,14 @@ ledger_entry WHERE household_id = ?
             ).isZero()
         }
 
-        @Test fun `legacy queues work without Telegram configuration after binding import`() {
+        @Test fun `retirement preserves historical binding without granting HTTP access`() {
             val request = request()
             service.create(tokenHash, request)
             jdbc.update("UPDATE member SET telegram_user_id = ? WHERE id = ?", 98234501L, request.memberId)
             mvc
                 .perform(get("/api/v3/sync/changes").header("Authorization", "Bearer $token"))
-                .andExpect(status().isOk)
-                .andExpect(jsonPath("$.scope.householdId").value(request.householdId.toString()))
+                .andExpect(status().isUnauthorized)
+            assertThat(service.find(tokenHash).scope.householdId).isEqualTo(request.householdId)
         }
 
         @Test fun `local amount restores a remotely voided expense with an audited revision`() {

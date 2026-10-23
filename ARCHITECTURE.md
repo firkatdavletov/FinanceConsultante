@@ -761,3 +761,20 @@ UPDATE под household lock: порядок совместим с shared OWNER 
 Android публикует новый профиль после полной загрузки, архивируя старый файл и очередь;
 старые команды не отправляются с новым memberId. Контракт, миграция и проверки:
 [Firebase family budgets](docs/firebase-family-budgets.md).
+
+
+### Отключение статической мобильной авторизации Firebase T12
+
+MOBILE_API_TOKEN больше не читается конфигурацией; MobileApiProperties не содержит
+секрета. MobileApiAuthenticator и старый unscoped v4 controller безусловно отклоняют
+авторизацию. Старый app.mobile-api.token не может включить fallback. Внешний сетевой
+контракт — Firebase ID token и адресные /api/v4/budgets/{budgetId}/… с BudgetActor.
+HTTP v1–v3 сняты с поддержки по решению пользователя; бизнес-сервисы, DTO и прежние
+binding/receipt rows оставлены для финансовой истории и внутренних проверок.
+Новой Flyway-миграции нет: V27, UUID и fingerprint команд не меняются.
+
+Android не включает секрет в BuildConfig. Local/LEGACY scopes получают локальный
+транспорт без HTTP, облачные — FirebaseCloudBudgetApi. API_BASE_URL сохраняет
+историческое имя файла кэша; backend определяется FIREBASE_API_BASE_URL. Сохранённые
+v4 payload/requestId не переписываются, v1–v3 очереди остаются без автоматического обмена.
+[Миграция и проверенный объём T12](docs/firebase-static-token-retirement.md).

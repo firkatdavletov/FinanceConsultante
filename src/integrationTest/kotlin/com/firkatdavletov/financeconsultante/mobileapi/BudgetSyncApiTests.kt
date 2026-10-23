@@ -43,7 +43,6 @@ import java.util.concurrent.TimeUnit
 @TestPropertySource(
     properties = [
         "app.mobile-api.enabled=true",
-        "app.mobile-api.token=synthetic-budget-token-1234567890",
         "app.mobile-api.telegram-user-id=995082",
     ],
 )
@@ -114,8 +113,8 @@ class BudgetSyncApiTests
             assertThat(sync.changes(USER, null, 200).changes.all { it.kind in setOf("LEDGER", "CATEGORY") }).isTrue()
             mvc
                 .perform(get("/api/v2/sync/changes").header("Authorization", AUTH))
-                .andExpect(status().isOk)
-                .andExpect(jsonPath("$.scope.role").value("OWNER"))
+                .andExpect(status().isUnauthorized)
+                .andExpect(jsonPath("$.code").value("unauthorized"))
         }
 
         @Test fun `delayed income commands validate against authored date and keep optimistic versions`() {
@@ -191,7 +190,7 @@ class BudgetSyncApiTests
             ).isEqualTo("Изменена")
         }
 
-        @Test fun `HTTP command endpoint preserves decimal strings and rejects future authorship`() {
+        @Test fun `retired HTTP commands are denied while trusted commands reject future authorship`() {
             val setup = budget()
             val c = command(setup, "CREATE_INCOME")
             val body = """{"requestId":"${c.requestId}","householdId":"${c.householdId}","memberId":"${c.memberId}",
@@ -202,8 +201,8 @@ class BudgetSyncApiTests
                     post(
                         "/api/v2/sync/commands",
                     ).header("Authorization", AUTH).contentType(MediaType.APPLICATION_JSON).content(body),
-                ).andExpect(status().isOk)
-                .andExpect(jsonPath("$.requestId").value(c.requestId.toString()))
+                ).andExpect(status().isUnauthorized)
+                .andExpect(jsonPath("$.code").value("unauthorized"))
             assertThatThrownBy {
                 commands.execute(
                     USER,

@@ -1,35 +1,28 @@
 package com.firkatdavletov.financeconsultante.mobileapi.infrastructure
 
-import org.assertj.core.api.Assertions.assertThat
-import org.assertj.core.api.Assertions.assertThatIllegalArgumentException
 import org.assertj.core.api.Assertions.assertThatThrownBy
 import org.junit.jupiter.api.Test
 
 class MobileApiAuthenticatorTests {
     @Test
-    fun `accepts only the configured bearer token`() {
-        val authenticator = MobileApiAuthenticator(MobileApiProperties(TOKEN, TELEGRAM_USER_ID))
-
-        assertThat(authenticator.authenticate("Bearer $TOKEN")).isEqualTo(TELEGRAM_USER_ID)
-        assertThat(authenticator.authenticate("bearer $TOKEN")).isEqualTo(TELEGRAM_USER_ID)
-        listOf(null, "", TOKEN, "Bearer wrong", "Bearer $TOKEN extra").forEach { authorization ->
-            assertThatThrownBy { authenticator.authenticate(authorization) }
-                .isInstanceOf(InvalidMobileApiToken::class.java)
+    fun `retired authentication never accepts any bearer credential`() {
+        val authenticator = MobileApiAuthenticator()
+        listOf(
+            null,
+            "",
+            "synthetic-former-static-token-1234567890",
+            "Bearer synthetic-former-static-token-1234567890",
+            "bearer synthetic-former-static-token-1234567890",
+            "Bearer firebase-looking-token",
+        ).forEach {
+            assertThatThrownBy { authenticator.authenticate(it) }.isInstanceOf(InvalidMobileApiToken::class.java)
         }
     }
 
     @Test
-    fun `enabled configuration requires a strong token but no telegram identity`() {
-        assertThatIllegalArgumentException().isThrownBy {
-            MobileApiAuthenticator(MobileApiProperties("short", TELEGRAM_USER_ID))
-        }
-        MobileApiProperties(TOKEN, 0).validateEnabled()
-        assertThatThrownBy { MobileApiAuthenticator(MobileApiProperties(TOKEN, 0)).authenticate("Bearer $TOKEN") }
+    fun `legacy factory cannot restore credential authentication`() {
+        val authenticator = mobileAuthenticator(MobileApiProperties(991002), null)
+        assertThatThrownBy { authenticator.authenticate("Bearer synthetic-former-static-token-1234567890") }
             .isInstanceOf(InvalidMobileApiToken::class.java)
-    }
-
-    companion object {
-        private const val TOKEN = "synthetic-mobile-token-1234567890"
-        private const val TELEGRAM_USER_ID = 991002L
     }
 }

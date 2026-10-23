@@ -28,7 +28,7 @@ import java.util.UUID
 @AutoConfigureMockMvc
 @TestPropertySource(
     properties = [
-        "app.mobile-api.enabled=true", "app.mobile-api.token=synthetic-dashboard-sync-token-12345",
+        "app.mobile-api.enabled=true",
         "app.mobile-api.telegram-user-id=995083",
     ],
 )
@@ -98,13 +98,13 @@ class DashboardSyncApiTests
                 )
             }.isInstanceOf(InvalidOfflineRequest::class.java)
             mvc.perform(get("/api/v3/sync/changes")).andExpect(status().isUnauthorized)
-            mvc.perform(get("/api/v3/sync/changes").header("Authorization", AUTH)).andExpect(status().isOk)
+            mvc.perform(get("/api/v3/sync/changes").header("Authorization", AUTH)).andExpect(status().isUnauthorized)
             jdbc.update(
                 "UPDATE member SET revoked_at = now() WHERE household_id = ? AND telegram_user_id = ?",
                 budget.household.id,
                 USER,
             )
-            mvc.perform(get("/api/v3/sync/changes").header("Authorization", AUTH)).andExpect(status().isForbidden)
+            mvc.perform(get("/api/v3/sync/changes").header("Authorization", AUTH)).andExpect(status().isUnauthorized)
         }
 
         @Test fun `allocations and accepted candidate evidence are journaled including removals`() {

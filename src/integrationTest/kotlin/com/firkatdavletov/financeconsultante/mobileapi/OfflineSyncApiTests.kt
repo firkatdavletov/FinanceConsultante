@@ -15,10 +15,13 @@ import com.firkatdavletov.financeconsultante.ledger.domain.Household
 import com.firkatdavletov.financeconsultante.ledger.domain.Member
 import com.firkatdavletov.financeconsultante.mobileapi.application.CreateOfflineOperation
 import com.firkatdavletov.financeconsultante.mobileapi.application.CreateOfflineOperationRequest
+import com.firkatdavletov.financeconsultante.mobileapi.application.InvalidOfflineRequest
+import com.firkatdavletov.financeconsultante.mobileapi.application.OfflineSyncConflict
 import com.firkatdavletov.financeconsultante.mobileapi.application.OfflineSyncService
 import com.firkatdavletov.financeconsultante.mobileapi.application.SyncChange
 import com.firkatdavletov.financeconsultante.shared.domain.Money
 import org.assertj.core.api.Assertions.assertThat
+import org.assertj.core.api.Assertions.assertThatThrownBy
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
@@ -42,7 +45,7 @@ import java.util.concurrent.TimeUnit
 @AutoConfigureMockMvc
 @TestPropertySource(
     properties = [
-        "app.mobile-api.enabled=true", "app.mobile-api.token=synthetic-offline-token-1234567890",
+        "app.mobile-api.enabled=true",
         "app.mobile-api.telegram-user-id=995002",
     ],
 )
@@ -90,8 +93,10 @@ class OfflineSyncApiTests
             assertThat(count("mobile_operation_request", setup)).isEqualTo(1)
             mvc
                 .perform(postRequest(body(request.copy(amount = "20"))))
-                .andExpect(status().isConflict)
-                .andExpect(jsonPath("$.code").value("idempotency_conflict"))
+                .andExpect(status().isUnauthorized)
+                .andExpect(jsonPath("$.code").value("unauthorized"))
+            assertThatThrownBy { create.create(USER, request.copy(amount = "20")) }
+                .isInstanceOf(OfflineSyncConflict::class.java)
             val events = drain().first.mapNotNull { it.operation }.filter { it.requestId == request.requestId }
             assertThat(events).hasSize(2)
             assertThat(events.last().amountKzt).isEqualTo("15.01")
@@ -121,37 +126,27 @@ class OfflineSyncApiTests
         }
 
         @Test
-        fun `HTTP creation validates currency date category membership and scope`() {
+        fun `trusted creation validates financial input while retired HTTP rejects credentials`() {
             val setup = budget()
             val request = request(setup)
-            mvc
-                .perform(postRequest(body(request)))
-                .andExpect(status().isOk)
-                .andExpect(jsonPath("$.requestId").value(request.requestId.toString()))
-                .andExpect(jsonPath("$.operation.amountKzt").value("10.01"))
-                .andExpect(jsonPath("$.operation.type").value("EXPENSE"))
+            val first = create.create(USER, request)
+            assertThat(first.operation.amountKzt).isEqualTo("10.01")
             listOf(
                 request.copy(requestId = UUID.randomUUID(), currency = "RUB"),
                 request.copy(requestId = UUID.randomUUID(), amount = "1.001"),
                 request.copy(requestId = UUID.randomUUID(), occurredOn = LocalDate.parse("2026-09-07")),
                 request.copy(requestId = UUID.randomUUID(), categoryId = UUID.randomUUID()),
-            ).forEach { invalid -> mvc.perform(postRequest(body(invalid))).andExpect(status().isBadRequest) }
-            mvc.perform(postRequest(body(request.copy(memberId = UUID.randomUUID())))).andExpect(status().isConflict)
+            ).forEach { invalid ->
+                assertThatThrownBy { create.create(USER, invalid) }.isInstanceOf(InvalidOfflineRequest::class.java)
+            }
+            assertThatThrownBy { create.create(USER, request.copy(memberId = UUID.randomUUID())) }
+                .isInstanceOf(OfflineSyncConflict::class.java)
             jdbc.update("UPDATE category SET archived = TRUE WHERE id = ?", request.categoryId)
-            mvc.perform(postRequest(body(request.copy(requestId = UUID.randomUUID())))).andExpect(status().isBadRequest)
-            // A successful request remains replayable after its category was archived.
-            mvc.perform(postRequest(body(request))).andExpect(status().isOk)
-            mvc.perform(get("/api/v1/sync/changes")).andExpect(status().isUnauthorized)
-            jdbc.update("UPDATE member SET telegram_user_id = 995004 WHERE id = ?", setup.owner.id)
-            val revokedMember = UUID.randomUUID()
-            jdbc.update(
-                "INSERT INTO member(id, household_id, telegram_user_id, role, joined_at, revoked_at) " +
-                    "VALUES (?, ?, ?, 'MEMBER', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
-                revokedMember,
-                setup.household.id,
-                USER,
-            )
-            mvc.perform(get("/api/v1/sync/changes").header("Authorization", AUTH)).andExpect(status().isForbidden)
+            assertThatThrownBy { create.create(USER, request.copy(requestId = UUID.randomUUID())) }
+                .isInstanceOf(InvalidOfflineRequest::class.java)
+            assertThat(create.create(USER, request).operation.id).isEqualTo(first.operation.id)
+            mvc.perform(postRequest(body(request))).andExpect(status().isUnauthorized)
+            mvc.perform(get("/api/v1/sync/changes").header("Authorization", AUTH)).andExpect(status().isUnauthorized)
         }
 
         @Test
@@ -220,9 +215,8 @@ class OfflineSyncApiTests
             assertThat(changes.mapNotNull { it.category }.last().name).isEqualTo("Новое имя")
             mvc
                 .perform(get("/api/v1/sync/changes").header("Authorization", AUTH))
-                .andExpect(status().isOk)
-                .andExpect(jsonPath("$.scope.timeZone").value("Asia/Almaty"))
-                .andExpect(jsonPath("$.changes[0].category.household_id").doesNotExist())
+                .andExpect(status().isUnauthorized)
+                .andExpect(jsonPath("$.code").value("unauthorized"))
         }
 
         @Test

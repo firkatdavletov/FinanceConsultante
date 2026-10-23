@@ -19,19 +19,13 @@ import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.RestController
 import org.springframework.web.bind.annotation.RestControllerAdvice
-import java.security.MessageDigest
 
 @RestController
 @RequestMapping("/api/v4")
 @ConditionalOnProperty(prefix = "app.mobile-api", name = ["enabled"], havingValue = "true")
 class CloudBudgetController(
     private val service: CloudBudgetService,
-    private val properties: MobileApiProperties,
 ) {
-    init {
-        properties.validateEnabled()
-    }
-
     @GetMapping("/budget")
     fun budget(
         @RequestHeader(HttpHeaders.AUTHORIZATION, required = false) authorization: String?,
@@ -56,15 +50,8 @@ class CloudBudgetController(
         @RequestBody command: CloudBudgetCommand,
     ) = noStore(service.command(authenticate(authorization), command))
 
-    private fun authenticate(authorization: String?): String {
-        val token =
-            authorization?.takeIf { it.startsWith("Bearer ", true) }?.substring("Bearer ".length)
-                ?: throw InvalidMobileApiToken()
-        if (!MessageDigest.isEqual(hash(token), hash(properties.token))) throw InvalidMobileApiToken()
-        return hash(token).joinToString("") { "%02x".format(it) }
-    }
-
-    private fun hash(value: String) = MessageDigest.getInstance("SHA-256").digest(value.toByteArray(Charsets.UTF_8))
+    @Suppress("UNUSED_PARAMETER")
+    private fun authenticate(authorization: String?): String = throw InvalidMobileApiToken()
 
     private fun <T> noStore(value: T) = ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(value)
 }

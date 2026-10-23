@@ -34,7 +34,8 @@ import java.util.concurrent.TimeUnit
 @AutoConfigureMockMvc
 @TestPropertySource(
     properties = [
-        "app.mobile-api.enabled=true", "app.mobile-api.token=synthetic-t05-static-token-1234567890",
+        "app.mobile-api.enabled=true",
+        "app.mobile-api.token=synthetic-retired-token-1234567890",
         "app.mobile-api.telegram-user-id=0",
         "app.firebase-auth.enabled=true",
         "app.firebase-auth.project-id=synthetic-project",
@@ -120,7 +121,7 @@ class FirebaseBudgetApiTests
                 .andExpect(jsonPath("$.scope.memberId").value(member.toString()))
         }
 
-        @Test fun `scoped v4 command keeps UUID receipt and amount across lost response retry`() {
+        @Test fun `scoped Firebase retry reuses a historical v4 receipt without changing money`() {
             list("synthetic-owner")
             val command =
                 CloudBudgetCommand(
@@ -135,7 +136,13 @@ class FirebaseBudgetApiTests
                     kind = "EXPENSE",
                     occurredOn = LocalDate.parse("2026-09-05"),
                 )
-            val first = budgets.command(uid, request.householdId, command)
+            val historicalHash =
+                jdbc.queryForObject(
+                    "SELECT token_hash FROM mobile_budget_access WHERE household_id = ?",
+                    String::class.java,
+                    request.householdId,
+                )!!
+            val first = cloud.command(historicalHash, command)
             assertThat(budgets.command(uid, request.householdId, command)).isEqualTo(first)
             val body = """{"requestId":"${command.requestId}",
             "householdId":"${command.householdId}","memberId":"$member",
@@ -253,6 +260,87 @@ class FirebaseBudgetApiTests
                     uid,
                 ),
             ).isEqualTo(2)
+        }
+
+        @Test fun `obsolete configured static token is rejected on Firebase and retired routes`() {
+            val former = "synthetic-retired-token-1234567890"
+            Mockito.`when`(verifier.verify(former)).thenThrow(InvalidFirebaseToken())
+            val retired =
+                listOf(
+                    "/api/v1/dashboard",
+                    "/api/v1/categories",
+                    "/api/v1/operations",
+                    "/api/v1/purchases",
+                    "/api/v1/planned-expenses",
+                    "/api/v1/planned-incomes",
+                    "/api/v1/planned-operations",
+                    "/api/v1/sync/changes",
+                    "/api/v2/sync/changes",
+                    "/api/v3/sync/changes",
+                    "/api/v4/budget",
+                    "/api/v4/sync/changes",
+                )
+            for (token in listOf(former, "synthetic-owner")) {
+                retired.forEach { path ->
+                    mvc
+                        .perform(get(path).header("Authorization", "Bearer $token"))
+                        .andExpect(status().isUnauthorized)
+                }
+            }
+            val scoped =
+                listOf(
+                    "/api/v4/budgets",
+                    "/api/v4/budgets/${request.householdId}",
+                    "/api/v4/budgets/${request.householdId}/sync/changes",
+                    "/api/v4/budgets/${request.householdId}/members",
+                    "/api/v4/budgets/${request.householdId}/invitations/current",
+                )
+            scoped.forEach { path ->
+                mvc
+                    .perform(get(path).header("Authorization", "Bearer $former"))
+                    .andExpect(status().isUnauthorized)
+            }
+            mvc
+                .perform(post("/api/v4/auth/firebase").header("Authorization", "Bearer $former"))
+                .andExpect(status().isUnauthorized)
+            mvc
+                .perform(
+                    post("/api/v4/budgets")
+                        .header("Authorization", "Bearer $former")
+                        .contentType("application/json")
+                        .content(
+                            """{"requestId":"${UUID.randomUUID()}","name":"Denied",
+                "openingBalance":"0.00","accountingStartedOn":"2026-09-05","currency":"KZT"}""",
+                        ),
+                ).andExpect(status().isUnauthorized)
+            val bootstrap = """{"requestId":"${UUID.randomUUID()}","householdId":"${request.householdId}",
+                "memberId":"$member","openingBalance":"0.00","accountingStartedOn":"2026-09-05",
+                "currency":"KZT","categories":[]}"""
+            mvc
+                .perform(
+                    post("/api/v4/legacy/budgets")
+                        .header("Authorization", "Bearer $former")
+                        .contentType("application/json")
+                        .content(bootstrap),
+                ).andExpect(status().isUnauthorized)
+            val command = """{"requestId":"${UUID.randomUUID()}","householdId":"${request.householdId}",
+                "memberId":"$member","type":"CREATE_OPERATION","entityId":"${UUID.randomUUID()}",
+                "authoredOn":"2026-09-05","kind":"EXPENSE","categoryId":"${request.categories[0].id}",
+                "amount":"12.34","occurredOn":"2026-09-05","currency":"KZT"}"""
+            for (path in listOf("/api/v4/sync/commands", "/api/v4/budgets/${request.householdId}/sync/commands")) {
+                mvc
+                    .perform(
+                        post(path)
+                            .header("Authorization", "Bearer $former")
+                            .contentType("application/json")
+                            .content(command),
+                    ).andExpect(status().isUnauthorized)
+            }
+            list("synthetic-owner").andExpect(status().isOk)
+            mvc
+                .perform(
+                    get("/api/v4/budgets/${request.householdId}").header("Authorization", "Bearer synthetic-owner"),
+                ).andExpect(status().isOk)
         }
 
         private fun list(token: String) =
