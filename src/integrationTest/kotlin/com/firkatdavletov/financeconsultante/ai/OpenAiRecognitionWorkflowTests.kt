@@ -314,7 +314,9 @@ class OpenAiRecognitionWorkflowTests
             assertThat(count("openai_recognition_job")).isZero()
             assertThat(count("ledger_entry")).isZero()
             assertThat(value("SELECT state FROM transaction_draft", String::class.java)).isEqualTo("NEEDS_CATEGORY")
-            assertThat(latestButtons()).contains("dcp:", "dx:").doesNotContain("du:", "dc:")
+            assertThat(latestButtons())
+                .contains("\"data\": \"dcp:", "\"data\": \"dx:")
+                .doesNotContain("\"data\": \"du:", "\"data\": \"dc:")
         }
 
         @Test
@@ -354,7 +356,9 @@ class OpenAiRecognitionWorkflowTests
                 .containsEntry("category_alias", "стиральный порошок")
                 .containsEntry("recognized_by_ai", false)
             assertThat(reply()).contains("категория не выбрана", "Выберите существующую категорию")
-            assertThat(latestButtons()).contains("dcp:", "dx:").doesNotContain("du:", "dc:")
+            assertThat(latestButtons())
+                .contains("\"data\": \"dcp:", "\"data\": \"dx:")
+                .doesNotContain("\"data\": \"du:", "\"data\": \"dc:")
             assertThat(value("SELECT status FROM openai_recognition_job", String::class.java)).isEqualTo("FAILED")
             assertThat(value("SELECT last_error_code FROM openai_recognition_job", String::class.java))
                 .isEqualTo("validation_category")
@@ -401,7 +405,9 @@ class OpenAiRecognitionWorkflowTests
                 ),
             ).isEqualTo(1)
             assertThat(value("SELECT state FROM transaction_draft", String::class.java)).isEqualTo("NEEDS_CATEGORY")
-            assertThat(latestButtons()).contains("dcp:", "dx:").doesNotContain("du:", "dc:")
+            assertThat(latestButtons())
+                .contains("\"data\": \"dcp:", "\"data\": \"dx:")
+                .doesNotContain("\"data\": \"du:", "\"data\": \"dc:")
         }
 
         @Test
@@ -434,7 +440,9 @@ class OpenAiRecognitionWorkflowTests
             assertThat(value("SELECT state FROM transaction_draft", String::class.java)).isEqualTo("NEEDS_CATEGORY")
             assertThat(value("SELECT last_error_code FROM openai_recognition_job", String::class.java))
                 .isEqualTo("validation_needs_clarification")
-            assertThat(latestButtons()).contains("dcp:", "dx:").doesNotContain("du:", "dc:")
+            assertThat(latestButtons())
+                .contains("\"data\": \"dcp:", "\"data\": \"dx:")
+                .doesNotContain("\"data\": \"du:", "\"data\": \"dc:")
         }
 
         @Test

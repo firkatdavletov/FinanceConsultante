@@ -13,6 +13,35 @@ class JdbcFirebaseBudgetCreationStore(
     private val jdbc: JdbcClient,
     private val bootstrap: JdbcCloudBudgetBootstrap,
 ) : FirebaseBudgetCreationStore {
+    override fun lockImportIdentities(request: CreateCloudBudget) {
+        val ids = listOf(request.householdId, request.memberId) + request.categories.map { it.id }
+        ids.distinct().sorted().forEach { id ->
+            jdbc
+                .sql("SELECT pg_advisory_xact_lock(hashtextextended(?, 0))")
+                .param("firebase-import:$id")
+                .query { _, _ -> true }
+                .single()
+        }
+    }
+
+    override fun identitiesAvailable(request: CreateCloudBudget): Boolean =
+        jdbc
+            .sql(
+                """
+                SELECT NOT (EXISTS(SELECT 1 FROM household WHERE id = ?) OR
+                EXISTS(SELECT 1 FROM member WHERE id = ?) OR
+                EXISTS(SELECT 1 FROM category WHERE id IN (?, ?, ?, ?)))
+                """.trimIndent(),
+            ).params(
+                request.householdId,
+                request.memberId,
+                request.categories[0].id,
+                request.categories[1].id,
+                request.categories[2].id,
+                request.categories.last().id,
+            ).query(Boolean::class.javaObjectType)
+            .single()
+
     override fun lock(
         uid: String,
         requestId: UUID,

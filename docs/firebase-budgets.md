@@ -39,6 +39,7 @@ SELECT id AS member_id, household_id, role FROM member WHERE revoked_at IS NULL;
 
 | Метод | Путь | Результат |
 | --- | --- | --- |
+| POST | `/api/v4/budgets/import` | Импорт исходного локального bootstrap с прежними UUID |
 | POST | `/api/v4/budgets` | Создание первого бюджета, OWNER и начальных данных по requestId |
 | GET | `/api/v4/budgets` | Массив `{id, name, memberId, role}` для текущего UID |
 | GET | `/api/v4/budgets/{budgetId}` | `{scope}` прежнего бюджета |
@@ -58,7 +59,7 @@ V24 добавляет название бюджета и таблицу свя�
 
 ## Проверенный объём
 
-- `./gradlew check bootJar` успешен: 315 unit и 276 integration-тестов, без пропусков.
+- `./gradlew check bootJar` успешен: 315 unit и 281 integration-тестов, без пропусков.
 - Реальный PostgreSQL 17.11/Testcontainers, ktlint, Detekt, JaCoCo и JAR успешны.
 - Проверены явный UID/member, отсутствие доступа у аккаунта с тем же email, отзыв MEMBER,
   неправильный household команды, повтор после потери ответа, несколько бюджетов одного UID,
@@ -109,3 +110,23 @@ V25 добавляет таблицу receipt с PK UID/requestId, FK на чл�
 валидация/ошибочные токены и миграция V24→V25 с прежним членством и балансом.
 HTTP-тесты подменяют только Firebase verifier. Реальные Google-аккаунты проверяются отдельно
 на обновлённом тестовом сервере; production-развёртывание этой задачей не выполняется.
+
+
+## Перенос локального бюджета T07
+
+Развернуть сервер с изменениями T07. Дополнительная миграция после V25 не требуется.
+`POST /api/v4/budgets/import` принимает `{name, budget: CreateCloudBudget}` с Firebase ID token.
+В `budget` передаются исходные requestId, householdId, memberId, openingBalance,
+accountingStartedOn и четыре seed-категории `{id,name,kind,icon,dictionaryKey}`.
+Ответ 200 `{id,name,memberId,role:"OWNER"}` сохраняет исходные идентификаторы.
+
+Создание OWNER/счёта/категорий/членства и receipt атомарно. История и планы передаются следующими
+исходными v4-командами. Один UID может иметь другие бюджеты; импорт добавляет новый и не объединяет данные.
+Потерянный ответ не меняет requestId: повтор возвращает прежний бюджет. Изменённый payload — 409
+`idempotency_conflict`; занятые исходные UUID — 409 `budget_identity_conflict`, без присвоения или merge.
+Транзакционные блокировки исходных UUID сериализуют конкурирующие запросы даже от двух UID.
+Проверены первоначальные UUID/категории, доходы/расходы/возвраты v4 и повторы receipt, конкурентный
+импорт, UID-изоляция, существующий бюджет того же аккаунта, rollback и валидация bootstrap.
+Автоматические HTTP-тесты используют Firebase verifier stub; production-развёртывание отдельно.
+
+Итоговая серверная проверка T07: `test check bootJar` успешна, 315 unit и 281 integration-тест без пропусков, PostgreSQL 17.11/Testcontainers.

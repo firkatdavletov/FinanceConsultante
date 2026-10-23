@@ -47,6 +47,7 @@ class CloudBudgetService(
     private val sync: OfflineSyncRepository,
     private val commands: BudgetCommandRepository,
     private val clock: Clock,
+    private val bootstrapValidator: CloudBudgetBootstrapValidator,
 ) {
     @Transactional
     fun legacyUserId(tokenHash: String): Long? {
@@ -95,7 +96,7 @@ class CloudBudgetService(
                 },
             )
         }
-        validateBootstrap(request)
+        bootstrapValidator.validate(request)
         repository.create(tokenHash, request, fingerprint)
         return CloudBudget(actor(tokenHash).scope())
     }
@@ -223,39 +224,6 @@ class CloudBudgetService(
             receipt,
         )
         return receipt
-    }
-
-    private fun validateBootstrap(request: CreateCloudBudget) {
-        require((request.currency == null || request.currency == "KZT") && request.accountingStartedOn.year >= 1)
-        Money.of(request.openingBalance)
-        require(request.accountingStartedOn <= today())
-        val dictionary =
-            mapOf(
-                "GROCERIES" to "EXPENSE",
-                "HEALTH" to "EXPENSE",
-                "SALARY" to "INCOME",
-                "OTHER" to "EXPENSE",
-            )
-        require(
-            request.categories.size == dictionary.size &&
-                request.categories.map { it.dictionaryKey }.toSet() == dictionary.keys,
-        )
-        require(
-            request.categories
-                .map { it.id }
-                .toSet()
-                .size == dictionary.size,
-        )
-        require(
-            request.categories
-                .map { it.name.lowercase() }
-                .toSet()
-                .size == dictionary.size,
-        )
-        request.categories.forEach {
-            require(it.kind == dictionary[it.dictionaryKey] && categoryManagement.validName(it.name))
-            ; CategoryIcon.valueOf(it.icon)
-        }
     }
 
     private fun apply(
