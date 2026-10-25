@@ -154,6 +154,68 @@ class FirebaseFamilyBudgetTests
                 .andExpect(status().isForbidden)
         }
 
+        @Test fun `member updates own income through scoped sync but cannot change another authors entry`() {
+            val member = family.join(guest, AcceptFirebaseInvitation(invitations.create(owner, shared.id).code))
+            val income = command(member, "INCOME", "100.00")
+            budgets.command(guest, shared.id, income)
+            val update = income.copy(requestId = UUID.randomUUID(), type = "UPDATE_OPERATION", amount = "150.25")
+            val body =
+                """
+                {
+                    "requestId":"${update.requestId}","householdId":"${shared.id}","memberId":"${member.memberId}",
+                    "type":"UPDATE_OPERATION","entityId":"${income.entityId}","authoredOn":"${update.authoredOn}",
+                    "amount":"150.25","kind":"INCOME","expectedToken":0
+                }
+                """.trimIndent()
+            repeat(2) {
+                mvc
+                    .perform(
+                        post("/api/v4/budgets/${shared.id}/sync/commands")
+                            .header("Authorization", "Bearer t10-guest")
+                            .contentType("application/json")
+                            .content(body),
+                    ).andExpect(status().isOk)
+                    .andExpect(jsonPath("$.entityToken").value(1))
+            }
+            val id = UUID.fromString(income.entityId)
+            assertThat(
+                jdbc.queryForObject(
+                    "SELECT original_amount FROM ledger_entry WHERE id = ?",
+                    java.math.BigDecimal::class.java,
+                    id,
+                ),
+            ).isEqualByComparingTo("150.25")
+            assertThat(
+                jdbc.queryForObject("SELECT version FROM ledger_entry WHERE id = ?", Long::class.java, id),
+            ).isEqualTo(1)
+            val ownerIncome = command(shared, "INCOME", "75.00")
+            budgets.command(owner, shared.id, ownerIncome)
+            assertThatThrownBy {
+                budgets.command(
+                    guest,
+                    shared.id,
+                    update.copy(requestId = UUID.randomUUID(), entityId = ownerIncome.entityId),
+                )
+            }.isInstanceOf(IllegalArgumentException::class.java)
+            assertThatThrownBy {
+                budgets.command(guest, personal.id, update.copy(requestId = UUID.randomUUID()))
+            }.isInstanceOf(CloudBudgetFailure::class.java)
+            mvc
+                .perform(
+                    post("/api/v4/budgets/${shared.id}/sync/commands")
+                        .header("Authorization", "Bearer t10-other")
+                        .contentType("application/json")
+                        .content(body),
+                ).andExpect(status().isForbidden)
+            assertThat(
+                jdbc.queryForObject(
+                    "SELECT original_amount FROM ledger_entry WHERE id = ?",
+                    java.math.BigDecimal::class.java,
+                    UUID.fromString(ownerIncome.entityId),
+                ),
+            ).isEqualByComparingTo("75.00")
+        }
+
         @Test fun `invalid expired revoked and consumed codes never grant a foreign membership`() {
             val revoked = invitations.create(owner, shared.id)
             invitations.revoke(owner, shared.id, revoked.id)

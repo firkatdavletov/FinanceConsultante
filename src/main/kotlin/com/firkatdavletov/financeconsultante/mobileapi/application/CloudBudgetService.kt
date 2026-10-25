@@ -309,11 +309,13 @@ class CloudBudgetService(
     ) {
         var current = ledger.find(actor.householdId, id)
         if (current == null && c.type == "UPDATE_OPERATION") {
-            createOperation(actor, c.copy(kind = "EXPENSE"), id, source)
+            createOperation(actor, c.copy(kind = c.kind ?: "EXPENSE"), id, source)
             return
         }
         current = current ?: invalid("Operation unavailable")
-        require(current.originalAmount.currency == Currency.KZT && current.direction == Direction.EXPENSE)
+        val allowedDirections =
+            if (c.type == "UPDATE_OPERATION") setOf(Direction.EXPENSE, Direction.INCOME) else setOf(Direction.EXPENSE)
+        require(current.originalAmount.currency == Currency.KZT && current.direction in allowedDirections)
         if (current.status == com.firkatdavletov.financeconsultante.ledger.domain.EntryStatus.VOIDED) {
             repository.restoreOperation(actor.householdId, actor.memberId, id, "$source:restore", clock.instant())
             current = requireNotNull(ledger.find(actor.householdId, id))
