@@ -2,7 +2,6 @@ package com.firkatdavletov.financeconsultante.ledger.application
 
 import com.firkatdavletov.financeconsultante.ledger.domain.Category
 import com.firkatdavletov.financeconsultante.ledger.domain.CategoryAliasNormalizer
-import com.firkatdavletov.financeconsultante.ledger.domain.CategoryIcon
 import com.firkatdavletov.financeconsultante.ledger.domain.CategoryKind
 import com.firkatdavletov.financeconsultante.ledger.domain.Direction
 import com.firkatdavletov.financeconsultante.ledger.domain.TransactionCategory
@@ -61,7 +60,7 @@ interface CategoryRepository {
     fun changeIcon(
         householdId: UUID,
         id: UUID,
-        icon: CategoryIcon,
+        icon: String,
     ): Boolean
 
     fun usage(
@@ -187,14 +186,14 @@ class CategoryManagement(
     fun createExpense(
         ownerId: Long,
         name: String,
-        icon: CategoryIcon,
+        icon: String,
     ): Category? = create(ownerId, name, CategoryKind.EXPENSE, icon)
 
     fun create(
         ownerId: Long,
         name: String,
         kind: CategoryKind,
-        icon: CategoryIcon,
+        icon: String,
         id: UUID = UUID.randomUUID(),
     ): Category? {
         if (nameError(ownerId, name) != null || ownerOnlyError(ownerId) != null) return null
@@ -278,8 +277,9 @@ class CategoryManagement(
     fun changeIcon(
         ownerId: Long,
         id: UUID,
-        icon: CategoryIcon,
+        icon: String,
     ): Category? {
+        require(icon.isNotBlank()) { "Icon code is required" }
         val owner = owner(ownerId)
         val current = categories(ownerId).firstOrNull { it.id == id && !it.archived } ?: return null
         if (!owner.canManageHousehold) return null

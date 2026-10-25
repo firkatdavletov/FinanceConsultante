@@ -3,7 +3,6 @@ package com.firkatdavletov.financeconsultante.telegram.application
 import com.firkatdavletov.financeconsultante.ledger.application.CategoryDetails
 import com.firkatdavletov.financeconsultante.ledger.application.CategoryManagement
 import com.firkatdavletov.financeconsultante.ledger.application.LedgerOperations
-import com.firkatdavletov.financeconsultante.ledger.domain.CategoryIcon
 import com.firkatdavletov.financeconsultante.ledger.domain.CategoryKind
 import com.firkatdavletov.financeconsultante.ledger.domain.TransactionCategory
 import com.firkatdavletov.financeconsultante.shared.domain.Money
@@ -202,7 +201,13 @@ class TelegramCategoryHandler(
         val buttons =
             buildList {
                 visible.forEach { category ->
-                    add(ReplyButton("${category.icon.emoji} ${category.name}", "cats:view:${category.id}", row++))
+                    add(
+                        ReplyButton(
+                            "${TelegramCategoryIcons.emoji(category.icon)} ${category.name}",
+                            "cats:view:${category.id}",
+                            row++,
+                        ),
+                    )
                 }
                 if (lastPage > 0) {
                     val navigationRow = row++
@@ -212,7 +217,7 @@ class TelegramCategoryHandler(
                 add(ReplyButton("➕ Добавить категорию", "cats:add", row++))
                 add(ReplyButton("◀️ Назад", "cats:close", row))
             }
-        val names = visible.joinToString("\n") { "${it.icon.emoji} ${it.name}" }
+        val names = visible.joinToString("\n") { "${TelegramCategoryIcons.emoji(it.icon)} ${it.name}" }
         val pageLabel = if (lastPage > 0) "\n\nСтраница ${page + 1} из ${lastPage + 1}." else ""
         return TelegramReply(
             "Категории\n\n" +
@@ -252,7 +257,9 @@ class TelegramCategoryHandler(
         system: Boolean,
     ): String =
         buildString {
-            append(details.category.icon.emoji).append(' ').append(details.category.name).append("\n\n")
+            append(
+                TelegramCategoryIcons.emoji(details.category.icon),
+            ).append(' ').append(details.category.name).append("\n\n")
             val amountLabel = if (details.category.kind == CategoryKind.INCOME) "Доходов" else "Расходов"
             append(amountLabel).append(" за ").append(monthName(currentMonth().month)).append(": ")
             append(money(details.usage.monthAmount)).append('\n')
@@ -345,7 +352,7 @@ class TelegramCategoryHandler(
         }
         val category = details.category
         return TelegramReply(
-            "Удалить категорию «${category.icon.emoji} ${category.name}»?\n\n" +
+            "Удалить категорию «${TelegramCategoryIcons.emoji(category.icon)} ${category.name}»?\n\n" +
                 "В ней находится ${details.usage.totalOperations} ${operationsWord(
                     details.usage.totalOperations,
                 )}.\n\n" +
@@ -391,7 +398,7 @@ class TelegramCategoryHandler(
         val buttons =
             PICKER_ICONS
                 .mapIndexed { index, icon ->
-                    ReplyButton(icon.emoji, prefix + icon.name, index / ICONS_PER_ROW)
+                    ReplyButton(icon.second, prefix + icon.first, index / ICONS_PER_ROW)
                 }.toMutableList()
         val cancelRow = (PICKER_ICONS.size + ICONS_PER_ROW - 1) / ICONS_PER_ROW
         buttons +=
@@ -457,8 +464,8 @@ class TelegramCategoryHandler(
 
     private fun categoryId(parts: List<String>): UUID? = parts.getOrNull(2)?.let(::uuid)
 
-    private fun icon(code: String?): CategoryIcon? =
-        code?.let { value -> PICKER_ICONS.firstOrNull { it.name == value } }
+    private fun icon(code: String?): String? =
+        code?.let { value -> PICKER_ICONS.firstOrNull { it.first == value }?.first }
 
     private fun page(parts: List<String>): Int? =
         if (parts.isEmpty()) 0 else parts.singleOrNull()?.toIntOrNull()?.takeIf { it in 0..MAX_PAGE }
@@ -482,7 +489,7 @@ class TelegramCategoryHandler(
         private const val MAX_PAGE = 100
         private const val ICONS_PER_ROW = 4
         private val UUID_PATTERN = Regex("[A-Fa-f0-9]{8}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{12}")
-        private val PICKER_ICONS = CategoryIcon.entries.filter { it != CategoryIcon.INCOME }
+        private val PICKER_ICONS = TelegramCategoryIcons.entries.filter { it.first != "INCOME" }
         val CALLBACKS = setOf(CALLBACK_PREFIX)
         val COMMANDS =
             setOf(

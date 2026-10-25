@@ -4,7 +4,6 @@ import com.firkatdavletov.financeconsultante.ledger.application.BudgetRepository
 import com.firkatdavletov.financeconsultante.ledger.domain.Account
 import com.firkatdavletov.financeconsultante.ledger.domain.BudgetSetup
 import com.firkatdavletov.financeconsultante.ledger.domain.Category
-import com.firkatdavletov.financeconsultante.ledger.domain.CategoryIcon
 import com.firkatdavletov.financeconsultante.ledger.domain.CategoryKind
 import com.firkatdavletov.financeconsultante.shared.domain.Money
 import org.springframework.jdbc.core.simple.JdbcClient
@@ -53,7 +52,7 @@ class JdbcBudgetRepository(
                     category.name,
                     category.kind.name,
                     category.archived,
-                    category.icon.name,
+                    category.icon,
                 ).update()
         }
     }
@@ -98,7 +97,7 @@ class JdbcBudgetRepository(
                     CategoryKind.valueOf(row.getString("kind")),
                     row.getBoolean("archived"),
                     row.getString("dictionary_key"),
-                    CategoryIcon.valueOf(row.getString("icon_code")),
+                    row.getString("icon_code"),
                 )
             }.optional()
             .orElse(null)

@@ -11,7 +11,6 @@ import com.firkatdavletov.financeconsultante.ledger.application.EntryTarget
 import com.firkatdavletov.financeconsultante.ledger.application.LedgerRepository
 import com.firkatdavletov.financeconsultante.ledger.application.RecordEntry
 import com.firkatdavletov.financeconsultante.ledger.domain.Category
-import com.firkatdavletov.financeconsultante.ledger.domain.CategoryIcon
 import com.firkatdavletov.financeconsultante.ledger.domain.CategoryKind
 import com.firkatdavletov.financeconsultante.ledger.domain.Direction
 import com.firkatdavletov.financeconsultante.ledger.domain.EntryChange
@@ -354,8 +353,9 @@ class CloudBudgetService(
             return
         }
         val name = c.name ?: current?.name ?: invalid("Name required")
-        val icon = c.icon?.let(CategoryIcon::valueOf) ?: current?.icon ?: invalid("Icon required")
+        val icon = c.icon ?: current?.icon ?: invalid("Icon required")
         val kind = c.kind?.let(CategoryKind::valueOf) ?: current?.kind ?: invalid("Kind required")
+        require(icon.isNotBlank())
         require(categoryManagement.validName(name))
         require(categories.categories(actor.householdId).none { it.id != id && it.name.equals(name, true) })
         if (current == null) {

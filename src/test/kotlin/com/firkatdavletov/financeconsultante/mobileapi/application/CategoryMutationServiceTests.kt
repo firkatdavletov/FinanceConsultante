@@ -14,7 +14,6 @@ import com.firkatdavletov.financeconsultante.ledger.application.LedgerRepository
 import com.firkatdavletov.financeconsultante.ledger.application.OperationHistoryFilter
 import com.firkatdavletov.financeconsultante.ledger.application.OwnedLedger
 import com.firkatdavletov.financeconsultante.ledger.domain.Category
-import com.firkatdavletov.financeconsultante.ledger.domain.CategoryIcon
 import com.firkatdavletov.financeconsultante.ledger.domain.CategoryKind
 import com.firkatdavletov.financeconsultante.ledger.domain.LedgerEntry
 import com.firkatdavletov.financeconsultante.ledger.domain.TransactionCategory
@@ -36,9 +35,9 @@ class CategoryMutationServiceTests {
         val updated = fixture.service.update(API_USER_ID, created.id, "Рестораны", "FOOD")
 
         assertThat(created.kind).isEqualTo(CategoryKind.EXPENSE)
-        assertThat(created.icon).isEqualTo(CategoryIcon.ENTERTAINMENT)
+        assertThat(created.icon).isEqualTo("ENTERTAINMENT")
         assertThat(updated.name).isEqualTo("Рестораны")
-        assertThat(updated.icon).isEqualTo(CategoryIcon.FOOD)
+        assertThat(updated.icon).isEqualTo("FOOD")
         assertThat(fixture.repository.items).contains(updated)
     }
 
@@ -83,6 +82,29 @@ class CategoryMutationServiceTests {
         assertThatThrownBy {
             fixture.service.update(API_USER_ID, UUID.randomUUID(), null, null)
         }.isInstanceOf(InvalidCategoryRequest::class.java)
+        assertThat(fixture.repository.writes).isZero()
+    }
+
+    @Test
+    fun `opaque icon codes survive creation renaming and icon changes`() {
+        val fixture = fixture(MemberRole.OWNER)
+        val code = " custom.icon-v2 "
+        val created = fixture.service.create(API_USER_ID, "Кафе", "EXPENSE", code)
+        assertThat(created.icon).isEqualTo(code)
+        val renamed = fixture.service.update(API_USER_ID, created.id, "Рестораны", null)
+        assertThat(renamed.icon).isEqualTo(code)
+        val updated = fixture.service.update(API_USER_ID, created.id, null, "next.icon-V3")
+        assertThat(updated.icon).isEqualTo("next.icon-V3")
+    }
+
+    @Test
+    fun `missing and blank icon codes are rejected before writes`() {
+        val fixture = fixture(MemberRole.OWNER)
+        listOf(null, "", "  ").forEach { code ->
+            assertThatThrownBy {
+                fixture.service.create(API_USER_ID, "Кафе", "EXPENSE", code)
+            }.isInstanceOf(InvalidCategoryRequest::class.java)
+        }
         assertThat(fixture.repository.writes).isZero()
     }
 
@@ -151,7 +173,7 @@ class CategoryMutationServiceTests {
                     key.displayName,
                     key.direction.categoryKind,
                     dictionaryKey = key.name,
-                    icon = CategoryIcon.defaultFor(key.name),
+                    icon = Category.defaultIconFor(key.name),
                 ).also { categories.items += it }
 
         override fun history(
@@ -202,7 +224,7 @@ class CategoryMutationServiceTests {
         override fun changeIcon(
             householdId: UUID,
             id: UUID,
-            icon: CategoryIcon,
+            icon: String,
         ): Boolean = replace(householdId, id) { it.copy(icon = icon) }
 
         override fun usage(

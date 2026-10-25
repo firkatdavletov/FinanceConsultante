@@ -42,7 +42,7 @@ data class CategoryResponse(
                 category.id,
                 category.name,
                 category.kind.name,
-                CategoryIconResponse(category.icon.name, category.icon.emoji),
+                CategoryIconResponse(category.icon, "📦"),
             )
     }
 }

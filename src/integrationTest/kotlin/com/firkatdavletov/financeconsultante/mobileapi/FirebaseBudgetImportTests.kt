@@ -299,6 +299,22 @@ class FirebaseBudgetImportTests
             key: String,
         ) = CloudSeedCategory(UUID.randomUUID(), name, kind, icon, key)
 
+        @Test fun `import preserves opaque category icon codes`() {
+            val code = " custom.icon-v2 "
+            val imported =
+                request.copy(
+                    budget = bootstrap.copy(categories = bootstrap.categories.map { it.copy(icon = code) }),
+                )
+            postImport(imported).andExpect(status().isOk)
+            assertThat(
+                jdbc.queryForList(
+                    "SELECT icon_code FROM category WHERE household_id = ?",
+                    String::class.java,
+                    bootstrap.householdId,
+                ),
+            ).hasSize(4).allMatch { it == code }
+        }
+
         private fun postImport(
             value: ImportFirebaseBudget,
             token: String = "t07-owner",

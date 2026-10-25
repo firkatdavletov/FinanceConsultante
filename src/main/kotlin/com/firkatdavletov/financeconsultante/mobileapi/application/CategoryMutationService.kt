@@ -5,7 +5,6 @@ import com.firkatdavletov.financeconsultante.access.domain.MemberRole
 import com.firkatdavletov.financeconsultante.ledger.application.CategoryDeletion
 import com.firkatdavletov.financeconsultante.ledger.application.CategoryManagement
 import com.firkatdavletov.financeconsultante.ledger.domain.Category
-import com.firkatdavletov.financeconsultante.ledger.domain.CategoryIcon
 import com.firkatdavletov.financeconsultante.ledger.domain.CategoryKind
 import com.firkatdavletov.financeconsultante.ledger.domain.TransactionCategory
 import org.springframework.dao.DataIntegrityViolationException
@@ -118,9 +117,7 @@ class CategoryMutationService(
         value?.let { runCatching { CategoryKind.valueOf(it) }.getOrNull() }
             ?: invalid("kind must be EXPENSE or INCOME")
 
-    private fun parseIcon(value: String?): CategoryIcon =
-        value?.let { runCatching { CategoryIcon.valueOf(it) }.getOrNull() }
-            ?: invalid("icon must be a supported category icon code")
+    private fun parseIcon(value: String?): String = value?.takeIf { it.isNotBlank() } ?: invalid("icon is required")
 
     private fun invalid(message: String): Nothing = throw InvalidCategoryRequest(message)
 

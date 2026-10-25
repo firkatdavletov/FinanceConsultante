@@ -1,6 +1,6 @@
 package com.firkatdavletov.financeconsultante.mobileapi.application
 
-import com.firkatdavletov.financeconsultante.ledger.domain.CategoryIcon
+import com.firkatdavletov.financeconsultante.ledger.domain.Category
 import com.firkatdavletov.financeconsultante.ledger.domain.TransactionCategory
 import com.firkatdavletov.financeconsultante.shared.domain.Money
 import org.springframework.stereotype.Service
@@ -85,7 +85,7 @@ class FirebaseBudgetCreation(
                         UUID.randomUUID(),
                         category.displayName,
                         category.direction.name,
-                        CategoryIcon.defaultFor(category.name).name,
+                        Category.defaultIconFor(category.name),
                         category.name,
                     )
                 },

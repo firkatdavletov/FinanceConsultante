@@ -9,7 +9,6 @@ import com.firkatdavletov.financeconsultante.ledger.application.CategoryRule
 import com.firkatdavletov.financeconsultante.ledger.application.CategoryUsage
 import com.firkatdavletov.financeconsultante.ledger.application.EntryTarget
 import com.firkatdavletov.financeconsultante.ledger.domain.Category
-import com.firkatdavletov.financeconsultante.ledger.domain.CategoryIcon
 import com.firkatdavletov.financeconsultante.ledger.domain.CategoryKind
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.assertThatThrownBy
@@ -52,7 +51,7 @@ class CategoryListServiceTests {
         name,
         CategoryKind.EXPENSE,
         archived,
-        icon = CategoryIcon.FOOD,
+        icon = "FOOD",
     )
 
     private fun member(householdId: UUID) =
@@ -118,7 +117,7 @@ class CategoryListServiceTests {
         override fun changeIcon(
             householdId: UUID,
             id: UUID,
-            icon: CategoryIcon,
+            icon: String,
         ): Boolean = error("Not used")
 
         override fun usage(

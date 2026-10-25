@@ -6,7 +6,6 @@ import com.firkatdavletov.financeconsultante.ledger.application.LedgerInteractio
 import com.firkatdavletov.financeconsultante.ledger.application.OperationHistoryFilter
 import com.firkatdavletov.financeconsultante.ledger.application.OwnedLedger
 import com.firkatdavletov.financeconsultante.ledger.domain.Category
-import com.firkatdavletov.financeconsultante.ledger.domain.CategoryIcon
 import com.firkatdavletov.financeconsultante.ledger.domain.CategoryKind
 import com.firkatdavletov.financeconsultante.ledger.domain.TransactionCategory
 import org.springframework.jdbc.core.simple.JdbcClient
@@ -59,7 +58,7 @@ class JdbcLedgerInteractionRepository(
                             CategoryKind.valueOf(row.getString("kind")),
                             row.getBoolean("archived"),
                             row.getString("dictionary_key"),
-                            CategoryIcon.valueOf(row.getString("icon_code")),
+                            row.getString("icon_code"),
                         )
                     }.optional()
                     .orElse(null),
@@ -81,7 +80,7 @@ class JdbcLedgerInteractionRepository(
                 key.displayName,
                 key.direction.categoryKind.name,
                 key.name,
-                CategoryIcon.defaultFor(key.name).name,
+                Category.defaultIconFor(key.name),
             ).update()
         return checkNotNull(findCategory(householdId, key))
     }
@@ -101,7 +100,7 @@ class JdbcLedgerInteractionRepository(
                     CategoryKind.valueOf(row.getString("kind")),
                     row.getBoolean("archived"),
                     row.getString("dictionary_key"),
-                    CategoryIcon.valueOf(row.getString("icon_code")),
+                    row.getString("icon_code"),
                 )
             }.optional()
             .orElse(null)

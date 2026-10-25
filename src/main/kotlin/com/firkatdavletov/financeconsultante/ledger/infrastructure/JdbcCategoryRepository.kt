@@ -5,7 +5,6 @@ import com.firkatdavletov.financeconsultante.ledger.application.CategoryRule
 import com.firkatdavletov.financeconsultante.ledger.application.CategoryUsage
 import com.firkatdavletov.financeconsultante.ledger.application.EntryTarget
 import com.firkatdavletov.financeconsultante.ledger.domain.Category
-import com.firkatdavletov.financeconsultante.ledger.domain.CategoryIcon
 import com.firkatdavletov.financeconsultante.ledger.domain.CategoryKind
 import com.firkatdavletov.financeconsultante.shared.domain.Money
 import org.springframework.jdbc.core.simple.JdbcClient
@@ -32,7 +31,7 @@ class JdbcCategoryRepository(
                     CategoryKind.valueOf(row.getString("kind")),
                     row.getBoolean("archived"),
                     row.getString("dictionary_key"),
-                    CategoryIcon.valueOf(row.getString("icon_code")),
+                    row.getString("icon_code"),
                 )
             }.list()
 
@@ -52,7 +51,7 @@ class JdbcCategoryRepository(
             .sql(
                 "INSERT INTO category(id, household_id, name, kind, icon_code) VALUES (?, ?, ?, ?, ?) " +
                     "ON CONFLICT DO NOTHING",
-            ).params(category.id, category.householdId, category.name, category.kind.name, category.icon.name)
+            ).params(category.id, category.householdId, category.name, category.kind.name, category.icon)
             .update() == 1
 
     override fun archive(
@@ -78,11 +77,11 @@ class JdbcCategoryRepository(
     override fun changeIcon(
         householdId: UUID,
         id: UUID,
-        icon: CategoryIcon,
+        icon: String,
     ): Boolean =
         jdbc
             .sql("UPDATE category SET icon_code = ? WHERE household_id = ? AND id = ? AND NOT archived")
-            .params(icon.name, householdId, id)
+            .params(icon, householdId, id)
             .update() == 1
 
     override fun usage(

@@ -5,7 +5,6 @@ import com.firkatdavletov.financeconsultante.ledger.application.LedgerOperations
 import com.firkatdavletov.financeconsultante.ledger.application.OwnedLedger
 import com.firkatdavletov.financeconsultante.ledger.application.ProposalCheck
 import com.firkatdavletov.financeconsultante.ledger.application.TransactionDraftRepository
-import com.firkatdavletov.financeconsultante.ledger.domain.CategoryIcon
 import com.firkatdavletov.financeconsultante.ledger.domain.CategoryKind
 import com.firkatdavletov.financeconsultante.ledger.domain.Direction
 import com.firkatdavletov.financeconsultante.ledger.domain.DraftState
@@ -100,7 +99,7 @@ internal class TelegramDraftHandler(
             return newCategoryPrompt(draft, error)
         }
         val category =
-            categories.createExpense(message.ownerId, name, CategoryIcon.OTHER)
+            categories.createExpense(message.ownerId, name, "OTHER")
                 ?: return newCategoryPrompt(draft, "Не удалось создать категорию. Введите другое название.")
         val proposal = checkNotNull(draft.proposal)
         val categorized =
@@ -194,7 +193,7 @@ internal class TelegramDraftHandler(
                 visible.forEachIndexed { index, category ->
                     add(
                         ReplyButton(
-                            "${category.icon.emoji} ${category.name}",
+                            "${TelegramCategoryIcons.emoji(category.icon)} ${category.name}",
                             DraftCategoryCallbacks.selection(draft.id, draft.version, category.id),
                             index / CATEGORY_COLUMNS,
                         ),

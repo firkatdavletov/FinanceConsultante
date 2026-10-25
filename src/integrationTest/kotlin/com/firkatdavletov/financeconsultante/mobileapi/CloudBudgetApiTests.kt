@@ -395,6 +395,58 @@ ledger_entry WHERE household_id = ?
             ).isEqualTo(1)
         }
 
+        @Test fun `unknown icon codes survive bootstrap commands repository reads and sync journal`() {
+            val code = " custom.icon-v2 "
+            val initial = request()
+            val request = initial.copy(categories = initial.categories.map { it.copy(icon = code) })
+            service.create(tokenHash, request)
+            assertThat(service.changes(tokenHash, null, 200).changes.mapNotNull { it.category?.iconCode })
+                .isNotEmpty()
+                .allMatch { it == code }
+            val id = UUID.randomUUID()
+            service.command(
+                tokenHash,
+                command(request, "CREATE_CATEGORY", id).copy(
+                    name = "Техника",
+                    kind = "EXPENSE",
+                    icon = code,
+                ),
+            )
+            service.command(tokenHash, command(request, "UPDATE_CATEGORY", id).copy(name = "Электроника"))
+            val first = service.changes(tokenHash, null, 200)
+            val renamed = first.changes.mapNotNull { it.category }.last { it.id == id }
+            assertThat(renamed.name).isEqualTo("Электроника")
+            assertThat(renamed.iconCode).isEqualTo(code)
+            assertThat(renamed.iconEmoji).isEqualTo("📦")
+            service.command(tokenHash, command(request, "UPDATE_CATEGORY", id).copy(icon = "next.icon-V3"))
+            val changed =
+                service
+                    .changes(tokenHash, first.nextCursor, 200)
+                    .changes
+                    .mapNotNull { it.category }
+                    .last()
+            assertThat(changed.iconCode).isEqualTo("next.icon-V3")
+            assertThat(jdbc.queryForObject("SELECT icon_code FROM category WHERE id = ?", String::class.java, id))
+                .isEqualTo("next.icon-V3")
+        }
+
+        @Test fun `blank category icon cannot be written through sync`() {
+            val request = request()
+            service.create(tokenHash, request)
+            val id = UUID.randomUUID()
+            assertThatThrownBy {
+                service.command(
+                    tokenHash,
+                    command(request, "CREATE_CATEGORY", id).copy(
+                        name = "Техника",
+                        kind = "EXPENSE",
+                        icon = "  ",
+                    ),
+                )
+            }.isInstanceOf(IllegalArgumentException::class.java)
+            assertThat(jdbc.queryForObject("SELECT count(*) FROM category WHERE id = ?", Long::class.java, id)).isZero()
+        }
+
         private fun request(): CreateCloudBudget {
             val id = UUID.randomUUID()
             households += id

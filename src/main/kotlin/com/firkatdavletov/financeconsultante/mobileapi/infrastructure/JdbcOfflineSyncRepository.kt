@@ -1,6 +1,5 @@
 package com.firkatdavletov.financeconsultante.mobileapi.infrastructure
 
-import com.firkatdavletov.financeconsultante.ledger.domain.CategoryIcon
 import com.firkatdavletov.financeconsultante.mobileapi.application.DASHBOARD_SYNC_PROTOCOL
 import com.firkatdavletov.financeconsultante.mobileapi.application.MobileOperationReceipt
 import com.firkatdavletov.financeconsultante.mobileapi.application.OfflineSyncRepository
@@ -208,13 +207,13 @@ class JdbcOfflineSyncRepository(
         )
 
     private fun category(node: JsonNode): SyncCategory {
-        val icon = CategoryIcon.valueOf(node["icon_code"].asString())
+        val icon = node["icon_code"].asString()
         return SyncCategory(
             UUID.fromString(node["id"].asString()),
             node["name"].asString(),
             node["kind"].asString(),
-            icon.name,
-            icon.emoji,
+            icon,
+            "📦",
             node["archived"].asBoolean(),
             node["dictionary_key"]?.takeUnless { it.isNull }?.asString(),
         )

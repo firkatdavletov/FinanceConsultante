@@ -1,7 +1,6 @@
 package com.firkatdavletov.financeconsultante.mobileapi.application
 
 import com.firkatdavletov.financeconsultante.ledger.application.CategoryManagement
-import com.firkatdavletov.financeconsultante.ledger.domain.CategoryIcon
 import com.firkatdavletov.financeconsultante.shared.domain.Money
 import org.springframework.stereotype.Component
 import java.time.Clock
@@ -42,7 +41,7 @@ class CloudBudgetBootstrapValidator(
         )
         request.categories.forEach {
             require(it.kind == dictionary[it.dictionaryKey] && categoryManagement.validName(it.name))
-            ; CategoryIcon.valueOf(it.icon)
+            require(it.icon.isNotBlank())
         }
     }
 }
