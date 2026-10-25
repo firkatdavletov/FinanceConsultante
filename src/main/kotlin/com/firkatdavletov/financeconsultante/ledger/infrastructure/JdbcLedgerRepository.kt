@@ -60,13 +60,15 @@ class JdbcLedgerRepository(
                 .sql(
                     """
                     UPDATE ledger_entry SET original_amount = :amount, amount_kzt = :kzt, category_id = :category,
-                        occurred_at = :date, rub_kzt = :rate, status = :status, version = :version, modified_at = :now
+                        occurred_at = :date, rub_kzt = :rate, status = :status, version = :version, modified_at = :now,
+                        normalized_description = :description
                     WHERE household_id = :household AND id = :id AND version = :version - 1 AND status = 'POSTED'
                         AND NOT EXISTS (SELECT 1 FROM entry_revision WHERE household_id = :household AND mutation_source = :source)
                     """.trimIndent(),
                 ).param("amount", entry.originalAmount.amount)
                 .param("kzt", entry.amountKzt.amount)
                 .param("category", entry.categoryId)
+                .param("description", entry.normalizedDescription, Types.VARCHAR)
                 .param("date", entry.occurredAt.atOffset(ZoneOffset.UTC))
                 .param("rate", entry.exchangeRate?.rubKzt, Types.NUMERIC)
                 .param("status", entry.status.name)

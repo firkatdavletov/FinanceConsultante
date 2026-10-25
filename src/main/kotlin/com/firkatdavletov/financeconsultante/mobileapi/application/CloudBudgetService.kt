@@ -186,12 +186,13 @@ class CloudBudgetService(
                     c.description,
                     c.refundId,
                     c.currency,
-                ),
+                ) + if (c.replaceDetails == true) listOf("replaceDetails", true) else emptyList(),
             )
         commands.receipt(actor.householdId, actor.memberId, c.requestId)?.let {
             if (it.hash != fingerprint) throw CloudBudgetFailure("idempotency_conflict")
             return it.receipt
         }
+        require(c.replaceDetails != true || c.type == "UPDATE_OPERATION")
         require(c.currency == null || c.currency == "KZT")
         require(c.authoredOn in actor.startedAt.atZone(ZONE).toLocalDate()..today())
         val id =
@@ -325,7 +326,13 @@ class CloudBudgetService(
             if (c.type ==
                 "UPDATE_OPERATION"
             ) {
-                corrections.change(target, EntryChange.Amount(amount(c.amount)), source)
+                val change =
+                    if (c.replaceDetails == true) {
+                        EntryChange.Details(amount(c.amount), requireNotNull(c.categoryId), c.description)
+                    } else {
+                        EntryChange.Amount(amount(c.amount))
+                    }
+                corrections.change(target, change, source)
             } else {
                 corrections.refund(target, amount(c.amount), c.authoredOn, source, requireNotNull(c.refundId))
             }

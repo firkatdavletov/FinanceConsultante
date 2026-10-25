@@ -10,6 +10,12 @@ sealed interface EntryChange {
         val value: Money,
     ) : EntryChange
 
+    data class Details(
+        val amount: Money,
+        val categoryId: UUID,
+        val description: String?,
+    ) : EntryChange
+
     data class Category(
         val id: UUID,
     ) : EntryChange

@@ -2,6 +2,7 @@ package com.firkatdavletov.financeconsultante.mobileapi
 
 import com.firkatdavletov.financeconsultante.PostgresIntegrationTest
 import com.firkatdavletov.financeconsultante.mobileapi.application.CloudBudgetCommand
+import com.firkatdavletov.financeconsultante.mobileapi.application.CloudBudgetFailure
 import com.firkatdavletov.financeconsultante.mobileapi.application.CloudBudgetService
 import com.firkatdavletov.financeconsultante.mobileapi.application.CloudSeedCategory
 import com.firkatdavletov.financeconsultante.mobileapi.application.CreateCloudBudget
@@ -32,7 +33,7 @@ class IncomeOperationSyncTests
         private val authoredOn = LocalDate.parse("2026-09-05")
 
         @AfterEach fun cleanup() {
-            jdbc.update("DELETE FROM mobile_budget_access WHERE token_hash = ?", tokenHash)
+            jdbc.update("DELETE FROM mobile_budget_access WHERE token_hash IN (?, ?)", tokenHash, tokenHash.reversed())
             households.forEach { id ->
                 listOf(
                     "recurring_expense_candidate_evidence",
@@ -106,7 +107,8 @@ class IncomeOperationSyncTests
             ).isEqualTo(2)
             assertThat(
                 jdbc.queryForObject(
-                    "SELECT count(*) FROM expected_income_match WHERE expected_income_id = ? AND ledger_entry_id = ?",
+                    "SELECT count(*) FROM expected_income_match " +
+                        "WHERE expected_income_id = ? AND ledger_entry_id = ?",
                     Long::class.java,
                     plan,
                     id,
@@ -243,6 +245,250 @@ class IncomeOperationSyncTests
                     request.householdId,
                 ),
             ).isEqualTo(1)
+        }
+
+        @Test fun `details replace atomically preserve plan links and replay without another revision`() {
+            val request = request()
+            service.create(tokenHash, request)
+            for (kind in listOf("EXPENSE", "INCOME")) {
+                val originalCategory = request.categories.first { it.kind == kind }.id
+                val category = UUID.randomUUID()
+                service.command(
+                    tokenHash,
+                    command(
+                        request,
+                        "CREATE_CATEGORY",
+                        category,
+                    ).copy(name = if (kind == "INCOME") "Новый доход" else "Новый расход", kind = kind, icon = "HOME"),
+                )
+                val plan = UUID.randomUUID()
+                if (kind == "INCOME") {
+                    service.command(
+                        tokenHash,
+                        command(
+                            request,
+                            "CREATE_INCOME",
+                            plan,
+                        ).copy(categoryId = originalCategory, amount = "100.00", dueOn = authoredOn),
+                    )
+                }
+                val id = UUID.randomUUID()
+                service.command(
+                    tokenHash,
+                    command(request, "CREATE_OPERATION", id).copy(
+                        kind = kind,
+                        categoryId = originalCategory,
+                        amount = "100.00",
+                        occurredOn = authoredOn,
+                        description = "Synthetic original",
+                    ),
+                )
+                val before = jdbc.queryForMap("SELECT * FROM ledger_entry WHERE id = ?", id)
+                val cursor = service.changes(tokenHash, null, 200).nextCursor
+                val description =
+                    command(request, "UPDATE_OPERATION", id).copy(
+                        amount = "100.00",
+                        categoryId = originalCategory,
+                        description = "  Покупка 2 шт  ",
+                        replaceDetails = true,
+                    )
+                val receipt = service.command(tokenHash, description)
+                assertThat(service.command(tokenHash, description)).isEqualTo(receipt)
+                var row = jdbc.queryForMap("SELECT * FROM ledger_entry WHERE id = ?", id)
+                assertThat(row["normalized_description"]).isEqualTo("покупка 2 шт")
+                assertThat(row["original_amount"]).isEqualTo(before["original_amount"])
+                val categoryOnly =
+                    description.copy(
+                        requestId = UUID.randomUUID(),
+                        categoryId = category,
+                        description = "покупка 2 шт",
+                    )
+                service.command(tokenHash, categoryOnly)
+                row = jdbc.queryForMap("SELECT * FROM ledger_entry WHERE id = ?", id)
+                assertThat(row["category_id"]).isEqualTo(category)
+                assertThat(row["normalized_description"]).isEqualTo("покупка 2 шт")
+                val clear = categoryOnly.copy(requestId = UUID.randomUUID(), amount = "150.25", description = null)
+                service.command(tokenHash, clear)
+                assertThat(service.command(tokenHash, clear).entityToken).isEqualTo(3)
+                row = jdbc.queryForMap("SELECT * FROM ledger_entry WHERE id = ?", id)
+                assertThat(row["normalized_description"]).isNull()
+                assertThat(row["original_amount"] as java.math.BigDecimal).isEqualByComparingTo("150.25")
+                for (field in listOf(
+                    "id",
+                    "direction",
+                    "actor_id",
+                    "occurred_at",
+                    "created_at",
+                    "source_key",
+                    "original_currency",
+                )) {
+                    assertThat(row[field]).describedAs(field).isEqualTo(before[field])
+                }
+                assertThat(
+                    jdbc.queryForObject(
+                        "SELECT count(*) FROM entry_revision WHERE entry_id = ? AND reason = 'DETAILS_CHANGED'",
+                        Long::class.java,
+                        id,
+                    ),
+                ).isEqualTo(3)
+                if (kind == "INCOME") {
+                    assertThat(
+                        jdbc.queryForObject(
+                            "SELECT count(*) FROM expected_income_match " +
+                                "WHERE expected_income_id = ? AND ledger_entry_id = ?",
+                            Long::class.java,
+                            plan,
+                            id,
+                        ),
+                    ).isEqualTo(1)
+                }
+                val changed =
+                    service.changes(tokenHash, cursor, 200).changes.mapNotNull { it.operation }.last {
+                        it.id ==
+                            id
+                    }
+                assertThat(changed.categoryId).isEqualTo(category)
+                assertThat(changed.description).isNull()
+                assertThat(changed.amountKzt).isEqualTo("150.25")
+                assertThatThrownBy {
+                    service.command(tokenHash, clear.copy(replaceDetails = false))
+                }.isInstanceOf(CloudBudgetFailure::class.java)
+            }
+        }
+
+        @Test fun `invalid metadata rejects the entire correction and refund sources stay unchanged`() {
+            val request = request()
+            service.create(tokenHash, request)
+            val category = request.categories.first { it.kind == "EXPENSE" }.id
+            val id = UUID.randomUUID()
+            service.command(
+                tokenHash,
+                command(request, "CREATE_OPERATION", id).copy(
+                    kind = "EXPENSE",
+                    categoryId = category,
+                    amount = "100.00",
+                    occurredOn = authoredOn,
+                    description = "original",
+                ),
+            )
+            val archived = request.categories.first { it.dictionaryKey == "HEALTH" }.id
+            jdbc.update("UPDATE category SET archived = true WHERE id = ?", archived)
+            val foreign = request()
+            service.create(tokenHash.reversed(), foreign)
+            val base =
+                command(
+                    request,
+                    "UPDATE_OPERATION",
+                    id,
+                ).copy(amount = "150.25", categoryId = category, replaceDetails = true)
+            val invalid =
+                listOf(
+                    base.copy(description = "я".repeat(161)),
+                    base.copy(categoryId = request.categories.single { it.kind == "INCOME" }.id),
+                    base.copy(categoryId = archived),
+                    base.copy(categoryId = UUID.randomUUID()),
+                    base.copy(categoryId = foreign.categories.first().id),
+                    base.copy(amount = "0"),
+                    base.copy(amount = "1.001"),
+                    base.copy(currency = "RUB"),
+                )
+            for (bad in invalid) {
+                assertThatThrownBy {
+                    service.command(tokenHash, bad.copy(requestId = UUID.randomUUID()))
+                }.isInstanceOf(IllegalArgumentException::class.java)
+                val row = jdbc.queryForMap("SELECT * FROM ledger_entry WHERE id = ?", id)
+                assertThat(row["original_amount"] as java.math.BigDecimal).isEqualByComparingTo("100.00")
+                assertThat(row["normalized_description"]).isEqualTo("original")
+                assertThat(row["version"]).isEqualTo(0L)
+            }
+            val atLimit = base.copy(requestId = UUID.randomUUID(), amount = "100.00", description = "я".repeat(160))
+            service.command(tokenHash, atLimit)
+            service.command(
+                tokenHash,
+                command(request, "REFUND_OPERATION", id).copy(amount = "1.00", refundId = UUID.randomUUID()),
+            )
+            assertThatThrownBy {
+                service.command(tokenHash, base.copy(requestId = UUID.randomUUID(), description = "changed"))
+            }.isInstanceOf(IllegalArgumentException::class.java)
+            assertThat(
+                jdbc.queryForObject(
+                    "SELECT normalized_description FROM ledger_entry WHERE id = ?",
+                    String::class.java,
+                    id,
+                ),
+            ).isEqualTo("я".repeat(160))
+            jdbc.update("DELETE FROM mobile_budget_access WHERE token_hash = ?", tokenHash.reversed())
+        }
+
+        @Test fun `legacy receipt fingerprint remains unchanged without the replacement flag`() {
+            val request = request()
+            service.create(tokenHash, request)
+            val category = request.categories.first().id
+            val id = UUID.randomUUID()
+            service.command(
+                tokenHash,
+                command(
+                    request,
+                    "CREATE_OPERATION",
+                    id,
+                ).copy(
+                    kind = "EXPENSE",
+                    categoryId = category,
+                    amount = "100.00",
+                    occurredOn = authoredOn,
+                    description = "original",
+                ),
+            )
+            val c = command(request, "UPDATE_OPERATION", id).copy(amount = "120.00")
+            val receipt = service.command(tokenHash, c)
+            val oldFields =
+                listOf(
+                    c.requestId,
+                    c.householdId,
+                    c.memberId,
+                    c.type,
+                    c.entityId,
+                    c.authoredOn,
+                    c.expectedToken,
+                    c.categoryId,
+                    c.name,
+                    c.kind,
+                    c.icon,
+                    c.amount,
+                    c.frequency,
+                    c.scheduleValue,
+                    c.startsOn,
+                    c.dueOn,
+                    c.ruleId,
+                    c.occurredOn,
+                    c.description,
+                    c.refundId,
+                    c.currency,
+                )
+            val oldHash =
+                MessageDigest
+                    .getInstance("SHA-256")
+                    .digest(
+                        oldFields
+                            .joinToString("") {
+                                if (it == null) "-1:" else "${it.toString().length}:$it"
+                            }.toByteArray(),
+                    ).joinToString("") { "%02x".format(it) }
+            assertThat(
+                jdbc.queryForObject(
+                    "SELECT payload_hash FROM mobile_sync_command WHERE request_id = ?",
+                    String::class.java,
+                    c.requestId,
+                ),
+            ).isEqualTo(oldHash)
+            assertThat(service.command(tokenHash, c)).isEqualTo(receipt)
+            assertThat(
+                jdbc.queryForObject(
+                    "SELECT normalized_description FROM ledger_entry WHERE id = ?",
+                    String::class.java,
+                    id,
+                ),
+            ).isEqualTo("original")
         }
 
         private fun request(): CreateCloudBudget {

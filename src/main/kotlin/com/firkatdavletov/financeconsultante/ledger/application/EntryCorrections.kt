@@ -5,6 +5,7 @@ import com.firkatdavletov.financeconsultante.exchange.application.ExchangeRateJo
 import com.firkatdavletov.financeconsultante.ledger.domain.Direction
 import com.firkatdavletov.financeconsultante.ledger.domain.EntryChange
 import com.firkatdavletov.financeconsultante.ledger.domain.EntryStatus
+import com.firkatdavletov.financeconsultante.ledger.domain.ExpenseDescriptionNormalizer
 import com.firkatdavletov.financeconsultante.ledger.domain.LedgerEntry
 import com.firkatdavletov.financeconsultante.ledger.domain.RefundPolicy
 import com.firkatdavletov.financeconsultante.ledger.domain.revised
@@ -14,6 +15,7 @@ import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import java.math.BigDecimal
 import java.time.Clock
+import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalTime
 import java.time.temporal.ChronoUnit
@@ -77,6 +79,7 @@ class EntryCorrections(
             when (change) {
                 is EntryChange.Amount -> "AMOUNT_CHANGED"
                 is EntryChange.Category -> "CATEGORY_CHANGED"
+                is EntryChange.Details -> "DETAILS_CHANGED"
                 is EntryChange.Date -> "DATE_CHANGED"
                 EntryChange.Void -> "USER_VOID"
             }
@@ -90,6 +93,7 @@ class EntryCorrections(
     @Suppress("ReturnCount") // Validate the proposed fields before constructing a revision.
     private fun changedEntry(original: LedgerEntry, change: EntryChange): CorrectionResult {
         val now = clock.instant().truncatedTo(ChronoUnit.MICROS)
+        if (change is EntryChange.Details) return changedDetails(original, change, now)
         val date =
             (change as? EntryChange.Date)?.value ?: original.occurredAt.atZone(LedgerOperations.ZONE).toLocalDate()
         val amount = (change as? EntryChange.Amount)?.value ?: original.originalAmount
@@ -107,6 +111,36 @@ class EntryCorrections(
         } else {
             prepare(original.revised(now), amount, date, categoryId)
         }
+    }
+
+    @Suppress("ReturnCount")
+    private fun changedDetails(
+        original: LedgerEntry,
+        change: EntryChange.Details,
+        now: Instant,
+    ): CorrectionResult {
+        if (original.originalAmount.currency != Currency.KZT || change.amount.currency != Currency.KZT ||
+            original.direction !in setOf(Direction.EXPENSE, Direction.INCOME)
+        ) {
+            return rejected("Исправление доступно только для доходов и расходов в KZT с положительной суммой.")
+        }
+        if (change.amount.amount.signum() <= 0) return rejected("Сумма должна быть положительной.")
+        val category =
+            budgets.findCategory(original.householdId, change.categoryId)
+                ?: return rejected("Категория недоступна.")
+        if (category.archived || category.kind != original.direction.categoryKind) {
+            return rejected("Категория недоступна или архивирована.")
+        }
+        val description = change.description.orEmpty().trim()
+        if (description.length > ExpenseDescriptionNormalizer.MAX_LENGTH) return rejected("Описание слишком длинное.")
+        return CorrectionResult.Updated(
+            original.revised(now).copy(
+                originalAmount = change.amount,
+                amountKzt = change.amount,
+                categoryId = change.categoryId,
+                normalizedDescription = ExpenseDescriptionNormalizer.normalize(description),
+            ),
+        )
     }
 
     @Suppress("ReturnCount")

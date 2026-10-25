@@ -60,6 +60,7 @@ data class CloudBudgetCommand(
     val occurredOn: LocalDate? = null,
     val description: String? = null,
     val refundId: UUID? = null,
+    val replaceDetails: Boolean? = false,
     val currency: String? = null,
 )
 

@@ -216,6 +216,72 @@ class FirebaseFamilyBudgetTests
             ).isEqualByComparingTo("75.00")
         }
 
+        @Test fun `member replaces own details through Firebase HTTP and owner can edit shared records`() {
+            val member = family.join(guest, AcceptFirebaseInvitation(invitations.create(owner, shared.id).code))
+            val income = command(member, "INCOME", "100.00")
+            budgets.command(guest, shared.id, income)
+            val update =
+                income.copy(
+                    requestId = UUID.randomUUID(),
+                    type = "UPDATE_OPERATION",
+                    description = "Аванс 2",
+                    replaceDetails = true,
+                )
+            val body =
+                """
+                {
+                    "requestId":"${update.requestId}","householdId":"${shared.id}","memberId":"${member.memberId}",
+                    "type":"UPDATE_OPERATION","entityId":"${income.entityId}","authoredOn":"${update.authoredOn}",
+                    "amount":"100.00","categoryId":"${income.categoryId}","description":"Аванс 2","replaceDetails":true
+                }
+                """.trimIndent()
+            repeat(2) {
+                mvc
+                    .perform(
+                        post("/api/v4/budgets/${shared.id}/sync/commands")
+                            .header("Authorization", "Bearer t10-guest")
+                            .contentType("application/json")
+                            .content(body),
+                    ).andExpect(status().isOk)
+                    .andExpect(jsonPath("$.entityToken").value(1))
+            }
+            val id = UUID.fromString(income.entityId)
+            assertThat(
+                jdbc.queryForObject(
+                    "SELECT normalized_description FROM ledger_entry WHERE id = ?",
+                    String::class.java,
+                    id,
+                ),
+            ).isEqualTo("аванс 2")
+            val ownerIncome = command(shared, "INCOME", "75.00")
+            budgets.command(owner, shared.id, ownerIncome)
+            assertThatThrownBy {
+                budgets.command(
+                    guest,
+                    shared.id,
+                    update.copy(requestId = UUID.randomUUID(), entityId = ownerIncome.entityId),
+                )
+            }.isInstanceOf(IllegalArgumentException::class.java)
+            assertThatThrownBy {
+                budgets.command(guest, personal.id, update.copy(requestId = UUID.randomUUID()))
+            }.isInstanceOf(CloudBudgetFailure::class.java)
+            budgets.command(
+                owner,
+                shared.id,
+                update.copy(requestId = UUID.randomUUID(), memberId = shared.memberId, description = null),
+            )
+            assertThat(
+                jdbc.queryForObject(
+                    "SELECT normalized_description FROM ledger_entry WHERE id = ?",
+                    String::class.java,
+                    id,
+                ),
+            ).isNull()
+            assertThat(
+                jdbc.queryForObject("SELECT actor_id FROM ledger_entry WHERE id = ?", UUID::class.java, id),
+            ).isEqualTo(member.memberId)
+        }
+
         @Test fun `invalid expired revoked and consumed codes never grant a foreign membership`() {
             val revoked = invitations.create(owner, shared.id)
             invitations.revoke(owner, shared.id, revoked.id)
