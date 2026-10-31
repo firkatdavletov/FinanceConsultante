@@ -346,6 +346,72 @@ class FirebaseBudgetApiTests
         private fun list(token: String) =
             mvc.perform(get("/api/v4/budgets").header("Authorization", "Bearer $token")).andExpect(status().isOk)
 
+        @Test fun `Android expense link wire payload is accepted through Firebase HTTP`() {
+            list("synthetic-owner")
+            val rule = UUID.randomUUID()
+            val operation = UUID.randomUUID()
+            val authored = LocalDate.parse("2026-09-05")
+
+            fun command(
+                type: String,
+                id: UUID,
+            ) = CloudBudgetCommand(UUID.randomUUID(), request.householdId, member, type, id.toString(), authored)
+            budgets.command(
+                uid,
+                request.householdId,
+                command(
+                    "CREATE_RULE",
+                    rule,
+                ).copy(
+                    categoryId = request.categories[0].id,
+                    amount = "100.00",
+                    frequency = "MONTHLY",
+                    scheduleValue = 30,
+                    startsOn = authored,
+                ),
+            )
+            budgets.command(
+                uid,
+                request.householdId,
+                command(
+                    "CREATE_OPERATION",
+                    operation,
+                ).copy(
+                    categoryId = request.categories[0].id,
+                    amount = "100.00",
+                    kind = "EXPENSE",
+                    occurredOn = authored,
+                ),
+            )
+            val occurrence =
+                jdbc.queryForObject(
+                    "SELECT id FROM recurring_occurrence WHERE rule_id=? AND due_on='2026-09-30'",
+                    UUID::class.java,
+                    rule,
+                )
+            val body = """{"requestId":"${UUID.randomUUID()}","householdId":"${request.householdId}",
+                "memberId":"$member","type":"SET_OPERATION_PLAN_LINK","entityId":"$operation",
+                "authoredOn":"2026-09-05","expectedToken":0,
+                "planTarget":{"type":"EXPENSE","planId":"$occurrence","ruleId":"$rule","dueOn":"2026-09-30"},
+                "expectedPlanVersion":0}"""
+            val result =
+                mvc
+                    .perform(
+                        post("/api/v4/budgets/${request.householdId}/sync/commands")
+                            .header("Authorization", "Bearer synthetic-owner")
+                            .header("X-Fillin-Capabilities", "confirmedPlanLinkingV1")
+                            .contentType("application/json")
+                            .content(body),
+                    ).andReturn()
+            assertThat(
+                result.response.status,
+            ).describedAs(
+                "HTTP response: %s; exception: %s",
+                result.response.contentAsString,
+                result.resolvedException,
+            ).isEqualTo(200)
+        }
+
         private fun create(id: UUID): CreateCloudBudget {
             val household = UUID.randomUUID()
             households += household

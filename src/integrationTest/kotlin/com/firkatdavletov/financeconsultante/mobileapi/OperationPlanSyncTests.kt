@@ -13,12 +13,19 @@ import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.assertThatThrownBy
 import org.flywaydb.core.Flyway
 import org.junit.jupiter.api.AfterEach
+import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import org.mockito.ArgumentMatchers
+import org.mockito.Mockito
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.test.context.TestPropertySource
+import org.springframework.test.context.bean.override.mockito.MockitoBean
 import java.security.MessageDigest
+import java.time.Clock
+import java.time.Instant
 import java.time.LocalDate
+import java.time.ZoneId
 import java.util.UUID
 import java.util.concurrent.Callable
 import java.util.concurrent.CyclicBarrier
@@ -35,6 +42,17 @@ class OperationPlanSyncTests
         private val jdbc: JdbcTemplate,
         private val dataSource: DataSource,
     ) : PostgresIntegrationTest() {
+        @MockitoBean(name = "fixedClock")
+        private lateinit var preciseClock: Clock
+
+        // Reproduce Clock.systemUTC precision rather than hiding it behind whole-second fixture time.
+        @BeforeEach fun preciseSystemClock() {
+            val instant = Instant.parse("2026-09-06T03:00:00.123456789Z")
+            Mockito.`when`(preciseClock.instant()).thenReturn(instant)
+            Mockito.`when`(preciseClock.zone).thenReturn(ZoneId.of("Asia/Almaty"))
+            Mockito.`when`(preciseClock.withZone(ArgumentMatchers.any())).thenReturn(preciseClock)
+        }
+
         private val households = mutableSetOf<UUID>()
         private val tokenHash =
             MessageDigest.getInstance("SHA-256").digest("synthetic-income-sync-token".toByteArray()).joinToString("") {
@@ -123,6 +141,15 @@ class OperationPlanSyncTests
                 )
             val linked = service.command(actor, link, capability)
             assertThat(linked.entityToken).isEqualTo(1)
+            assertThat(
+                jdbc
+                    .queryForObject(
+                        "SELECT modified_at FROM ledger_entry WHERE id=?",
+                        java.sql.Timestamp::class.java,
+                        operation,
+                    )?.toInstant()
+                    ?.nano,
+            ).isEqualTo(123456000)
             assertThat(service.command(actor, link)).isEqualTo(linked)
             assertThat(
                 jdbc.queryForObject(

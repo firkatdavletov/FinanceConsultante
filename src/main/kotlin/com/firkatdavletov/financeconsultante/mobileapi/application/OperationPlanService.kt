@@ -12,6 +12,7 @@ import org.springframework.stereotype.Service
 import java.time.Clock
 import java.time.LocalDate
 import java.time.ZoneId
+import java.time.temporal.ChronoUnit
 import java.util.UUID
 
 data class PlanLinkTarget(
@@ -169,7 +170,7 @@ class OperationPlanService(
         }
         check(
             ledger.revise(
-                entry.revised(clock.instant()),
+                entry.revised(clock.instant().truncatedTo(ChronoUnit.MICROS)),
                 actor.memberId,
                 "PLAN_LINK_CHANGED",
                 "mobile-v4:${c.requestId}",
