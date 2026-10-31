@@ -67,14 +67,16 @@ class FirebaseBudgets(
         budgetId: UUID,
         cursor: String?,
         limit: Int,
-    ): SyncPage = cloud.changes(actor(uid, budgetId), cursor, limit)
+        capabilities: String? = null,
+    ): SyncPage = cloud.changes(actor(uid, budgetId), cursor, limit, capabilities)
 
     @Transactional
     fun command(
         uid: String,
         budgetId: UUID,
         command: CloudBudgetCommand,
-    ): BudgetCommandReceipt = cloud.command(actor(uid, budgetId), command)
+        capabilities: String? = null,
+    ): BudgetCommandReceipt = cloud.command(actor(uid, budgetId), command, capabilities)
 
     private fun actor(
         uid: String,

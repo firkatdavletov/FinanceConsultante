@@ -278,7 +278,9 @@ class JdbcRecurringPlanRepository(
         jdbc
             .sql(
                 """
-                UPDATE recurring_occurrence SET version = version + 1, updated_at = ?
+                UPDATE recurring_occurrence SET version = version + CASE WHEN
+                    (SELECT confirmed_plan_linking FROM household WHERE id = recurring_occurrence.household_id)
+                    THEN 0 ELSE 1 END, updated_at = ?
                 WHERE id = ? AND version = ? AND status = 'SCHEDULED'
                 """.trimIndent(),
             ).params(offset(now), occurrenceId, previousVersion)
@@ -326,7 +328,7 @@ class JdbcRecurringPlanRepository(
         jdbc
             .sql(
                 """
-                INSERT INTO recurring_occurrence_payment(household_id, occurrence_id, ledger_entry_id, created_at)
+                INSERT INTO operation_plan_links(household_id, occurrence_id, ledger_id, created_at)
                 VALUES (?, ?, ?, ?)
                 ON CONFLICT DO NOTHING
                 """.trimIndent(),
@@ -431,13 +433,10 @@ class JdbcRecurringPlanRepository(
                 UPDATE expected_income
                 SET category_id = ?, planned_amount = ?, due_on = ?, version = ?, updated_at = ?
                 WHERE household_id = ? AND id = ? AND version = ? AND status = 'SCHEDULED'
-                    AND NOT EXISTS (
-                        SELECT 1 FROM expected_income_match m
-                        JOIN ledger_entry l ON l.household_id = m.household_id AND l.id = m.ledger_entry_id
-                        WHERE m.household_id = expected_income.household_id
-                            AND m.expected_income_id = expected_income.id
-                            AND l.status = 'POSTED'
-                    )
+                    AND (category_id = ? OR NOT EXISTS (
+                        SELECT 1 FROM operation_plan_links p
+                        WHERE p.household_id = expected_income.household_id AND p.expected_income_id = expected_income.id
+                    ))
                 """.trimIndent(),
             ).params(
                 expectedIncome.categoryId,
@@ -448,6 +447,7 @@ class JdbcRecurringPlanRepository(
                 expectedIncome.householdId,
                 expectedIncome.id,
                 previousVersion,
+                expectedIncome.categoryId,
             ).update() == 1
 
     override fun cancelExpectedIncome(
@@ -472,7 +472,9 @@ class JdbcRecurringPlanRepository(
         jdbc
             .sql(
                 """
-                UPDATE expected_income SET version = version + 1, updated_at = ?
+                UPDATE expected_income SET version = version + CASE WHEN
+                    (SELECT confirmed_plan_linking FROM household WHERE id = expected_income.household_id)
+                    THEN 0 ELSE 1 END, updated_at = ?
                 WHERE id = ? AND version = ? AND status = 'SCHEDULED'
                 """.trimIndent(),
             ).params(offset(now), expectedIncomeId, previousVersion)
@@ -488,7 +490,7 @@ class JdbcRecurringPlanRepository(
             jdbc
                 .sql(
                     """
-                    INSERT INTO expected_income_match(household_id, expected_income_id, ledger_entry_id, created_at)
+                    INSERT INTO operation_plan_links(household_id, expected_income_id, ledger_id, created_at)
                     VALUES (?, ?, ?, ?)
                     """.trimIndent(),
                 ).params(householdId, expectedIncomeId, ledgerEntryId, offset(now))
@@ -586,7 +588,7 @@ class JdbcRecurringPlanRepository(
         private val OCCURRENCE_VIEW =
             """
             SELECT o.*, c.name AS category_name,
-                COALESCE(SUM(l.original_amount) FILTER (WHERE l.status = 'POSTED'), 0) AS paid_amount
+                COALESCE(SUM(operation_plan_contribution(l.household_id, l.id)) FILTER (WHERE l.status = 'POSTED'), 0) AS paid_amount
             FROM recurring_occurrence o
             JOIN category c ON c.household_id = o.household_id AND c.id = o.category_id
             LEFT JOIN recurring_occurrence_payment p
@@ -598,7 +600,7 @@ class JdbcRecurringPlanRepository(
         private val OCCURRENCE_BY_ID =
             """
             SELECT o.*, c.name AS category_name,
-                COALESCE(SUM(l.original_amount) FILTER (WHERE l.status = 'POSTED'), 0) AS paid_amount
+                COALESCE(SUM(operation_plan_contribution(l.household_id, l.id)) FILTER (WHERE l.status = 'POSTED'), 0) AS paid_amount
             FROM recurring_occurrence o
             JOIN category c ON c.household_id = o.household_id AND c.id = o.category_id
             LEFT JOIN recurring_occurrence_payment p
@@ -609,7 +611,7 @@ class JdbcRecurringPlanRepository(
         private val PLANNED_EXPENSE_VIEW =
             """
             SELECT o.*, c.name AS category_name,
-                COALESCE(SUM(l.original_amount) FILTER (WHERE l.status = 'POSTED'), 0) AS paid_amount
+                COALESCE(SUM(operation_plan_contribution(l.household_id, l.id)) FILTER (WHERE l.status = 'POSTED'), 0) AS paid_amount
             FROM recurring_occurrence o
             JOIN category c ON c.household_id = o.household_id AND c.id = o.category_id
             LEFT JOIN recurring_occurrence_payment p
@@ -617,13 +619,13 @@ class JdbcRecurringPlanRepository(
             LEFT JOIN ledger_entry l ON l.household_id = p.household_id AND l.id = p.ledger_entry_id
             WHERE o.household_id = :household AND o.due_on <= :through AND o.status = 'SCHEDULED'
             GROUP BY o.id, c.name
-            HAVING COALESCE(SUM(l.original_amount) FILTER (WHERE l.status = 'POSTED'), 0) < o.planned_amount
+            HAVING COALESCE(SUM(operation_plan_contribution(l.household_id, l.id)) FILTER (WHERE l.status = 'POSTED'), 0) < o.planned_amount
             ORDER BY o.due_on, o.id
             """.trimIndent()
         private val MATCHABLE_OCCURRENCES =
             """
             SELECT o.*, c.name AS category_name,
-                COALESCE(SUM(l.original_amount) FILTER (WHERE l.status = 'POSTED'), 0) AS paid_amount
+                COALESCE(SUM(operation_plan_contribution(l.household_id, l.id)) FILTER (WHERE l.status = 'POSTED'), 0) AS paid_amount
             FROM recurring_occurrence o
             JOIN category c ON c.household_id = o.household_id AND c.id = o.category_id
             LEFT JOIN recurring_occurrence_payment p
@@ -632,14 +634,14 @@ class JdbcRecurringPlanRepository(
             WHERE o.household_id = :household AND o.category_id = :category
                 AND o.status = 'SCHEDULED' AND o.due_on <= :through
             GROUP BY o.id, c.name
-            HAVING COALESCE(SUM(l.original_amount) FILTER (WHERE l.status = 'POSTED'), 0) < o.planned_amount
+            HAVING COALESCE(SUM(operation_plan_contribution(l.household_id, l.id)) FILTER (WHERE l.status = 'POSTED'), 0) < o.planned_amount
             ORDER BY ABS(o.due_on - :closest), o.due_on, o.id
             LIMIT :limit
             """.trimIndent()
         private val EXPECTED_VIEW =
             """
             SELECT e.*, c.name AS category_name,
-                COALESCE(SUM(l.original_amount) FILTER (WHERE l.status = 'POSTED'), 0) AS received_amount,
+                COALESCE(SUM(operation_plan_contribution(l.household_id, l.id)) FILTER (WHERE l.status = 'POSTED'), 0) AS received_amount,
                 COUNT(l.id) FILTER (WHERE l.status = 'POSTED') AS posted_matches
             FROM expected_income e
             JOIN category c ON c.household_id = e.household_id AND c.id = e.category_id

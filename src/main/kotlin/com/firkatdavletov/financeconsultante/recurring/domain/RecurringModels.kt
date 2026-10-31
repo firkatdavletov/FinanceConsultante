@@ -180,13 +180,16 @@ data class ExpectedIncomeView(
         require(receivedAmount.amount.signum() >= 0 && postedMatches >= 0) { "Invalid received income" }
     }
 
+    val remainingAmount: Money
+        get() = Money.of((expectedIncome.plannedAmount.amount - receivedAmount.amount).max(BigDecimal.ZERO))
+
     val fulfilled: Boolean
-        get() = postedMatches > 0
+        get() = receivedAmount.amount >= expectedIncome.plannedAmount.amount
 
     val forecastAmount: Money
         get() =
             if (expectedIncome.status == ExpectedIncomeStatus.SCHEDULED && !fulfilled) {
-                expectedIncome.plannedAmount
+                remainingAmount
             } else {
                 Money.of(BigDecimal.ZERO, expectedIncome.plannedAmount.currency)
             }

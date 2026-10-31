@@ -34,6 +34,7 @@ data class BudgetCommandReceipt(
     val requestId: UUID,
     val revision: Long,
     val entityToken: Long?,
+    val suggestedPlan: SuggestedPlan? = null,
 )
 
 data class StoredBudgetCommand(

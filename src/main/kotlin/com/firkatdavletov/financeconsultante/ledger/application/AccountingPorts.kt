@@ -25,6 +25,11 @@ interface BudgetRepository {
 }
 
 interface LedgerRepository {
+    fun planLinked(
+        householdId: UUID,
+        entryId: UUID,
+    ): Boolean = false
+
     fun find(
         householdId: UUID,
         entryId: UUID,

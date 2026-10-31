@@ -30,6 +30,7 @@ data class RecordEntry(
     val normalizedDescription: String? = null,
     val expectedIncomeId: UUID? = null,
     val id: UUID = UUID.randomUUID(),
+    val confirmPlanLink: Boolean = false,
 )
 
 data class RecordResult(
@@ -96,7 +97,7 @@ class AccountingService(
                 normalizedDescription = command.normalizedDescription,
             )
         return if (ledger.insert(entry)) {
-            matchExpectedIncome(entry, command.expectedIncomeId)
+            if (!command.confirmPlanLink) matchExpectedIncome(entry, command.expectedIncomeId)
             RecordResult(entry, true)
         } else {
             RecordResult(checkNotNull(ledger.findBySource(command.householdId, command.sourceKey)), false)

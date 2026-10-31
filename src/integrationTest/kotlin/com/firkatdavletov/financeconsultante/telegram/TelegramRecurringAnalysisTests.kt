@@ -262,7 +262,7 @@ class TelegramRecurringAnalysisTests
         private fun cleanupData() {
             jdbc.execute(
                 "TRUNCATE recurring_expense_candidate_evidence, recurring_expense_candidate, " +
-                    "recurring_occurrence_payment, expected_income_match, recurring_occurrence, " +
+                    "operation_plan_links, recurring_occurrence, " +
                     "recurring_rule, " +
                     "expected_income, openai_recognition_job, openai_daily_usage, " +
                     "transaction_draft, telegram_outbox, " +

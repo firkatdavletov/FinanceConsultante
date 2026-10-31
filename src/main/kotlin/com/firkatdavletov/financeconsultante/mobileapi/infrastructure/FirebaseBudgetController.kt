@@ -11,6 +11,7 @@ import com.firkatdavletov.financeconsultante.mobileapi.application.FirebaseBudge
 import com.firkatdavletov.financeconsultante.mobileapi.application.FirebaseBudgets
 import com.firkatdavletov.financeconsultante.mobileapi.application.ImportFirebaseBudget
 import com.firkatdavletov.financeconsultante.mobileapi.application.MobileApiAccessDenied
+import com.firkatdavletov.financeconsultante.mobileapi.application.PlanLinkFailure
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty
 import org.springframework.http.CacheControl
 import org.springframework.http.HttpHeaders
@@ -53,26 +54,40 @@ class FirebaseBudgetController(
         @RequestHeader(HttpHeaders.AUTHORIZATION, required = false) authorization: String?,
     ) = noStore(budgets.list(authentication.authenticate(authorization).firebaseUid))
 
+    @Suppress("UnusedParameter") // Metadata stays readable for capability negotiation.
     @GetMapping("/{budgetId}")
     fun budget(
         @RequestHeader(HttpHeaders.AUTHORIZATION, required = false) authorization: String?,
         @PathVariable budgetId: UUID,
+        @RequestHeader("X-Fillin-Capabilities", required = false) capabilities: String?,
     ) = noStore(budgets.budget(authentication.authenticate(authorization).firebaseUid, budgetId))
 
     @GetMapping("/{budgetId}/sync/changes")
     fun changes(
         @RequestHeader(HttpHeaders.AUTHORIZATION, required = false) authorization: String?,
         @PathVariable budgetId: UUID,
+        @RequestHeader("X-Fillin-Capabilities", required = false) capabilities: String?,
         @RequestParam(required = false) cursor: String?,
         @RequestParam(defaultValue = "200") limit: Int,
-    ) = noStore(budgets.changes(authentication.authenticate(authorization).firebaseUid, budgetId, cursor, limit))
+    ) = noStore(
+        budgets.changes(
+            authentication.authenticate(authorization).firebaseUid,
+            budgetId,
+            cursor,
+            limit,
+            capabilities,
+        ),
+    )
 
     @PostMapping("/{budgetId}/sync/commands")
     fun command(
         @RequestHeader(HttpHeaders.AUTHORIZATION, required = false) authorization: String?,
         @PathVariable budgetId: UUID,
+        @RequestHeader("X-Fillin-Capabilities", required = false) capabilities: String?,
         @RequestBody command: CloudBudgetCommand,
-    ) = noStore(budgets.command(authentication.authenticate(authorization).firebaseUid, budgetId, command))
+    ) = noStore(
+        budgets.command(authentication.authenticate(authorization).firebaseUid, budgetId, command, capabilities),
+    )
 
     private fun <T> noStore(value: T) = ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(value)
 }
@@ -101,6 +116,9 @@ class FirebaseBudgetErrors {
 
     @ExceptionHandler(CloudBudgetFailure::class)
     fun conflict(failure: CloudBudgetFailure) = error(HttpStatus.CONFLICT, failure.code)
+
+    @ExceptionHandler(PlanLinkFailure::class)
+    fun planFailure(failure: PlanLinkFailure) = error(HttpStatus.valueOf(failure.status), failure.code)
 
     @ExceptionHandler(IllegalArgumentException::class)
     fun invalid() = error(HttpStatus.BAD_REQUEST, "invalid_request")

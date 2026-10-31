@@ -232,7 +232,8 @@ class ExpectedIncomeMatchingTests
                 )
 
             assertThat(receipt.expectedIncome.expectedIncome.id).isEqualTo(selected.id)
-            assertThat(receipt.expectedIncome.fulfilled).isTrue()
+            assertThat(receipt.expectedIncome.fulfilled).isFalse()
+            assertThat(receipt.expectedIncome.remainingAmount).isEqualTo(Money.of("20"))
             assertThat(service.expectedIncome(owner, nearest.id)?.fulfilled).isFalse()
             assertThat(linkCount("expected_income_match")).isEqualTo(1)
         }

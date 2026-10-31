@@ -15,6 +15,16 @@ import java.util.UUID
 class JdbcLedgerRepository(
     private val jdbc: JdbcClient,
 ) : LedgerRepository {
+    override fun planLinked(
+        householdId: UUID,
+        entryId: UUID,
+    ): Boolean =
+        jdbc
+            .sql("SELECT EXISTS(SELECT 1 FROM operation_plan_links WHERE household_id=? AND ledger_id=?)")
+            .params(householdId, entryId)
+            .query(Boolean::class.java)
+            .single()
+
     override fun find(
         householdId: UUID,
         entryId: UUID,

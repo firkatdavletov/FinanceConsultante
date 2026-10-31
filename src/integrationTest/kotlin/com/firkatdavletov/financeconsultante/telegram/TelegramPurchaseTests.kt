@@ -189,7 +189,7 @@ class TelegramPurchaseTests
             jdbc.execute(
                 "TRUNCATE recurring_expense_candidate_evidence, recurring_expense_candidate, " +
                     "savings_goal_allocation, goal_contribution_plan, savings_goal, " +
-                    "expected_income_match, expected_income, recurring_occurrence_payment, recurring_occurrence, " +
+                    "operation_plan_links, expected_income, recurring_occurrence, " +
                     "recurring_rule, openai_recognition_job, openai_daily_usage, transaction_draft, telegram_outbox, " +
                     "telegram_inbox, telegram_polling_state, telegram_dialog RESTART IDENTITY",
             )

@@ -75,6 +75,8 @@ class RecurringModelsTests {
 
         assertThat(ExpectedIncomeView(expected, "Зарплата", Money.of("0"), 0).forecastAmount)
             .isEqualTo(Money.of("100"))
+        assertThat(ExpectedIncomeView(expected, "Зарплата", Money.of("40"), 1).forecastAmount)
+            .isEqualTo(Money.of("60"))
         assertThat(ExpectedIncomeView(expected, "Зарплата", Money.of("120"), 1).forecastAmount)
             .isEqualTo(Money.of("0"))
     }

@@ -49,6 +49,7 @@ class RecurringPlanService(
         id: UUID = UUID.randomUUID(),
     ): PlanChange<RecurringRuleView> {
         if (!owner.canManageHousehold) return ownerOnly()
+        if (budgets.findOwnedAccount(owner.householdId, owner.memberId, lock = true) == null) return ownerOnly()
         planAmountError(amount)?.let { return PlanChange.Rejected(it) }
         category(owner, categoryId, CategoryKind.EXPENSE)?.let { return PlanChange.Rejected(it) }
         if (startsOn < owner.startedAt.atZone(ACCOUNTING_ZONE).toLocalDate()) {
@@ -118,11 +119,13 @@ class RecurringPlanService(
         effectiveOn: LocalDate,
     ): PlanChange<RecurringRuleView> {
         if (!owner.canManageHousehold) return ownerOnly()
+        if (budgets.findOwnedAccount(owner.householdId, owner.memberId, lock = true) == null) return ownerOnly()
         planAmountError(amount)?.let { return PlanChange.Rejected(it) }
         val current =
             plans.findRule(owner.householdId, ruleId, lock = true)
                 ?: return PlanChange.Rejected(STALE_RULE)
         if (current.version != version || !current.active) return PlanChange.Rejected(STALE_RULE)
+        generate(current, LocalDate.now(clock.withZone(ACCOUNTING_ZONE)).plusYears(PLAN_DEFINITION_HORIZON), now())
         val updated = current.copy(amount = amount, version = version + 1, updatedAt = now())
         if (!plans.updateRuleAmount(updated, version, effectiveOn)) return PlanChange.Rejected(STALE_RULE)
         generate(updated, horizon(effectiveOn), updated.updatedAt)
@@ -136,6 +139,7 @@ class RecurringPlanService(
         effectiveOn: LocalDate,
     ): PlanChange<RecurringRuleView> {
         if (!owner.canManageHousehold) return ownerOnly()
+        if (budgets.findOwnedAccount(owner.householdId, owner.memberId, lock = true) == null) return ownerOnly()
         val current =
             plans.findRule(owner.householdId, ruleId, lock = true)
                 ?: return PlanChange.Rejected(STALE_RULE)
@@ -152,6 +156,7 @@ class RecurringPlanService(
         today: LocalDate,
     ): PlanChange<RecurringOccurrenceView> {
         if (!owner.canManageHousehold) return ownerOnly()
+        if (budgets.findOwnedAccount(owner.householdId, owner.memberId, lock = true) == null) return ownerOnly()
         val occurrence =
             plans.findOccurrence(owner.householdId, occurrenceId, lock = true)
                 ?: return PlanChange.Rejected(STALE_OCCURRENCE)
@@ -174,6 +179,7 @@ class RecurringPlanService(
         version: Long,
     ): PlanChange<RecurringOccurrenceView> {
         if (!owner.canManageHousehold) return ownerOnly()
+        if (budgets.findOwnedAccount(owner.householdId, owner.memberId, lock = true) == null) return ownerOnly()
         val occurrence =
             plans.findOccurrence(owner.householdId, occurrenceId, lock = true)
                 ?: return PlanChange.Rejected(STALE_OCCURRENCE)
@@ -202,6 +208,7 @@ class RecurringPlanService(
         source: String,
     ): PlanChange<PaymentReceipt> {
         if (!owner.canManageHousehold) return ownerOnly()
+        if (budgets.findOwnedAccount(owner.householdId, owner.memberId, lock = true) == null) return ownerOnly()
         planAmountError(amount)?.let { return PlanChange.Rejected(it) }
         val occurrence =
             plans.findOccurrence(owner.householdId, occurrenceId, lock = true)
@@ -238,6 +245,7 @@ class RecurringPlanService(
         return PlanChange.Applied(PaymentReceipt(after, recorded.entry, recorded.recorded))
     }
 
+    @Suppress("CyclomaticComplexMethod") // Guards finish before creating the unique link.
     fun matchPayment(
         owner: BudgetActor,
         occurrenceId: UUID,
@@ -245,6 +253,7 @@ class RecurringPlanService(
         ledgerEntryId: UUID,
     ): PlanChange<RecurringOccurrenceView> {
         if (!owner.canManageHousehold) return ownerOnly()
+        if (budgets.findOwnedAccount(owner.householdId, owner.memberId, lock = true) == null) return ownerOnly()
         val occurrence =
             plans.findOccurrence(owner.householdId, occurrenceId, lock = true)
                 ?: return PlanChange.Rejected(STALE_OCCURRENCE)
@@ -331,6 +340,7 @@ class RecurringPlanService(
         id: UUID = UUID.randomUUID(),
     ): PlanChange<ExpectedIncomeView> {
         if (!owner.canManageHousehold) return ownerOnly()
+        if (budgets.findOwnedAccount(owner.householdId, owner.memberId, lock = true) == null) return ownerOnly()
         planAmountError(amount)?.let { return PlanChange.Rejected(it) }
         category(owner, categoryId, CategoryKind.INCOME)?.let { return PlanChange.Rejected(it) }
         if (dueOn < today) {
@@ -377,6 +387,7 @@ class RecurringPlanService(
         today: LocalDate,
     ): PlanChange<ExpectedIncomeView> {
         if (!owner.canManageHousehold) return ownerOnly()
+        if (budgets.findOwnedAccount(owner.householdId, owner.memberId, lock = true) == null) return ownerOnly()
         planAmountError(amount)?.let { return PlanChange.Rejected(it) }
         category(owner, categoryId, CategoryKind.INCOME)?.let { return PlanChange.Rejected(it) }
         val current =
@@ -417,6 +428,7 @@ class RecurringPlanService(
         version: Long,
     ): PlanChange<ExpectedIncomeView> {
         if (!owner.canManageHousehold) return ownerOnly()
+        if (budgets.findOwnedAccount(owner.householdId, owner.memberId, lock = true) == null) return ownerOnly()
         val expected =
             plans.findExpectedIncome(owner.householdId, expectedIncomeId, lock = true)
                 ?: return PlanChange.Rejected(STALE_EXPECTED)
@@ -440,6 +452,7 @@ class RecurringPlanService(
         source: String,
     ): PlanChange<IncomeReceipt> {
         if (!owner.canManageHousehold) return ownerOnly()
+        if (budgets.findOwnedAccount(owner.householdId, owner.memberId, lock = true) == null) return ownerOnly()
         planAmountError(amount)?.let { return PlanChange.Rejected(it) }
         if (budgets.findOwnedAccount(owner.householdId, owner.memberId, lock = true) == null) {
             return PlanChange.Rejected(STALE_EXPECTED)
@@ -485,6 +498,7 @@ class RecurringPlanService(
         ledgerEntryId: UUID,
     ): PlanChange<ExpectedIncomeView> {
         if (!owner.canManageHousehold) return ownerOnly()
+        if (budgets.findOwnedAccount(owner.householdId, owner.memberId, lock = true) == null) return ownerOnly()
         if (budgets.findOwnedAccount(owner.householdId, owner.memberId, lock = true) == null) {
             return PlanChange.Rejected(STALE_EXPECTED)
         }
@@ -601,6 +615,7 @@ class RecurringPlanService(
     private fun now(): Instant = clock.instant().truncatedTo(ChronoUnit.MICROS)
 
     companion object {
+        private const val PLAN_DEFINITION_HORIZON = 5L
         private val ACCOUNTING_ZONE = java.time.ZoneId.of("Asia/Almaty")
         private const val HORIZON_MONTHS = 2L
         private const val LIST_LIMIT = 12

@@ -56,7 +56,8 @@ class EntryCorrections(
         }
     }
 
-    @Suppress("ReturnCount") // Every guard must finish before a mutation or audit is written.
+    // Every guard must finish before a mutation or audit is written.
+    @Suppress("ReturnCount", "CyclomaticComplexMethod")
     fun change(
         target: EntryTarget,
         change: EntryChange,
@@ -69,6 +70,9 @@ class EntryCorrections(
         val prepared = changedEntry(original, change)
         if (prepared is CorrectionResult.Rejected) return prepared
         val candidate = (prepared as CorrectionResult.Updated).entry
+        if (categoryChangeRequiresUnlink(original, candidate)) {
+            return rejected("unlink_before_category_change")
+        }
         if (candidate.status == EntryStatus.POSTED && candidate.refundOf != null) {
             val expense = ledger.find(target.householdId, candidate.refundOf) ?: return rejected("Расход недоступен.")
             RefundPolicy.rejection(expense, ledger.refunds(target.householdId, expense.id), candidate)?.let {
@@ -112,6 +116,11 @@ class EntryCorrections(
             prepare(original.revised(now), amount, date, categoryId)
         }
     }
+
+    private fun categoryChangeRequiresUnlink(
+        original: LedgerEntry,
+        candidate: LedgerEntry,
+    ): Boolean = candidate.categoryId != original.categoryId && ledger.planLinked(original.householdId, original.id)
 
     @Suppress("ReturnCount")
     private fun changedDetails(

@@ -47,6 +47,7 @@ class CloudBudgetService(
     private val commands: BudgetCommandRepository,
     private val clock: Clock,
     private val bootstrapValidator: CloudBudgetBootstrapValidator,
+    private val operationPlans: OperationPlanService,
 ) {
     @Transactional
     fun legacyUserId(tokenHash: String): Long? {
@@ -115,7 +116,10 @@ class CloudBudgetService(
         actor: CloudBudgetActor,
         cursor: String?,
         limit: Int,
+        capabilities: String? = null,
     ): SyncPage {
+        requireNotNull(budgets.findOwnedAccount(actor.householdId, actor.memberId, lock = true))
+        operationPlans.requireCapability(actor.householdId, capabilities)
         require(limit in 1..MAX_PAGE_SIZE)
         categoryManagement.ensureFallback(actor)
         recurring.ensureOccurrences(actor, YearMonth.from(today().plusMonths(2)).atEndOfMonth())
@@ -150,6 +154,7 @@ class CloudBudgetService(
     fun command(
         actor: CloudBudgetActor,
         c: CloudBudgetCommand,
+        capabilities: String? = null,
     ): BudgetCommandReceipt {
         if (c.householdId != actor.householdId ||
             c.memberId != actor.memberId
@@ -157,41 +162,24 @@ class CloudBudgetService(
             throw CloudBudgetFailure("scope_changed")
         }
         if (actor.role != MemberRole.OWNER &&
-            c.type !in setOf("CREATE_OPERATION", "UPDATE_OPERATION", "REFUND_OPERATION")
+            c.type !in
+            setOf(
+                "CREATE_OPERATION",
+                "UPDATE_OPERATION",
+                "REFUND_OPERATION",
+                "SET_OPERATION_PLAN_LINK",
+                "REMOVE_OPERATION_PLAN_LINK",
+            )
         ) {
             throw MobileApiAccessDenied()
         }
         requireNotNull(budgets.findOwnedAccount(actor.householdId, actor.memberId, lock = true))
-        val fingerprint =
-            hash(
-                listOf(
-                    c.requestId,
-                    c.householdId,
-                    c.memberId,
-                    c.type,
-                    c.entityId,
-                    c.authoredOn,
-                    c.expectedToken,
-                    c.categoryId,
-                    c.name,
-                    c.kind,
-                    c.icon,
-                    c.amount,
-                    c.frequency,
-                    c.scheduleValue,
-                    c.startsOn,
-                    c.dueOn,
-                    c.ruleId,
-                    c.occurredOn,
-                    c.description,
-                    c.refundId,
-                    c.currency,
-                ) + if (c.replaceDetails == true) listOf("replaceDetails", true) else emptyList(),
-            )
+        val fingerprint = fingerprint(c)
         commands.receipt(actor.householdId, actor.memberId, c.requestId)?.let {
             if (it.hash != fingerprint) throw CloudBudgetFailure("idempotency_conflict")
             return it.receipt
         }
+        val confirmed = validatePlanContract(actor, c, capabilities)
         require(c.replaceDetails != true || c.type == "UPDATE_OPERATION")
         require(c.currency == null || c.currency == "KZT")
         require(c.authoredOn in actor.startedAt.atZone(ZONE).toLocalDate()..today())
@@ -203,7 +191,79 @@ class CloudBudgetService(
                 UUID.fromString(c.entityId)
             }
         apply(actor, c, id)
+        if (confirmed) operationPlans.activate(actor.householdId)
         return rememberReceipt(actor, c, id, fingerprint)
+    }
+
+    private fun fingerprint(c: CloudBudgetCommand): String =
+        hash(
+            listOf(
+                c.requestId,
+                c.householdId,
+                c.memberId,
+                c.type,
+                c.entityId,
+                c.authoredOn,
+                c.expectedToken,
+                c.categoryId,
+                c.name,
+                c.kind,
+                c.icon,
+                c.amount,
+                c.frequency,
+                c.scheduleValue,
+                c.startsOn,
+                c.dueOn,
+                c.ruleId,
+                c.occurredOn,
+                c.description,
+                c.refundId,
+                c.currency,
+            ) + (if (c.replaceDetails == true) listOf("replaceDetails", true) else emptyList()) +
+                (if (c.planMatchingMode != null) listOf("planMatchingMode", c.planMatchingMode) else emptyList()) +
+                (
+                    if (c.planTarget != null ||
+                        c.expectedPlanVersion != null
+                    ) {
+                        listOf(
+                            "planTarget",
+                            c.planTarget?.type,
+                            c.planTarget?.planId,
+                            c.planTarget?.ruleId,
+                            c.planTarget?.dueOn,
+                            c.expectedPlanVersion,
+                        )
+                    } else {
+                        emptyList()
+                    }
+                ),
+        )
+
+    private fun validatePlanContract(
+        actor: CloudBudgetActor,
+        c: CloudBudgetCommand,
+        capabilities: String?,
+    ): Boolean {
+        operationPlans.requireCapability(actor.householdId, capabilities)
+        val confirmed =
+            c.planMatchingMode == "CONFIRM_REQUIRED" ||
+                c.type in setOf("SET_OPERATION_PLAN_LINK", "REMOVE_OPERATION_PLAN_LINK")
+        if (confirmed &&
+            !supportsConfirmedPlanLinks(capabilities)
+        ) {
+            throw PlanLinkFailure("client_upgrade_required", PLAN_LINK_UPGRADE)
+        }
+        if (c.planMatchingMode != null &&
+            (c.type != "CREATE_OPERATION" || c.planMatchingMode != "CONFIRM_REQUIRED")
+        ) {
+            throw PlanLinkFailure("invalid_plan_link", PLAN_LINK_INVALID)
+        }
+        if (c.type == "CREATE_OPERATION" && supportsConfirmedPlanLinks(capabilities) &&
+            c.planMatchingMode != "CONFIRM_REQUIRED"
+        ) {
+            throw PlanLinkFailure("invalid_plan_link", PLAN_LINK_INVALID)
+        }
+        return confirmed
     }
 
     private fun rememberReceipt(
@@ -217,6 +277,13 @@ class CloudBudgetService(
                 c.requestId,
                 sync.revision(actor.householdId),
                 commands.token(actor.householdId, kind(c.type), id) ?: 0,
+                if (c.type == "CREATE_OPERATION" &&
+                    c.planMatchingMode == "CONFIRM_REQUIRED"
+                ) {
+                    operationPlans.candidates(actor, id).firstOrNull()
+                } else {
+                    null
+                },
             )
         commands.remember(
             BudgetSyncCommand(c.requestId, c.householdId, c.memberId, c.type, id, c.authoredOn),
@@ -239,6 +306,7 @@ class CloudBudgetService(
             "CREATE_INCOME", "UPDATE_INCOME" -> updateIncome(actor, c, id)
             "DELETE_INCOME" -> deleteIncome(actor, id)
             "CLOSE_EXPENSE" -> closeExpense(actor, id)
+            "SET_OPERATION_PLAN_LINK", "REMOVE_OPERATION_PLAN_LINK" -> operationPlans.change(actor, c, id)
             "CREATE_OPERATION" -> createOperation(actor, c, id, source)
             "UPDATE_OPERATION", "REFUND_OPERATION" -> mutateOperation(actor, c, id, source)
             else -> invalid("Unsupported command")
@@ -297,6 +365,8 @@ class CloudBudgetService(
                     source,
                     ExpenseDescriptionNormalizer.normalize(c.description.orEmpty()),
                     id = id,
+                    confirmPlanLink =
+                        c.planMatchingMode == "CONFIRM_REQUIRED" || operationPlans.enabled(actor.householdId),
                 ),
             )
         sync.remember(actor.householdId, actor.memberId, c.requestId, hash(listOf(c.requestId)), result.entry.id)
@@ -320,6 +390,9 @@ class CloudBudgetService(
         if (current.status == com.firkatdavletov.financeconsultante.ledger.domain.EntryStatus.VOIDED) {
             repository.restoreOperation(actor.householdId, actor.memberId, id, "$source:restore", clock.instant())
             current = requireNotNull(ledger.find(actor.householdId, id))
+        }
+        if (categoryChangeRequiresUnlink(actor, c, current)) {
+            throw PlanLinkFailure("unlink_before_category_change", PLAN_LINK_INVALID)
         }
         val target = EntryTarget(actor.householdId, actor.memberId, id, current.version, actor.role)
         val result =
@@ -349,6 +422,14 @@ class CloudBudgetService(
             )
         }
     }
+
+    private fun categoryChangeRequiresUnlink(
+        actor: CloudBudgetActor,
+        c: CloudBudgetCommand,
+        entry: com.firkatdavletov.financeconsultante.ledger.domain.LedgerEntry,
+    ): Boolean =
+        c.type == "UPDATE_OPERATION" && c.replaceDetails == true && c.categoryId != entry.categoryId &&
+            operationPlans.linked(actor.householdId, entry.id)
 
     private fun category(
         actor: CloudBudgetActor,

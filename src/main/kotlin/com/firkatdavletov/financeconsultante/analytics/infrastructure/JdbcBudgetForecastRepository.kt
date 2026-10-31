@@ -191,7 +191,7 @@ class JdbcBudgetForecastRepository(
             """
             WITH obligations AS (
                 SELECT GREATEST(o.due_on, :start::date) AS flow_date, 'OBLIGATION' AS flow_type,
-                    GREATEST(o.planned_amount - COALESCE(SUM(l.amount_kzt)
+                    GREATEST(o.planned_amount - COALESCE(SUM(operation_plan_contribution(l.household_id,l.id))
                         FILTER (WHERE l.status = 'POSTED'), 0), 0) AS amount,
                     o.rule_id AS recurring_rule_id,
                     o.due_on >= :start::date
@@ -204,21 +204,16 @@ class JdbcBudgetForecastRepository(
                 WHERE o.household_id = :household AND o.status = 'SCHEDULED' AND o.due_on < :end
                 GROUP BY o.id
             ), incomes AS (
-                SELECT e.due_on AS flow_date, 'EXPECTED_INCOME' AS flow_type, e.planned_amount AS amount,
+                SELECT e.due_on AS flow_date, 'EXPECTED_INCOME' AS flow_type, GREATEST(e.planned_amount - COALESCE((SELECT SUM(operation_plan_contribution(m.household_id,m.ledger_entry_id)) FROM expected_income_match m WHERE m.household_id=e.household_id AND m.expected_income_id=e.id),0),0) AS amount,
                     NULL::uuid AS recurring_rule_id, FALSE AS adjustable
                 FROM expected_income e
                 WHERE e.household_id = :household AND e.status = 'SCHEDULED'
                     AND e.due_on >= :start AND e.due_on < :end
-                    AND NOT EXISTS (
-                        SELECT 1 FROM expected_income_match m
-                        JOIN ledger_entry l ON l.household_id = m.household_id AND l.id = m.ledger_entry_id
-                        WHERE m.household_id = e.household_id AND m.expected_income_id = e.id
-                            AND l.status = 'POSTED'
-                    )
+
             )
             SELECT flow_date, flow_type, amount, recurring_rule_id, adjustable FROM obligations WHERE amount > 0
             UNION ALL
-            SELECT flow_date, flow_type, amount, recurring_rule_id, adjustable FROM incomes
+            SELECT flow_date, flow_type, amount, recurring_rule_id, adjustable FROM incomes WHERE amount > 0
             ORDER BY flow_date, flow_type
             """.trimIndent()
 

@@ -303,6 +303,19 @@ class IncomeOperationSyncTests
                         categoryId = category,
                         description = "покупка 2 шт",
                     )
+                if (kind == "INCOME") {
+                    assertThatThrownBy {
+                        service.command(
+                            tokenHash,
+                            categoryOnly,
+                        )
+                    }.hasMessage("unlink_before_category_change")
+                    jdbc.update(
+                        "DELETE FROM operation_plan_links WHERE household_id=? AND ledger_id=?",
+                        request.householdId,
+                        id,
+                    )
+                }
                 service.command(tokenHash, categoryOnly)
                 row = jdbc.queryForMap("SELECT * FROM ledger_entry WHERE id = ?", id)
                 assertThat(row["category_id"]).isEqualTo(category)
@@ -340,7 +353,7 @@ class IncomeOperationSyncTests
                             plan,
                             id,
                         ),
-                    ).isEqualTo(1)
+                    ).isZero()
                 }
                 val changed =
                     service.changes(tokenHash, cursor, 200).changes.mapNotNull { it.operation }.last {
