@@ -9,6 +9,8 @@ import com.firkatdavletov.financeconsultante.mobileapi.application.CloudBudgetSe
 import com.firkatdavletov.financeconsultante.mobileapi.application.CloudSeedCategory
 import com.firkatdavletov.financeconsultante.mobileapi.application.CreateCloudBudget
 import com.firkatdavletov.financeconsultante.mobileapi.application.FirebaseBudgets
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.auth.FirebaseToken
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
@@ -20,6 +22,7 @@ import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.test.context.TestPropertySource
 import org.springframework.test.context.bean.override.mockito.MockitoBean
 import org.springframework.test.web.servlet.MockMvc
+import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.header
@@ -341,6 +344,97 @@ class FirebaseBudgetApiTests
                 .perform(
                     get("/api/v4/budgets/${request.householdId}").header("Authorization", "Bearer synthetic-owner"),
                 ).andExpect(status().isOk)
+        }
+
+        @Test fun `password gate rejects all routes and refresh preserves Google budgets`() {
+            val sdk = Mockito.mock(FirebaseAuth::class.java)
+            val realVerifier = FirebaseAdminTokenVerifier(sdk)
+
+            fun stubToken(
+                raw: String,
+                provider: String,
+                verified: Boolean,
+                tokenUid: String = uid,
+            ) {
+                val decoded = Mockito.mock(FirebaseToken::class.java)
+                Mockito.`when`(decoded.uid).thenReturn(tokenUid)
+                Mockito.`when`(decoded.email).thenReturn("same@example.test")
+                Mockito.`when`(decoded.claims).thenReturn(
+                    mapOf("firebase" to mapOf("sign_in_provider" to provider), "email_verified" to verified),
+                )
+                Mockito.`when`(sdk.verifyIdToken(raw, true)).thenReturn(decoded)
+                Mockito.`when`(verifier.verify(raw)).thenAnswer { realVerifier.verify(raw) }
+            }
+            stubToken("synthetic-unverified-password", "password", false)
+            stubToken("synthetic-verified-password", "password", true)
+            stubToken("synthetic-linked-google", "google.com", true)
+            stubToken("synthetic-other-password", "password", true, otherUid)
+            val budget = request.householdId
+            val invitation = UUID.randomUUID()
+            val bootstrap = """{"requestId":"${UUID.randomUUID()}","householdId":"$budget",
+                "memberId":"$member","openingBalance":"0.00","accountingStartedOn":"2026-09-05",
+                "currency":"KZT","categories":[]}"""
+            val createBody = """{"requestId":"${UUID.randomUUID()}","name":"Synthetic",
+                "openingBalance":"0.00","accountingStartedOn":"2026-09-05","currency":"KZT"}"""
+            val command = """{"requestId":"${UUID.randomUUID()}","householdId":"$budget",
+                "memberId":"$member","type":"CREATE_OPERATION","entityId":"${UUID.randomUUID()}",
+                "authoredOn":"2026-09-05"}"""
+            val routes =
+                listOf(
+                    post("/api/v4/auth/firebase"),
+                    get("/api/v4/budgets"),
+                    get("/api/v4/budgets/$budget"),
+                    get("/api/v4/budgets/$budget/sync/changes"),
+                    post("/api/v4/budgets/$budget/sync/commands").content(command),
+                    post("/api/v4/budgets").content(createBody),
+                    post("/api/v4/budgets/import").content("""{"name":"Synthetic","budget":$bootstrap}"""),
+                    get("/api/v4/budgets/$budget/invitations/current"),
+                    post("/api/v4/budgets/$budget/invitations"),
+                    delete("/api/v4/budgets/$budget/invitations/$invitation"),
+                    post("/api/v4/budgets/invitations/accept").content("""{"code":"synthetic-code"}"""),
+                    get("/api/v4/budgets/$budget/members"),
+                    delete("/api/v4/budgets/$budget/members/$member"),
+                )
+            val tables = listOf("firebase_user", "firebase_budget_access", "household", "member", "ledger_entry")
+
+            fun counts() = tables.map { jdbc.queryForObject("SELECT COUNT(*) FROM $it", Long::class.java) }
+            val before = counts()
+            routes.forEach { route ->
+                mvc
+                    .perform(
+                        route
+                            .header(
+                                "Authorization",
+                                "Bearer synthetic-unverified-password",
+                            ).contentType("application/json"),
+                    ).andExpect(status().isForbidden)
+                    .andExpect(header().string("Cache-Control", "no-store"))
+                    .andExpect(jsonPath("$.code").value("email_not_verified"))
+            }
+            assertThat(counts()).isEqualTo(before)
+            list("synthetic-linked-google").andExpect(jsonPath("$[0].id").value(budget.toString()))
+            val serverId =
+                jdbc.queryForObject(
+                    "SELECT id FROM firebase_user WHERE firebase_uid = ?",
+                    UUID::class.java,
+                    uid,
+                )
+            mvc
+                .perform(post("/api/v4/auth/firebase").header("Authorization", "Bearer synthetic-verified-password"))
+                .andExpect(status().isOk)
+                .andExpect(jsonPath("$.id").value(serverId.toString()))
+            list("synthetic-verified-password").andExpect(jsonPath("$[0].id").value(budget.toString()))
+            mvc
+                .perform(get("/api/v4/budgets/$budget").header("Authorization", "Bearer synthetic-verified-password"))
+                .andExpect(status().isOk)
+            list("synthetic-other-password").andExpect(jsonPath("$.length()").value(0))
+            mvc
+                .perform(get("/api/v4/budgets/$budget").header("Authorization", "Bearer synthetic-other-password"))
+                .andExpect(status().isForbidden)
+                .andExpect(jsonPath("$.code").value("access_denied"))
+            assertThat(
+                jdbc.queryForObject("SELECT COUNT(*) FROM firebase_user WHERE firebase_uid = ?", Long::class.java, uid),
+            ).isEqualTo(1)
         }
 
         private fun list(token: String) =

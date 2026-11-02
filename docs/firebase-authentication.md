@@ -7,8 +7,10 @@
 
 Firebase Admin Java SDK 9.11.0 вызывает `verifyIdToken(token, true)`. Проверяются
 подпись, срок, issuer/audience проекта, отзыв токена, удаление/блокировка пользователя
-и Google provider. Anonymous Firebase token не является локальным режимом приложения
-и не принимается этим endpoint. Неверные/отозванные токены получают `401 unauthorized`,
+и разрешённый provider (`google.com` или `password`). Для `password` обязательны
+непустой email и boolean `email_verified=true`; иначе 401 либо `403 email_not_verified`
+соответственно, без записи пользователя и доступа к бюджетам. Google-вход сохраняет прежние правила.
+Anonymous Firebase token не является локальным режимом приложения и не принимается этим endpoint. Неверные/отозванные токены получают `401 unauthorized`,
 сбои проверки Firebase — `503 auth_unavailable`. Ответы не содержат токен, SDK exception
 или его cause. Заголовок `WWW-Authenticate: Bearer` возвращается при `401`.
 
@@ -17,8 +19,10 @@ Firebase Admin Java SDK 9.11.0 вызывает `verifyIdToken(token, true)`. П
 конкурентном первом входе; профиль обновляется из проверенных claims. Внешняя проверка
 Firebase выполняется до SQL, без открытой DB-транзакции. Старые таблицы и привязки
 не меняются. Auth endpoint не создаёт членство/бюджет. Доступ по UID и budgetId реализован отдельно в T05: [Firebase budgets](firebase-budgets.md).
-Статический токен по-прежнему используется прежними budget endpoints до миграции;
-для нового auth endpoint fallback на него отсутствует.
+Статический токен больше не принимается (T12); fallback отсутствует.
+
+Регистрация, вход, подтверждение email, привязка провайдеров и восстановление пароля
+для Android описаны в [руководстве Email/Password](firebase-email-password.md).
 
 ## Настройка
 

@@ -25,6 +25,8 @@ fun interface FirebaseUserStore {
 
 class InvalidFirebaseToken : RuntimeException("Invalid Firebase ID token")
 
+class EmailNotVerified : RuntimeException("Firebase email is not verified")
+
 class FirebaseAuthenticationUnavailable : RuntimeException("Firebase authentication is unavailable")
 
 class FirebaseAuthenticationService(

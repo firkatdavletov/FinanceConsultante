@@ -1,5 +1,6 @@
 package com.firkatdavletov.financeconsultante.auth.infrastructure
 
+import com.firkatdavletov.financeconsultante.auth.application.EmailNotVerified
 import com.firkatdavletov.financeconsultante.auth.application.FirebaseAuthenticationUnavailable
 import com.firkatdavletov.financeconsultante.auth.application.InvalidFirebaseToken
 import com.google.firebase.ErrorCode
@@ -62,10 +63,58 @@ class FirebaseAdminTokenVerifierTests {
             .hasNoCause()
     }
 
-    @Test fun `anonymous Firebase users cannot authenticate as Google accounts`() {
+    @Test fun `verified password identity is accepted without a display name`() {
+        val token = passwordToken(true)
+        Mockito.`when`(auth.verifyIdToken("synthetic-password", true)).thenReturn(token)
+        val identity = verifier.verify("synthetic-password")
+        assertThat(identity.uid).isEqualTo("synthetic-password-uid")
+        assertThat(identity.email).isEqualTo("user@example.test")
+        assertThat(identity.displayName).isNull()
+        Mockito.verify(auth).verifyIdToken("synthetic-password", true)
+    }
+
+    @Test fun `password requires boolean true email verification and a nonblank email`() {
+        listOf(false, null, "true", 1, emptyMap<String, String>()).forEach { claim ->
+            val token = passwordToken(claim)
+            Mockito.`when`(auth.verifyIdToken("synthetic-password", true)).thenReturn(token)
+            assertThatThrownBy { verifier.verify("synthetic-password") }.isInstanceOf(EmailNotVerified::class.java)
+        }
+        listOf(null, "", "   ").forEach { email ->
+            val token = passwordToken(true)
+            Mockito.`when`(token.email).thenReturn(email)
+            Mockito.`when`(auth.verifyIdToken("synthetic-password", true)).thenReturn(token)
+            assertThatThrownBy { verifier.verify("synthetic-password") }.isInstanceOf(InvalidFirebaseToken::class.java)
+        }
+    }
+
+    @Test fun `missing malformed and unsupported providers are rejected`() {
+        listOf(
+            null,
+            "password",
+            emptyMap<String, String>(),
+            mapOf("sign_in_provider" to true),
+            mapOf("sign_in_provider" to "anonymous"),
+            mapOf("sign_in_provider" to "custom"),
+            mapOf("sign_in_provider" to "facebook.com"),
+        ).forEach { firebase ->
+            val token = Mockito.mock(FirebaseToken::class.java)
+            Mockito.`when`(token.claims).thenReturn(mapOf("firebase" to firebase))
+            Mockito.`when`(auth.verifyIdToken("synthetic-unsupported", true)).thenReturn(token)
+            assertThatThrownBy {
+                verifier.verify(
+                    "synthetic-unsupported",
+                )
+            }.isInstanceOf(InvalidFirebaseToken::class.java)
+        }
+    }
+
+    private fun passwordToken(verified: Any?): FirebaseToken {
         val token = Mockito.mock(FirebaseToken::class.java)
-        Mockito.`when`(token.claims).thenReturn(mapOf("firebase" to mapOf("sign_in_provider" to "anonymous")))
-        Mockito.`when`(auth.verifyIdToken("synthetic-anonymous", true)).thenReturn(token)
-        assertThatThrownBy { verifier.verify("synthetic-anonymous") }.isInstanceOf(InvalidFirebaseToken::class.java)
+        Mockito.`when`(token.uid).thenReturn("synthetic-password-uid")
+        Mockito.`when`(token.email).thenReturn("user@example.test")
+        Mockito.`when`(token.claims).thenReturn(
+            mapOf("firebase" to mapOf("sign_in_provider" to "password"), "email_verified" to verified),
+        )
+        return token
     }
 }

@@ -18,14 +18,14 @@ class FirebaseAuthenticationServiceTests {
             }
     }
 
-    @Test fun `verification failure cannot create a user`() {
+    @Test fun `unverified email cannot create a user`() {
         val service =
             FirebaseAuthenticationService(
-                { throw InvalidFirebaseToken() },
+                { throw EmailNotVerified() },
                 { error("Unverified tokens must not create users") },
             )
         assertThatThrownBy { service.authenticate("Bearer synthetic-token") }
-            .isInstanceOf(InvalidFirebaseToken::class.java)
+            .isInstanceOf(EmailNotVerified::class.java)
     }
 
     @Test fun `only verified claims reach the store`() {

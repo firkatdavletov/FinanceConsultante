@@ -652,7 +652,12 @@ opt-in облака. Создание локального бюджета не �
 
 Независимый адаптер `auth` предоставляет `POST /api/v4/auth/firebase` при явном
 `app.firebase-auth.enabled=true`. Firebase Admin через ADC проверяет ID token с
-`checkRevoked=true` и project ID; Google claims образуют идентичность. Клиентский UID
+`checkRevoked=true` и project ID; проверенные claims `google.com` или `password` образуют идентичность.
+Для `password` требуются непустой email и boolean `email_verified=true`: отсутствие email даёт 401,
+неподтверждённый email — `403 email_not_verified` с no-store на всех Firebase endpoints до SQL.
+Google-вход сохраняет прежние правила. Пароли, регистрация и письма обслуживаются клиентским Firebase SDK;
+привязка способов входа сохраняет UID, server UUID и членства. Слияния по email нет.
+[Контракт Email/Password](docs/firebase-email-password.md). Клиентский UID
 не является источником доверия. Уникальность `firebase_user.firebase_uid` и один SQL
 upsert обеспечивают стабильный UUID без гонки при первом входе. Проверка внешнего
 токена выполняется до записи, без DB-транзакции во время HTTP. Токены не сохраняются,

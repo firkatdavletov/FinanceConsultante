@@ -2,6 +2,8 @@
 
 Firebase-вход мобильного клиента (T03), отдельный тестовый сервер и контракт профиля:
 [Firebase Authentication](docs/firebase-authentication.md).
+Регистрация, подтверждение email, вход по паролю и привязка способов входа для Android:
+[Email/Password API](docs/firebase-email-password.md).
 Подключение прежнего бюджета (T05), создание Firebase-бюджета (T06) и импорт локального (T07):
 [Firebase budgets](docs/firebase-budgets.md).
 Создание, копирование и отзыв семейного кода (Firebase T09):
@@ -119,7 +121,8 @@ docker compose up -d --wait postgres
 
 ## Мобильный API
 
-Действующий мобильный API использует Google / Firebase Authentication. Включение:
+Действующий мобильный API использует Firebase Authentication: Google или Email/Password
+с подтверждённым email. Включение:
 
 ```bash
 export MOBILE_API_ENABLED=true

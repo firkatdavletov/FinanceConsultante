@@ -1,5 +1,6 @@
 package com.firkatdavletov.financeconsultante.auth.infrastructure
 
+import com.firkatdavletov.financeconsultante.auth.application.EmailNotVerified
 import com.firkatdavletov.financeconsultante.auth.application.FirebaseAuthenticationUnavailable
 import com.firkatdavletov.financeconsultante.auth.application.FirebaseIdTokenVerifier
 import com.firkatdavletov.financeconsultante.auth.application.InvalidFirebaseToken
@@ -17,8 +18,25 @@ class FirebaseAdminTokenVerifier(
     override fun verify(idToken: String): VerifiedFirebaseIdentity {
         val decoded = verifyWithSdk(idToken)
         val provider = (decoded.claims["firebase"] as? Map<*, *>)?.get("sign_in_provider")
-        if (provider != "google.com") throw InvalidFirebaseToken()
+        when (provider) {
+            "google.com" -> {
+                Unit
+            }
+
+            "password" -> {
+                validatePasswordEmail(decoded)
+            }
+
+            else -> {
+                throw InvalidFirebaseToken()
+            }
+        }
         return VerifiedFirebaseIdentity(decoded.uid, decoded.name, decoded.email)
+    }
+
+    private fun validatePasswordEmail(decoded: FirebaseToken) {
+        if (decoded.email.isNullOrBlank()) throw InvalidFirebaseToken()
+        if (decoded.claims["email_verified"] != true) throw EmailNotVerified()
     }
 
     private fun verifyWithSdk(idToken: String): FirebaseToken =

@@ -1,5 +1,6 @@
 package com.firkatdavletov.financeconsultante.auth.infrastructure
 
+import com.firkatdavletov.financeconsultante.auth.application.EmailNotVerified
 import com.firkatdavletov.financeconsultante.auth.application.FirebaseAuthenticationService
 import com.firkatdavletov.financeconsultante.auth.application.FirebaseAuthenticationUnavailable
 import com.firkatdavletov.financeconsultante.auth.application.InvalidFirebaseToken
@@ -27,6 +28,13 @@ class FirebaseAuthenticationController(
 
 @RestControllerAdvice(assignableTypes = [FirebaseAuthenticationController::class])
 class FirebaseAuthenticationErrors {
+    @ExceptionHandler(EmailNotVerified::class)
+    fun emailNotVerified(): ResponseEntity<Map<String, String>> =
+        ResponseEntity
+            .status(HttpStatus.FORBIDDEN)
+            .cacheControl(CacheControl.noStore())
+            .body(mapOf("code" to "email_not_verified"))
+
     @ExceptionHandler(InvalidFirebaseToken::class)
     fun unauthorized(): ResponseEntity<Map<String, String>> =
         ResponseEntity
