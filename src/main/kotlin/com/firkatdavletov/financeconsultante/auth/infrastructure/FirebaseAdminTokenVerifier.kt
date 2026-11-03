@@ -9,13 +9,21 @@ import com.google.firebase.auth.AuthErrorCode
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseAuthException
 import com.google.firebase.auth.FirebaseToken
+import java.time.Instant
 
 class FirebaseAdminTokenVerifier(
     private val auth: FirebaseAuth,
     private val shutdown: () -> Unit = {},
 ) : FirebaseIdTokenVerifier,
     AutoCloseable {
-    override fun verify(idToken: String): VerifiedFirebaseIdentity {
+    override fun verify(idToken: String): VerifiedFirebaseIdentity = verifyIdentity(idToken, false)
+
+    override fun verifyForDeletion(idToken: String): VerifiedFirebaseIdentity = verifyIdentity(idToken, true)
+
+    private fun verifyIdentity(
+        idToken: String,
+        deletion: Boolean,
+    ): VerifiedFirebaseIdentity {
         val decoded = verifyWithSdk(idToken)
         val provider = (decoded.claims["firebase"] as? Map<*, *>)?.get("sign_in_provider")
         when (provider) {
@@ -24,14 +32,33 @@ class FirebaseAdminTokenVerifier(
             }
 
             "password" -> {
-                validatePasswordEmail(decoded)
+                if (deletion) {
+                    if (decoded.email.isNullOrBlank()) throw InvalidFirebaseToken()
+                } else {
+                    validatePasswordEmail(decoded)
+                }
             }
 
             else -> {
                 throw InvalidFirebaseToken()
             }
         }
-        return VerifiedFirebaseIdentity(decoded.uid, decoded.name, decoded.email)
+        return VerifiedFirebaseIdentity(
+            decoded.uid,
+            decoded.name,
+            decoded.email,
+            authenticationTime(decoded.claims["auth_time"]),
+        )
+    }
+
+    private fun authenticationTime(value: Any?): Instant? {
+        if (value !is Number) return null
+        // The SDK JSON parser uses BigDecimal for untyped numeric claims.
+        return runCatching {
+            Instant.ofEpochSecond(
+                java.math.BigDecimal(value.toString()).longValueExact(),
+            )
+        }.getOrNull()
     }
 
     private fun validatePasswordEmail(decoded: FirebaseToken) {

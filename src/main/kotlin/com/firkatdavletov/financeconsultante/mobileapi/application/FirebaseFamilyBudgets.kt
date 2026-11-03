@@ -1,6 +1,7 @@
 package com.firkatdavletov.financeconsultante.mobileapi.application
 
 import com.firkatdavletov.financeconsultante.access.application.FamilyBudgetRepository
+import com.firkatdavletov.financeconsultante.auth.application.FirebaseAccountAccess
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import java.time.Clock
@@ -96,14 +97,17 @@ class FirebaseFamilyBudgets(
     private val codes: FirebaseInvitationCodes,
     private val family: FamilyBudgetRepository,
     private val clock: Clock,
+    private val accountAccess: FirebaseAccountAccess,
 ) {
     @Transactional
     fun join(
         uid: String,
         request: AcceptFirebaseInvitation,
     ): FirebaseBudgetSummary {
+        accountAccess.active(uid)
         val hash = codes.hash(normalize(request.code))
         val preview = store.invitation(hash, false) ?: invalid()
+        accountAccess.budget(uid, preview.budgetId)
         store.lock(preview.budgetId)
         val invitation = store.invitation(hash, true) ?: invalid()
         val membership = store.membership(uid, invitation.budgetId)

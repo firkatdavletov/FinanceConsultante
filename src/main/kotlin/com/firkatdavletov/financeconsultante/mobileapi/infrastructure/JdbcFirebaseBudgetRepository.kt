@@ -1,6 +1,7 @@
 package com.firkatdavletov.financeconsultante.mobileapi.infrastructure
 
 import com.firkatdavletov.financeconsultante.access.domain.MemberRole
+import com.firkatdavletov.financeconsultante.auth.application.FirebaseAccountAccess
 import com.firkatdavletov.financeconsultante.mobileapi.application.CloudBudgetActor
 import com.firkatdavletov.financeconsultante.mobileapi.application.FirebaseBudgetRepository
 import com.firkatdavletov.financeconsultante.mobileapi.application.FirebaseBudgetSummary
@@ -12,11 +13,13 @@ import java.util.UUID
 @Repository
 class JdbcFirebaseBudgetRepository(
     private val jdbc: JdbcClient,
+    private val access: FirebaseAccountAccess,
 ) : FirebaseBudgetRepository {
     override fun bindLegacy(
         uid: String,
         memberId: UUID,
     ): Boolean {
+        access.active(uid)
         val bound =
             jdbc
                 .sql("SELECT COUNT(*) FROM firebase_budget_access WHERE firebase_uid = ? AND member_id = ?")
@@ -26,10 +29,19 @@ class JdbcFirebaseBudgetRepository(
         return bound || importLegacyMember(uid, memberId)
     }
 
+    @Suppress("ReturnCount") // Missing budget and revoked member are separate early exits.
     private fun importLegacyMember(
         uid: String,
         memberId: UUID,
     ): Boolean {
+        val budgetId =
+            jdbc
+                .sql("SELECT household_id FROM member WHERE id=?")
+                .param(memberId)
+                .query(UUID::class.java)
+                .optional()
+                .orElse(null) ?: return false
+        access.budget(uid, budgetId)
         // Serializes the explicitly configured member, including first requests from different UIDs.
         jdbc
             .sql("SELECT id FROM member WHERE id = ? AND revoked_at IS NULL FOR UPDATE")
@@ -53,8 +65,9 @@ class JdbcFirebaseBudgetRepository(
             .single() == 1
     }
 
-    override fun list(uid: String): List<FirebaseBudgetSummary> =
-        jdbc
+    override fun list(uid: String): List<FirebaseBudgetSummary> {
+        access.active(uid)
+        return jdbc
             .sql(
                 """
                 SELECT b.household_id, h.budget_name, m.id, m.role FROM firebase_budget_access b
@@ -71,12 +84,14 @@ class JdbcFirebaseBudgetRepository(
                     row.getString("role"),
                 )
             }.list()
+    }
 
     override fun actor(
         uid: String,
         budgetId: UUID,
-    ): CloudBudgetActor? =
-        jdbc
+    ): CloudBudgetActor? {
+        access.budget(uid, budgetId)
+        return jdbc
             .sql(
                 """
                 SELECT m.household_id, m.id, m.role, a.accounting_started_at FROM firebase_budget_access b
@@ -94,4 +109,5 @@ class JdbcFirebaseBudgetRepository(
                 )
             }.optional()
             .orElse(null)
+    }
 }

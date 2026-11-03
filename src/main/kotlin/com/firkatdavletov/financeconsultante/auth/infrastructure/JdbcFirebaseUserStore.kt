@@ -1,18 +1,23 @@
 package com.firkatdavletov.financeconsultante.auth.infrastructure
 
 import com.firkatdavletov.financeconsultante.auth.application.AuthenticatedUser
+import com.firkatdavletov.financeconsultante.auth.application.FirebaseAccountAccess
 import com.firkatdavletov.financeconsultante.auth.application.FirebaseUserStore
 import com.firkatdavletov.financeconsultante.auth.application.VerifiedFirebaseIdentity
 import org.springframework.jdbc.core.simple.JdbcClient
 import org.springframework.stereotype.Repository
+import org.springframework.transaction.annotation.Transactional
 import java.util.UUID
 
 @Repository
 class JdbcFirebaseUserStore(
     private val jdbc: JdbcClient,
+    private val access: FirebaseAccountAccess,
 ) : FirebaseUserStore {
-    override fun upsert(identity: VerifiedFirebaseIdentity): AuthenticatedUser =
-        jdbc
+    @Transactional
+    override fun upsert(identity: VerifiedFirebaseIdentity): AuthenticatedUser {
+        access.active(identity.uid)
+        return jdbc
             .sql(
                 """
                 INSERT INTO firebase_user(id, firebase_uid, display_name, email)
@@ -32,4 +37,5 @@ class JdbcFirebaseUserStore(
                     rs.getString("email"),
                 )
             }.single()
+    }
 }

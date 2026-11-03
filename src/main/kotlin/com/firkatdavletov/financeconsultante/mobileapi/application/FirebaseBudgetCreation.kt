@@ -1,5 +1,6 @@
 package com.firkatdavletov.financeconsultante.mobileapi.application
 
+import com.firkatdavletov.financeconsultante.auth.application.FirebaseAccountAccess
 import com.firkatdavletov.financeconsultante.ledger.domain.Category
 import com.firkatdavletov.financeconsultante.ledger.domain.TransactionCategory
 import com.firkatdavletov.financeconsultante.shared.domain.Money
@@ -59,12 +60,14 @@ class FirebaseBudgetCreation(
     private val budgets: FirebaseBudgetRepository,
     private val clock: Clock,
     private val bootstrapValidator: CloudBudgetBootstrapValidator,
+    private val accountAccess: FirebaseAccountAccess,
 ) {
     @Transactional
     fun create(
         uid: String,
         request: CreateFirebaseBudget,
     ): FirebaseBudgetSummary {
+        accountAccess.active(uid)
         val fingerprint = fingerprint(request)
         store.lock(uid, request.requestId)
         previous(uid, request.requestId, fingerprint)?.let { return it }
@@ -99,6 +102,7 @@ class FirebaseBudgetCreation(
         uid: String,
         request: ImportFirebaseBudget,
     ): FirebaseBudgetSummary {
+        accountAccess.active(uid)
         val budget = request.budget
         val fingerprint =
             hash(

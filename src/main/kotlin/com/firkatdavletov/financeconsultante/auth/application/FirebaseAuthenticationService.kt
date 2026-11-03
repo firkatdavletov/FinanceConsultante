@@ -1,11 +1,13 @@
 package com.firkatdavletov.financeconsultante.auth.application
 
+import java.time.Instant
 import java.util.UUID
 
 data class VerifiedFirebaseIdentity(
     val uid: String,
     val displayName: String?,
     val email: String?,
+    val authTime: Instant? = null,
 )
 
 data class AuthenticatedUser(
@@ -17,6 +19,8 @@ data class AuthenticatedUser(
 
 fun interface FirebaseIdTokenVerifier {
     fun verify(idToken: String): VerifiedFirebaseIdentity
+
+    fun verifyForDeletion(idToken: String): VerifiedFirebaseIdentity = verify(idToken)
 }
 
 fun interface FirebaseUserStore {
@@ -33,7 +37,12 @@ class FirebaseAuthenticationService(
     private val verifier: FirebaseIdTokenVerifier,
     private val users: FirebaseUserStore,
 ) {
-    fun authenticate(authorization: String?): AuthenticatedUser {
+    fun authenticate(authorization: String?): AuthenticatedUser = users.upsert(verifier.verify(token(authorization)))
+
+    fun identityForDeletion(authorization: String?): VerifiedFirebaseIdentity =
+        verifier.verifyForDeletion(token(authorization))
+
+    private fun token(authorization: String?): String {
         val token =
             authorization
                 ?.takeIf { it.startsWith(BEARER_PREFIX, ignoreCase = true) }
@@ -41,7 +50,7 @@ class FirebaseAuthenticationService(
                 ?.takeIf { it.length in 1..MAX_TOKEN_LENGTH && it.none(Char::isWhitespace) }
                 ?: throw InvalidFirebaseToken()
         // Only verified claims reach storage. Neither UID nor profile fields come from a request body.
-        return users.upsert(verifier.verify(token))
+        return token
     }
 
     companion object {

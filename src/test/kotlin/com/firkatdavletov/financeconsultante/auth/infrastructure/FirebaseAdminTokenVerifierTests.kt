@@ -87,6 +87,21 @@ class FirebaseAdminTokenVerifierTests {
         }
     }
 
+    @Test fun `unverified password can only delete with a verified integral authentication time`() {
+        val token = passwordToken(false)
+        val claims = token.claims.toMutableMap()
+        claims["auth_time"] = java.math.BigDecimal("1788650400")
+        Mockito.`when`(token.claims).thenReturn(claims)
+        Mockito.`when`(auth.verifyIdToken("synthetic-delete", true)).thenReturn(token)
+        assertThat(verifier.verifyForDeletion("synthetic-delete").authTime)
+            .isEqualTo(java.time.Instant.ofEpochSecond(1788650400L))
+        assertThatThrownBy { verifier.verify("synthetic-delete") }.isInstanceOf(EmailNotVerified::class.java)
+        for (time in listOf("1788650400", 1.5, Long.MAX_VALUE)) {
+            claims["auth_time"] = time
+            assertThat(verifier.verifyForDeletion("synthetic-delete").authTime).isNull()
+        }
+    }
+
     @Test fun `missing malformed and unsupported providers are rejected`() {
         listOf(
             null,
