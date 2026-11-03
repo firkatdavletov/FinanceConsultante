@@ -28,11 +28,13 @@ class JdbcFirebaseBudgetCreationStore(
         jdbc
             .sql(
                 """
-                SELECT NOT (EXISTS(SELECT 1 FROM household WHERE id = ?) OR
+                SELECT NOT (EXISTS(SELECT 1 FROM firebase_deleted_budget WHERE budget_id = ?) OR
+                EXISTS(SELECT 1 FROM household WHERE id = ?) OR
                 EXISTS(SELECT 1 FROM member WHERE id = ?) OR
                 EXISTS(SELECT 1 FROM category WHERE id IN (?, ?, ?, ?)))
                 """.trimIndent(),
             ).params(
+                request.householdId,
                 request.householdId,
                 request.memberId,
                 request.categories[0].id,
@@ -51,6 +53,18 @@ class JdbcFirebaseBudgetCreationStore(
             .param("firebase-create:${uid.length}:$uid:$requestId")
             .query { _, _ -> true }
             .single()
+        if (jdbc
+                .sql("SELECT EXISTS(SELECT 1 FROM firebase_deleted_creation WHERE uid_hash=? AND request_id=?)")
+                .params(
+                    com.firkatdavletov.financeconsultante.auth.infrastructure
+                        .deletionHash(uid),
+                    requestId,
+                ).query(Boolean::class.java)
+                .single()
+        ) {
+            throw com.firkatdavletov.financeconsultante.mobileapi.application
+                .CloudBudgetFailure("budget_deleted")
+        }
     }
 
     override fun receipt(

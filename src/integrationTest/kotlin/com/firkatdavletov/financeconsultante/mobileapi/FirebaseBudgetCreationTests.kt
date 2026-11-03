@@ -46,6 +46,7 @@ class FirebaseBudgetCreationTests
     @Autowired
     constructor(
         private val creation: FirebaseBudgetCreation,
+        private val management: com.firkatdavletov.financeconsultante.mobileapi.infrastructure.FirebaseBudgetManagement,
         private val auth: FirebaseAuthenticationService,
         private val jdbc: JdbcTemplate,
         private val mvc: MockMvc,
@@ -83,6 +84,109 @@ class FirebaseBudgetCreationTests
                 jdbc.update("DELETE FROM household WHERE id = ?", id)
             }
             jdbc.update("DELETE FROM firebase_user WHERE firebase_uid IN (?, ?)", uid, otherUid)
+        }
+
+        @Test fun `rename retries never overwrite a newer name and reject changed payload`() {
+            val budget = creation.create(uid, request)
+            val first =
+                com.firkatdavletov.financeconsultante.mobileapi.infrastructure.RenameFirebaseBudget(
+                    UUID.randomUUID(),
+                    "Первое имя",
+                )
+            management.rename(uid, budget.id, first)
+            management.rename(uid, budget.id, first.copy(requestId = UUID.randomUUID(), name = "Второе имя"))
+            assertThat(management.rename(uid, budget.id, first).name).isEqualTo("Второе имя")
+            assertThatThrownBy { management.rename(uid, budget.id, first.copy(name = "Подмена")) }
+                .hasMessageContaining("idempotency_conflict")
+            assertThat(
+                jdbc.queryForObject(
+                    "SELECT opening_balance FROM account WHERE household_id=?",
+                    BigDecimal::class.java,
+                    budget.id,
+                ),
+            ).isEqualByComparingTo("1234.50")
+        }
+
+        @Test fun `delete is replayable preserves other budget and prevents creation replay`() {
+            val budget = creation.create(uid, request)
+            val other = creation.create(uid, request.copy(requestId = UUID.randomUUID(), name = "Другой"))
+            val deletion = UUID.randomUUID()
+            management.delete(uid, budget.id, deletion)
+            management.delete(uid, budget.id, deletion)
+            assertThat(
+                jdbc.queryForObject("SELECT count(*) FROM household WHERE id=?", Int::class.java, budget.id),
+            ).isZero()
+            assertThat(
+                jdbc.queryForObject("SELECT count(*) FROM account WHERE household_id=?", Int::class.java, other.id),
+            ).isEqualTo(1)
+            assertThat(
+                jdbc.queryForObject("SELECT count(*) FROM firebase_user WHERE firebase_uid=?", Int::class.java, uid),
+            ).isEqualTo(1)
+            assertThatThrownBy { creation.create(uid, request) }.hasMessageContaining("budget_deleted")
+        }
+
+        @Test fun `concurrent deletion retries commit once and both return successfully`() {
+            val budget = creation.create(uid, request)
+            val requestId = UUID.randomUUID()
+            val ready = CountDownLatch(2)
+            val start = CountDownLatch(1)
+            val pool = Executors.newFixedThreadPool(2)
+            try {
+                val calls =
+                    (1..2).map {
+                        pool.submit {
+                            ready.countDown()
+                            check(start.await(10, TimeUnit.SECONDS))
+                            management.delete(uid, budget.id, requestId)
+                        }
+                    }
+                check(ready.await(10, TimeUnit.SECONDS))
+                start.countDown()
+                calls.forEach { it.get(10, TimeUnit.SECONDS) }
+                assertThat(
+                    jdbc.queryForObject(
+                        "SELECT count(*) FROM firebase_budget_management WHERE request_id=?",
+                        Int::class.java,
+                        requestId,
+                    ),
+                ).isEqualTo(1)
+                assertThat(
+                    jdbc.queryForObject("SELECT count(*) FROM household WHERE id=?", Int::class.java, budget.id),
+                ).isZero()
+            } finally {
+                start.countDown()
+                pool.shutdownNow()
+            }
+        }
+
+        @Test fun `HTTP management rejects foreign identity and validates name`() {
+            val budget = creation.create(uid, request)
+            mvc
+                .perform(
+                    org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+                        .patch(
+                            "/api/v4/budgets/${budget.id}",
+                        ).header("Authorization", "Bearer t06-other")
+                        .contentType("application/json")
+                        .content("""{"requestId":"${UUID.randomUUID()}","name":"Чужой"}"""),
+                ).andExpect(status().isForbidden)
+            mvc
+                .perform(
+                    org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+                        .patch(
+                            "/api/v4/budgets/${budget.id}",
+                        ).header("Authorization", "Bearer t06-owner")
+                        .contentType("application/json")
+                        .content("""{"requestId":"${UUID.randomUUID()}","name":" "}"""),
+                ).andExpect(status().isBadRequest)
+            mvc
+                .perform(
+                    org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+                        .delete(
+                            "/api/v4/budgets/${budget.id}",
+                        ).header("Authorization", "Bearer t06-other")
+                        .param("requestId", UUID.randomUUID().toString()),
+                ).andExpect(status().isForbidden)
         }
 
         @Test fun `first budget is usable after another login and HTTP retry returns the same owner budget`() {

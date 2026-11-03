@@ -37,7 +37,25 @@ class FirebaseBudgetController(
     private val authentication: FirebaseAuthenticationService,
     private val budgets: FirebaseBudgets,
     private val creation: FirebaseBudgetCreation,
+    private val management: FirebaseBudgetManagement,
 ) {
+    @org.springframework.web.bind.annotation.PatchMapping("/{budgetId}")
+    fun rename(
+        @RequestHeader(HttpHeaders.AUTHORIZATION, required = false) authorization: String?,
+        @PathVariable budgetId: UUID,
+        @RequestBody request: RenameFirebaseBudget,
+    ) = noStore(management.rename(authentication.authenticate(authorization).firebaseUid, budgetId, request))
+
+    @org.springframework.web.bind.annotation.DeleteMapping("/{budgetId}")
+    fun delete(
+        @RequestHeader(HttpHeaders.AUTHORIZATION, required = false) authorization: String?,
+        @PathVariable budgetId: UUID,
+        @RequestParam requestId: UUID,
+    ): ResponseEntity<Void> {
+        management.delete(authentication.authenticate(authorization).firebaseUid, budgetId, requestId)
+        return ResponseEntity.noContent().cacheControl(CacheControl.noStore()).build()
+    }
+
     @PostMapping
     fun create(
         @RequestHeader(HttpHeaders.AUTHORIZATION, required = false) authorization: String?,

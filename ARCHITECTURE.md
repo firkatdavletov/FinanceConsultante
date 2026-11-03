@@ -841,3 +841,12 @@ Worker получает lease атомарно через SKIP LOCKED, вызы�
 минимальные хеши и результат сохраняются. Секрет удаления — отдельная capability из 32 случайных
 байт; хранится только его SHA-256, статус и replay доступны без уже удалённого Firebase-аккаунта.
 Метрики не имеют персональных labels. [API и эксплуатация](docs/firebase-profile-deletion.md).
+
+### Управление Firebase-бюджетом
+
+V31 вводит независимые от household receipts управления и tombstones удаления.
+Переименование и удаление требуют OWNER и сериализуются exclusive profile-budget lock
+после shared UID lock. Импорт удерживает shared profile-budget lock. DELETE повторяется
+по uidHash/requestId после удаления членства; PATCH replay не перезаписывает новое имя.
+Первоначальные creation requestId и импортируемый UUID удалённого бюджета заблокированы.
+Финансовая очистка использует существующую erase_firebase_budget.

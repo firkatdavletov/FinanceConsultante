@@ -104,6 +104,7 @@ class FirebaseBudgetCreation(
     ): FirebaseBudgetSummary {
         accountAccess.active(uid)
         val budget = request.budget
+        accountAccess.budget(uid, budget.householdId)
         val fingerprint =
             hash(
                 listOf(
