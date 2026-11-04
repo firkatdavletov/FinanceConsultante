@@ -15,7 +15,9 @@ class ProfileDeletionMigrationTests
         private val dataSource: DataSource,
         private val jdbc: JdbcTemplate,
     ) : PostgresIntegrationTest() {
-        @Test fun `V30 preserves V29 users and financial settings until explicit deletion`() {
+        @Suppress("MagicNumber") // Expected migration count from V29 to the current schema.
+        @Test
+        fun `V30 preserves V29 users and financial settings until explicit deletion`() {
             val schema = "profile_migration_${UUID.randomUUID().toString().replace("-", "")}"
             try {
                 Flyway
@@ -38,7 +40,7 @@ class ProfileDeletionMigrationTests
                         .schemas(schema)
                         .defaultSchema(schema)
                         .load()
-                assertThat(current.migrate().migrationsExecuted).isEqualTo(2)
+                assertThat(current.migrate().migrationsExecuted).isEqualTo(3)
                 current.validate()
                 assertThat(jdbc.queryForMap("SELECT * FROM $schema.firebase_user")).isEqualTo(before)
                 assertThat(jdbc.queryForMap("SELECT * FROM $schema.household")).isEqualTo(budget)

@@ -248,7 +248,7 @@ class JdbcOfflineSyncRepository(
             ledgerId = string("ledger_entry_id"),
             amount = (node["amount"] ?: node["planned_amount"])?.decimalValue()?.toPlainString(),
             frequency = string("frequency"),
-            scheduleValue = node["schedule_value"]?.asInt(),
+            scheduleValue = node["schedule_value"]?.takeUnless { it.isNull }?.asInt(),
             startsOn = date("starts_on"),
             active = node["active"]?.asBoolean(),
             dueOn = date("due_on"),

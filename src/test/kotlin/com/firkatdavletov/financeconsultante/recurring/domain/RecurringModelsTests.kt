@@ -2,12 +2,34 @@ package com.firkatdavletov.financeconsultante.recurring.domain
 
 import com.firkatdavletov.financeconsultante.shared.domain.Money
 import org.assertj.core.api.Assertions.assertThat
+import org.assertj.core.api.Assertions.assertThatThrownBy
 import org.junit.jupiter.api.Test
 import java.time.Instant
 import java.time.LocalDate
 import java.util.UUID
 
 class RecurringModelsTests {
+    @Test
+    fun `one-time rule has exactly one due date regardless of planning horizon`() {
+        val date = LocalDate.parse("2026-11-04")
+        val rule = rule(RecurrenceFrequency.ONCE, null, date)
+
+        assertThat(rule.dueDatesThrough(date.minusDays(1))).isEmpty()
+        assertThat(rule.dueDatesThrough(date)).containsExactly(date)
+        assertThat(rule.dueDatesThrough(date.plusYears(10))).containsExactly(date)
+        assertThat(rule.scheduleValue).isNull()
+    }
+
+    @Test
+    fun `only one-time rules allow a missing schedule value`() {
+        val date = LocalDate.parse("2026-11-04")
+        listOf(RecurrenceFrequency.MONTHLY, RecurrenceFrequency.WEEKLY).forEach {
+            assertThatThrownBy { rule(it, null, date) }.isInstanceOf(IllegalArgumentException::class.java)
+        }
+        assertThatThrownBy { rule(RecurrenceFrequency.ONCE, 1, date) }
+            .isInstanceOf(IllegalArgumentException::class.java)
+    }
+
     @Test
     fun `monthly day 31 moves to the last day of a short month`() {
         val rule = rule(RecurrenceFrequency.MONTHLY, 31, LocalDate.parse("2027-01-29"))
@@ -83,7 +105,7 @@ class RecurringModelsTests {
 
     private fun rule(
         frequency: RecurrenceFrequency,
-        scheduleValue: Int,
+        scheduleValue: Int?,
         startsOn: LocalDate,
     ): RecurringRule =
         RecurringRule(

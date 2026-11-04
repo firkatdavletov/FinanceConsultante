@@ -472,11 +472,12 @@ class CloudBudgetService(
                 recurring.createRule(
                     actor,
                     RecurrenceFrequency.valueOf(requireNotNull(c.frequency)),
-                    requireNotNull(c.scheduleValue),
+                    c.scheduleValue,
                     amount(c.amount),
                     requireNotNull(c.categoryId),
                     requireNotNull(c.startsOn),
                     id = id,
+                    authoredOn = c.authoredOn,
                 ),
             )
             return

@@ -212,6 +212,43 @@ class BudgetSyncApiTests
         }
 
         @Test
+        fun `delayed v2 one-time command uses authored date and replays without another occurrence`() {
+            val setup = budget()
+            val create =
+                command(setup, "CREATE_RULE").copy(
+                    categoryId = setup.categories.first().id,
+                    frequency = "ONCE",
+                    amount = "100.00",
+                    startsOn = LocalDate.parse("2026-09-02"),
+                )
+            val receipt = commands.execute(USER, create)
+            assertThat(commands.execute(USER, create)).isEqualTo(receipt)
+            val record = drain().single { it.kind == "RECURRING_RULE" }.record!!
+            assertThat(record.frequency).isEqualTo("ONCE")
+            assertThat(record.scheduleValue).isNull()
+            assertThat(record.startsOn).isEqualTo(create.startsOn)
+            assertThat(
+                jdbc.queryForObject(
+                    "SELECT count(*) FROM recurring_occurrence WHERE rule_id=?",
+                    Long::class.java,
+                    create.entityId,
+                ),
+            ).isEqualTo(1)
+            assertThatThrownBy {
+                commands.execute(
+                    USER,
+                    create.copy(
+                        requestId = UUID.randomUUID(),
+                        entityId = UUID.randomUUID(),
+                        startsOn = create.authoredOn.minusDays(1),
+                    ),
+                )
+            }.isInstanceOf(
+                com.firkatdavletov.financeconsultante.mobileapi.application.InvalidPlannedExpenseRequest::class.java,
+            )
+        }
+
+        @Test
         @Suppress("LongMethod") // One vertical scenario proves that closure never creates another ledger entry.
         fun `rule edits closure and deletion preserve posted payments and sync their links`() {
             val setup = budget()

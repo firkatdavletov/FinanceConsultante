@@ -114,6 +114,7 @@ data class RecurringExpenseCandidate(
             when (frequency) {
                 RecurrenceFrequency.MONTHLY -> scheduleValue in FIRST_SCHEDULE_DAY..LAST_MONTH_SCHEDULE_DAY
                 RecurrenceFrequency.WEEKLY -> scheduleValue in FIRST_SCHEDULE_DAY..LAST_WEEK_SCHEDULE_DAY
+                RecurrenceFrequency.ONCE -> false
             },
         )
         require((status == RecurringCandidateStatus.ACCEPTED) == (acceptedRuleId != null))
@@ -149,7 +150,10 @@ object RecurringExpenseDetector {
         payments: List<RulePaymentObservation>,
         policy: RecurrenceDetectionPolicy,
     ): List<RecurringPriceIncrease> {
-        val active = rules.filter(RecurringRule::active).associateBy(RecurringRule::id)
+        val active =
+            rules.filter { it.active && it.frequency != RecurrenceFrequency.ONCE }.associateBy(
+                RecurringRule::id,
+            )
         return payments
             .groupBy(RulePaymentObservation::ruleId)
             .mapNotNull { (ruleId, values) ->
@@ -247,6 +251,10 @@ object RecurringExpenseDetector {
         frequency: RecurrenceFrequency,
     ): Int =
         when (frequency) {
+            RecurrenceFrequency.ONCE -> {
+                error("One-time expenses cannot be detected as recurring")
+            }
+
             RecurrenceFrequency.WEEKLY -> {
                 mode(evidence.map { it.occurredOn.dayOfWeek.value })
             }
@@ -272,13 +280,20 @@ object RecurringExpenseDetector {
                 (rule.normalizedDescription == null || rule.normalizedDescription == detected.normalizedDescription)
         val scheduleClose =
             when (rule.frequency) {
+                RecurrenceFrequency.ONCE -> {
+                    false
+                }
+
                 RecurrenceFrequency.WEEKLY -> {
                     rule.scheduleValue == detected.scheduleValue
                 }
 
                 RecurrenceFrequency.MONTHLY -> {
-                    (rule.scheduleValue >= LAST_WEEK_OF_MONTH && detected.scheduleValue >= LAST_WEEK_OF_MONTH) ||
-                        abs(rule.scheduleValue - detected.scheduleValue) <= policy.monthlyToleranceDays
+                    (
+                        requireNotNull(rule.scheduleValue) >= LAST_WEEK_OF_MONTH &&
+                            detected.scheduleValue >= LAST_WEEK_OF_MONTH
+                    ) ||
+                        abs(requireNotNull(rule.scheduleValue) - detected.scheduleValue) <= policy.monthlyToleranceDays
                 }
             }
         return identityMatches && scheduleClose &&

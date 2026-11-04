@@ -52,6 +52,7 @@ class PlannedExpenseMutationService(
         scheduleValue: Int?,
         startsOn: LocalDate?,
         id: UUID = UUID.randomUUID(),
+        authoredOn: LocalDate? = null,
     ): RecurringRuleView {
         val owner = requireOwner(telegramUserId)
         val recurrenceFrequency = parseFrequency(frequency)
@@ -64,6 +65,7 @@ class PlannedExpenseMutationService(
                 categoryId ?: invalid("categoryId is required"),
                 startsOn ?: invalid("startsOn is required"),
                 id = id,
+                authoredOn = authoredOn,
             )
         return result.appliedOrInvalid()
     }
@@ -148,17 +150,22 @@ class PlannedExpenseMutationService(
     private fun parseFrequency(value: String?): RecurrenceFrequency =
         value
             ?.let { runCatching { RecurrenceFrequency.valueOf(it) }.getOrNull() }
-            ?: invalid("frequency must be MONTHLY or WEEKLY")
+            ?: invalid("frequency must be MONTHLY, WEEKLY or ONCE")
 
     private fun parseScheduleValue(
         frequency: RecurrenceFrequency,
         value: Int?,
-    ): Int {
+    ): Int? {
+        if (frequency == RecurrenceFrequency.ONCE) {
+            if (value != null) invalid("scheduleValue must be absent or null for ONCE")
+            return null
+        }
         val scheduleValue = value ?: invalid("scheduleValue is required")
         val valid =
             when (frequency) {
                 RecurrenceFrequency.MONTHLY -> scheduleValue in 1..31
                 RecurrenceFrequency.WEEKLY -> scheduleValue in 1..7
+                RecurrenceFrequency.ONCE -> false
             }
         if (!valid) invalid("scheduleValue is outside the frequency range")
         return scheduleValue

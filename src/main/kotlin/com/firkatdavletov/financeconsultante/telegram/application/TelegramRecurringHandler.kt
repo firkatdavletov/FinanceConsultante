@@ -299,7 +299,7 @@ class TelegramRecurringHandler(
                     "Правило сохранено: ${ruleLine(result.value)}\n" +
                         if (
                             result.value.rule.frequency == RecurrenceFrequency.MONTHLY &&
-                            result.value.rule.scheduleValue >= SHORT_MONTH_DAY
+                            requireNotNull(result.value.rule.scheduleValue) >= SHORT_MONTH_DAY
                         ) {
                             "В коротком месяце срок переносится " +
                                 "на его последний день. "
@@ -527,15 +527,20 @@ class TelegramRecurringHandler(
         when (value) {
             RecurrenceFrequency.MONTHLY -> "примерно ежемесячно"
             RecurrenceFrequency.WEEKLY -> "примерно еженедельно"
+            RecurrenceFrequency.ONCE -> "однократно"
         }
 
     private fun ruleLine(view: RecurringRuleView): String {
         val rule = view.rule
         val schedule =
             when (rule.frequency) {
+                RecurrenceFrequency.ONCE -> {
+                    "однократно ${rule.startsOn}"
+                }
+
                 RecurrenceFrequency.MONTHLY -> {
                     "ежемесячно ${rule.scheduleValue}-го" +
-                        if (rule.scheduleValue >= SHORT_MONTH_DAY) {
+                        if (requireNotNull(rule.scheduleValue) >= SHORT_MONTH_DAY) {
                             " (короткий месяц: последний день)"
                         } else {
                             ""
@@ -543,7 +548,7 @@ class TelegramRecurringHandler(
                 }
 
                 RecurrenceFrequency.WEEKLY -> {
-                    "еженедельно, ${WEEKDAYS[rule.scheduleValue - 1]}"
+                    "еженедельно, ${WEEKDAYS[requireNotNull(rule.scheduleValue) - 1]}"
                 }
             }
         return "${rule.id} v${rule.version}: $schedule, ${rule.amount.amount.toPlainString()} KZT, " +

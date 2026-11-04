@@ -41,12 +41,13 @@ class RecurringPlanService(
     fun createRule(
         owner: BudgetActor,
         frequency: RecurrenceFrequency,
-        scheduleValue: Int,
+        scheduleValue: Int?,
         amount: Money,
         categoryId: UUID,
         startsOn: LocalDate,
         normalizedDescription: String? = null,
         id: UUID = UUID.randomUUID(),
+        authoredOn: LocalDate? = null,
     ): PlanChange<RecurringRuleView> {
         if (!owner.canManageHousehold) return ownerOnly()
         if (budgets.findOwnedAccount(owner.householdId, owner.memberId, lock = true) == null) return ownerOnly()
@@ -58,6 +59,11 @@ class RecurringPlanService(
             )
         }
         val now = now()
+        val today = now.atZone(ACCOUNTING_ZONE).toLocalDate()
+        val createdOn = authoredOn ?: today
+        if (frequency == RecurrenceFrequency.ONCE && (createdOn > today || startsOn < createdOn)) {
+            return PlanChange.Rejected("Одноразовый расход не может быть раньше дня создания правила.")
+        }
         val rule =
             RecurringRule(
                 id,

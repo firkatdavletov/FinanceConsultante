@@ -162,6 +162,7 @@ class BudgetSyncCommands(
                     c.scheduleValue,
                     c.startsOn,
                     c.entityId,
+                    authoredOn = c.authoredOn,
                 )
             }
 

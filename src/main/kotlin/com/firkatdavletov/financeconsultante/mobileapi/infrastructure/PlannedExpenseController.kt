@@ -86,7 +86,7 @@ data class PlannedExpenseResponse(
 data class PlannedExpenseRuleReferenceResponse(
     val id: UUID,
     val frequency: String,
-    val scheduleValue: Int,
+    val scheduleValue: Int?,
     val startsOn: LocalDate,
     val active: Boolean,
     val version: Long,
@@ -109,7 +109,7 @@ data class PlannedExpenseRuleResponse(
     val category: PlannedExpenseCategoryResponse,
     val plannedAmount: ApiMoneyResponse,
     val frequency: String,
-    val scheduleValue: Int,
+    val scheduleValue: Int?,
     val startsOn: LocalDate,
     val active: Boolean,
     val version: Long,

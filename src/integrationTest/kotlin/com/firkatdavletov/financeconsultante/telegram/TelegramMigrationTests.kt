@@ -43,7 +43,7 @@ class TelegramMigrationTests
                     id,
                 )
                 val current = configuration.target(MigrationVersion.LATEST).load()
-                val expectedNewMigrations = 29
+                val expectedNewMigrations = 30
                 assertThat(current.migrate().migrationsExecuted).isEqualTo(expectedNewMigrations)
                 assertThat(jdbc.queryForObject("SELECT cash_reserve FROM $schema.household", BigDecimal::class.java))
                     .isEqualByComparingTo("0")

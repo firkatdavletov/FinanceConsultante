@@ -12,6 +12,7 @@ import java.util.UUID
 enum class RecurrenceFrequency {
     MONTHLY,
     WEEKLY,
+    ONCE,
 }
 
 data class RecurringRule(
@@ -20,7 +21,7 @@ data class RecurringRule(
     val memberId: UUID,
     val categoryId: UUID,
     val frequency: RecurrenceFrequency,
-    val scheduleValue: Int,
+    val scheduleValue: Int?,
     val amount: Money,
     val startsOn: LocalDate,
     val active: Boolean = true,
@@ -34,8 +35,9 @@ data class RecurringRule(
         require(amount.currency == Currency.KZT) { "Planned amounts must use the base currency" }
         require(
             when (frequency) {
-                RecurrenceFrequency.MONTHLY -> scheduleValue in MIN_MONTH_DAY..MAX_MONTH_DAY
-                RecurrenceFrequency.WEEKLY -> scheduleValue in MIN_WEEK_DAY..MAX_WEEK_DAY
+                RecurrenceFrequency.MONTHLY -> scheduleValue != null && scheduleValue in MIN_MONTH_DAY..MAX_MONTH_DAY
+                RecurrenceFrequency.WEEKLY -> scheduleValue != null && scheduleValue in MIN_WEEK_DAY..MAX_WEEK_DAY
+                RecurrenceFrequency.ONCE -> scheduleValue == null
             },
         ) { "Invalid recurrence schedule" }
         require(version >= 0 && updatedAt >= createdAt) { "Invalid recurring rule version" }
@@ -51,6 +53,7 @@ data class RecurringRule(
         return when (frequency) {
             RecurrenceFrequency.MONTHLY -> monthlyDates(throughInclusive)
             RecurrenceFrequency.WEEKLY -> weeklyDates(throughInclusive)
+            RecurrenceFrequency.ONCE -> listOf(startsOn)
         }
     }
 
@@ -59,7 +62,7 @@ data class RecurringRule(
         var month = YearMonth.from(startsOn)
         val lastMonth = YearMonth.from(throughInclusive)
         while (month <= lastMonth) {
-            val dueOn = month.atDay(scheduleValue.coerceAtMost(month.lengthOfMonth()))
+            val dueOn = month.atDay(requireNotNull(scheduleValue).coerceAtMost(month.lengthOfMonth()))
             if (dueOn >= startsOn && dueOn <= throughInclusive) dates += dueOn
             month = month.plusMonths(1)
         }
@@ -67,7 +70,7 @@ data class RecurringRule(
     }
 
     private fun weeklyDates(throughInclusive: LocalDate): List<LocalDate> {
-        val day = DayOfWeek.of(scheduleValue)
+        val day = DayOfWeek.of(requireNotNull(scheduleValue))
         val shift = (day.value - startsOn.dayOfWeek.value + DAYS_IN_WEEK) % DAYS_IN_WEEK
         val dates = mutableListOf<LocalDate>()
         var dueOn = startsOn.plusDays(shift.toLong())
