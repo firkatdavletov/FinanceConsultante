@@ -8,7 +8,7 @@ import java.util.UUID
 
 data class CloudBudget(
     val scope: SyncScope,
-    val capabilities: List<String> = listOf("confirmedPlanLinkingV1"),
+    val capabilities: List<String> = listOf("confirmedPlanLinkingV1", "incomeRuleEditingV1"),
 )
 
 data class CloudSeedCategory(
@@ -66,6 +66,10 @@ data class CloudBudgetCommand(
     val planMatchingMode: String? = null,
     val planTarget: PlanLinkTarget? = null,
     val expectedPlanVersion: Long? = null,
+    val ruleName: String? = null,
+    val incomeName: String? = null,
+    val incomeFrequency: String? = null,
+    val incomeActive: Boolean? = null,
 )
 
 interface CloudBudgetRepository {

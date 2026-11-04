@@ -70,6 +70,7 @@ class JdbcBudgetCommandRepository(
                 "LEDGER" -> "ledger_entry"
                 "CATEGORY" -> "category"
                 "RECURRING_RULE" -> "recurring_rule"
+                "INCOME_RULE" -> "income_rule"
                 "RECURRING_OCCURRENCE" -> "recurring_occurrence"
                 "EXPECTED_INCOME" -> "expected_income"
                 else -> error("Unsupported entity kind")

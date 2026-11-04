@@ -48,55 +48,6 @@ internal class JdbcOperationalMetrics(
         private val definitions =
             listOf(
                 MetricDefinition(
-                    "financeconsultante.telegram.inbox.pending",
-                    "Telegram inbox messages waiting for local or OpenAI processing.",
-                    COUNT,
-                    "SELECT count(*)::double precision FROM telegram_inbox " +
-                        "WHERE status IN ('RECEIVED', 'OPENAI_PENDING')",
-                ),
-                MetricDefinition(
-                    "financeconsultante.telegram.inbox.oldest.age",
-                    "Age of the oldest Telegram inbox message waiting for processing.",
-                    SECONDS,
-                    ageSql("telegram_inbox", "created_at", "status IN ('RECEIVED', 'OPENAI_PENDING')"),
-                ),
-                MetricDefinition(
-                    "financeconsultante.telegram.outbox.pending",
-                    "Telegram outbox messages waiting for delivery.",
-                    COUNT,
-                    "SELECT count(*)::double precision FROM telegram_outbox " +
-                        "WHERE status IN ('PENDING', 'SENDING')",
-                ),
-                MetricDefinition(
-                    "financeconsultante.telegram.outbox.failed",
-                    "Telegram outbox messages with a permanent delivery failure.",
-                    COUNT,
-                    "SELECT count(*)::double precision FROM telegram_outbox WHERE status = 'FAILED'",
-                ),
-                MetricDefinition(
-                    "financeconsultante.report.jobs.pending",
-                    "Daily, weekly, and monthly report jobs not yet sent or skipped.",
-                    COUNT,
-                    "SELECT count(*)::double precision FROM daily_report_job " +
-                        "WHERE status IN ('SCHEDULED', 'PROCESSING', 'QUEUED')",
-                ),
-                MetricDefinition(
-                    "financeconsultante.report.jobs.failed",
-                    "Daily, weekly, and monthly report jobs that exhausted retries.",
-                    COUNT,
-                    "SELECT count(*)::double precision FROM daily_report_job WHERE status = 'FAILED'",
-                ),
-                MetricDefinition(
-                    "financeconsultante.report.jobs.overdue.age",
-                    "Age past schedule of the oldest report job that should already have run.",
-                    SECONDS,
-                    ageSql(
-                        "daily_report_job",
-                        "scheduled_for",
-                        "status IN ('SCHEDULED', 'PROCESSING', 'QUEUED') AND scheduled_for <= clock_timestamp()",
-                    ),
-                ),
-                MetricDefinition(
                     "financeconsultante.exchange.jobs.pending",
                     "Exchange-rate jobs waiting for completion.",
                     COUNT,
@@ -112,19 +63,6 @@ internal class JdbcOperationalMetrics(
                         "due_at",
                         "status IN ('PENDING', 'PROCESSING', 'RETRY') AND due_at <= clock_timestamp()",
                     ),
-                ),
-                MetricDefinition(
-                    "financeconsultante.openai.jobs.pending",
-                    "OpenAI recognition jobs waiting for a terminal result.",
-                    COUNT,
-                    "SELECT count(*)::double precision FROM openai_recognition_job " +
-                        "WHERE status IN ('PENDING', 'PROCESSING')",
-                ),
-                MetricDefinition(
-                    "financeconsultante.openai.jobs.oldest.age",
-                    "Age of the oldest OpenAI recognition job waiting for a terminal result.",
-                    SECONDS,
-                    ageSql("openai_recognition_job", "created_at", "status IN ('PENDING', 'PROCESSING')"),
                 ),
             )
 

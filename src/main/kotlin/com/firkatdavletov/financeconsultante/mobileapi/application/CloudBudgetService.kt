@@ -15,9 +15,13 @@ import com.firkatdavletov.financeconsultante.ledger.domain.CategoryKind
 import com.firkatdavletov.financeconsultante.ledger.domain.Direction
 import com.firkatdavletov.financeconsultante.ledger.domain.EntryChange
 import com.firkatdavletov.financeconsultante.ledger.domain.ExpenseDescriptionNormalizer
+import com.firkatdavletov.financeconsultante.recurring.application.ExpenseRuleEditingService
+import com.firkatdavletov.financeconsultante.recurring.application.IncomeRuleDetails
+import com.firkatdavletov.financeconsultante.recurring.application.IncomeRuleService
 import com.firkatdavletov.financeconsultante.recurring.application.PlanChange
 import com.firkatdavletov.financeconsultante.recurring.application.RecurringPlanService
 import com.firkatdavletov.financeconsultante.recurring.domain.RecurrenceFrequency
+import com.firkatdavletov.financeconsultante.recurring.domain.planName
 import com.firkatdavletov.financeconsultante.shared.domain.Currency
 import com.firkatdavletov.financeconsultante.shared.domain.Money
 import org.springframework.stereotype.Service
@@ -48,6 +52,8 @@ class CloudBudgetService(
     private val clock: Clock,
     private val bootstrapValidator: CloudBudgetBootstrapValidator,
     private val operationPlans: OperationPlanService,
+    private val incomeRules: IncomeRuleService,
+    private val expenseRuleEditing: ExpenseRuleEditingService,
 ) {
     @Transactional
     fun legacyUserId(tokenHash: String): Long? {
@@ -180,8 +186,7 @@ class CloudBudgetService(
             return it.receipt
         }
         val confirmed = validatePlanContract(actor, c, capabilities)
-        require(c.replaceDetails != true || c.type == "UPDATE_OPERATION")
-        require(c.currency == null || c.currency == "KZT")
+        validateFields(c)
         require(c.authoredOn in actor.startedAt.atZone(ZONE).toLocalDate()..today())
         val id =
             if (c.type == "CLOSE_EXPENSE" && c.ruleId != null && c.dueOn != null) {
@@ -193,6 +198,12 @@ class CloudBudgetService(
         apply(actor, c, id)
         if (confirmed) operationPlans.activate(actor.householdId)
         return rememberReceipt(actor, c, id, fingerprint)
+    }
+
+    private fun validateFields(c: CloudBudgetCommand) {
+        require(c.replaceDetails != true || c.type in setOf("UPDATE_OPERATION", "UPDATE_RULE"))
+        require(c.currency == null || c.currency == "KZT")
+        c.ruleName?.let(::planName)
     }
 
     private fun fingerprint(c: CloudBudgetCommand): String =
@@ -219,7 +230,11 @@ class CloudBudgetService(
                 c.description,
                 c.refundId,
                 c.currency,
-            ) + (if (c.replaceDetails == true) listOf("replaceDetails", true) else emptyList()) +
+            ) + (if (c.ruleName != null) listOf("ruleName", c.ruleName) else emptyList()) +
+                (if (c.incomeName != null) listOf("incomeName", c.incomeName) else emptyList()) +
+                (if (c.incomeFrequency != null) listOf("incomeFrequency", c.incomeFrequency) else emptyList()) +
+                (if (c.incomeActive != null) listOf("incomeActive", c.incomeActive) else emptyList()) +
+                (if (c.replaceDetails == true) listOf("replaceDetails", true) else emptyList()) +
                 (if (c.planMatchingMode != null) listOf("planMatchingMode", c.planMatchingMode) else emptyList()) +
                 (
                     if (c.planTarget != null ||
@@ -304,6 +319,8 @@ class CloudBudgetService(
             "CREATE_RULE", "UPDATE_RULE" -> updateRule(actor, c, id)
             "DELETE_RULE" -> deleteRule(actor, c, id)
             "CREATE_INCOME", "UPDATE_INCOME" -> updateIncome(actor, c, id)
+            "CREATE_INCOME_RULE", "UPDATE_INCOME_RULE" -> incomeRules.save(actor, id, incomeDetails(c), c.authoredOn)
+            "DELETE_INCOME_RULE" -> incomeRules.delete(actor, id, c.authoredOn)
             "DELETE_INCOME" -> deleteIncome(actor, id)
             "CLOSE_EXPENSE" -> closeExpense(actor, id)
             "SET_OPERATION_PLAN_LINK", "REMOVE_OPERATION_PLAN_LINK" -> operationPlans.change(actor, c, id)
@@ -468,6 +485,7 @@ class CloudBudgetService(
         repository.restoreRule(actor.householdId, id, c.authoredOn)
         val current = recurring.rule(actor, id)
         if (current == null) {
+            require(requireNotNull(c.startsOn) >= c.authoredOn)
             applied(
                 recurring.createRule(
                     actor,
@@ -478,11 +496,30 @@ class CloudBudgetService(
                     requireNotNull(c.startsOn),
                     id = id,
                     authoredOn = c.authoredOn,
+                    ruleName = c.ruleName,
                 ),
             )
             return
         }
-        applied(recurring.updateRuleAmount(actor, id, current.version, amount(c.amount), c.authoredOn))
+        if (c.replaceDetails == true) {
+            applied(
+                expenseRuleEditing.replaceRuleDetails(
+                    actor,
+                    id,
+                    current.copy(
+                        categoryId = requireNotNull(c.categoryId),
+                        amount = amount(c.amount),
+                        frequency = RecurrenceFrequency.valueOf(requireNotNull(c.frequency)),
+                        scheduleValue = c.scheduleValue,
+                        startsOn = requireNotNull(c.startsOn),
+                        ruleName = c.ruleName?.trim(),
+                    ),
+                    c.authoredOn,
+                ),
+            )
+        } else {
+            applied(recurring.updateRuleAmount(actor, id, current.version, amount(c.amount), c.authoredOn))
+        }
     }
 
     private fun updateIncome(
@@ -503,6 +540,7 @@ class CloudBudgetService(
                     id,
                 ),
             )
+            incomeRules.metadata(actor, id, incomeDetails(c))
             return
         }
         applied(
@@ -516,7 +554,18 @@ class CloudBudgetService(
                 c.authoredOn,
             ),
         )
+        incomeRules.metadata(actor, id, incomeDetails(c))
     }
+
+    private fun incomeDetails(c: CloudBudgetCommand) =
+        IncomeRuleDetails(
+            c.categoryId,
+            c.amount?.let(::amount),
+            c.dueOn,
+            c.incomeName,
+            c.incomeFrequency,
+            c.incomeActive,
+        )
 
     private fun <T> applied(result: PlanChange<T>): T =
         when (result) {
@@ -535,6 +584,7 @@ class CloudBudgetService(
     private fun kind(type: String) =
         when {
             type.endsWith("CATEGORY") -> "CATEGORY"
+            type.endsWith("INCOME_RULE") -> "INCOME_RULE"
             type.endsWith("RULE") -> "RECURRING_RULE"
             type.endsWith("INCOME") -> "EXPECTED_INCOME"
             type == "CLOSE_EXPENSE" -> "RECURRING_OCCURRENCE"

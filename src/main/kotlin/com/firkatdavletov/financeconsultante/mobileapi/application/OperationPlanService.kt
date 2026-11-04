@@ -6,6 +6,7 @@ import com.firkatdavletov.financeconsultante.ledger.domain.Direction
 import com.firkatdavletov.financeconsultante.ledger.domain.EntryStatus
 import com.firkatdavletov.financeconsultante.ledger.domain.LedgerEntry
 import com.firkatdavletov.financeconsultante.ledger.domain.revised
+import com.firkatdavletov.financeconsultante.recurring.application.IncomeRuleRepository
 import com.firkatdavletov.financeconsultante.recurring.application.RecurringPlanRepository
 import com.firkatdavletov.financeconsultante.shared.domain.Currency
 import org.springframework.stereotype.Service
@@ -61,12 +62,14 @@ interface OperationPlanRepository {
 fun supportsConfirmedPlanLinks(value: String?) = value.orEmpty().split(',', ' ').contains("confirmedPlanLinkingV1")
 
 @Service
+@Suppress("TooManyFunctions") // Shared validation serves both expense and income plan links.
 class OperationPlanService(
     private val repository: OperationPlanRepository,
     private val plans: RecurringPlanRepository,
     private val ledger: LedgerRepository,
     private val clock: Clock,
     private val budgets: com.firkatdavletov.financeconsultante.ledger.application.BudgetRepository,
+    private val incomeRules: IncomeRuleRepository,
 ) {
     fun requireCapability(
         household: UUID,
@@ -101,13 +104,12 @@ class OperationPlanService(
             plans
                 .expectedIncomes(actor.householdId)
                 .filter {
-                    it.expectedIncome.categoryId == entry.categoryId && it.expectedIncome.status.name == "SCHEDULED" &&
-                        !it.fulfilled
+                    it.expectedIncome.categoryId == entry.categoryId && it.forecastAmount.amount.signum() > 0
                 }.forEach {
                     val p = it.expectedIncome
                     result +=
                         SuggestedPlan(
-                            PlanLinkTarget("INCOME", p.id, dueOn = p.dueOn),
+                            PlanLinkTarget("INCOME", p.id, p.ruleId, p.dueOn),
                             p.categoryId,
                             it.categoryName,
                             p.plannedAmount.amount.toPlainString(),
@@ -213,7 +215,7 @@ class OperationPlanService(
         b: PlanLinkTarget,
     ): Boolean =
         a.type == b.type && a.dueOn == b.dueOn &&
-            (if (a.type == "EXPENSE") a.ruleId == b.ruleId else a.planId == b.planId)
+            (if (a.type == "EXPENSE" || b.ruleId != null) a.ruleId == b.ruleId else a.planId == b.planId)
 
     private fun validateIncomeTarget(
         actor: CloudBudgetActor,
@@ -221,12 +223,43 @@ class OperationPlanService(
         entry: LedgerEntry,
         target: PlanLinkTarget,
     ) {
-        if (target.ruleId != null || target.planId == null) fail("invalid_plan_link", PLAN_LINK_INVALID)
+        if (target.ruleId != null) {
+            prepareIncomeRuleTarget(actor, target)
+        } else if (target.planId == null) {
+            fail("invalid_plan_link", PLAN_LINK_INVALID)
+        }
         val income =
-            plans.findExpectedIncome(actor.householdId, target.planId, lock = true)
+            target.planId?.let { plans.findExpectedIncome(actor.householdId, it, lock = true) }
+                ?: plans
+                    .expectedIncomes(actor.householdId)
+                    .firstOrNull {
+                        it.expectedIncome.ruleId == target.ruleId && it.expectedIncome.dueOn == target.dueOn
+                    }?.expectedIncome
                 ?: fail("invalid_plan_link", PLAN_LINK_INVALID)
+        if (target.ruleId != null && income.ruleId != target.ruleId) fail("invalid_plan_link", PLAN_LINK_INVALID)
         if (income.categoryId != entry.categoryId) fail("invalid_plan_link", PLAN_LINK_INVALID)
         if (income.version != c.expectedPlanVersion || income.dueOn != target.dueOn) fail("plan_changed")
+    }
+
+    private fun prepareIncomeRuleTarget(
+        actor: CloudBudgetActor,
+        target: PlanLinkTarget,
+    ) {
+        val rule =
+            incomeRules.rules(actor.householdId).firstOrNull { it.id == target.ruleId }
+                ?: fail("invalid_plan_link", PLAN_LINK_INVALID)
+        val existing =
+            plans.expectedIncomes(actor.householdId).firstOrNull {
+                it.expectedIncome.ruleId == rule.id && it.expectedIncome.dueOn == target.dueOn
+            }
+        if (existing == null) {
+            if (target.dueOn > LocalDate.now(clock.withZone(ZONE)).plusYears(PLAN_HORIZON_YEARS) ||
+                target.dueOn !in rule.dueDatesThrough(target.dueOn)
+            ) {
+                fail("plan_unavailable")
+            }
+            incomeRules.materialize(rule, target.dueOn)
+        }
     }
 
     private fun prepareExpenseTarget(

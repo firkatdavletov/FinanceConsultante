@@ -59,6 +59,7 @@ class OneTimeRuleCreationTests {
                 Mockito.mock(LedgerRepository::class.java),
                 Mockito.mock(AccountingService::class.java),
                 Clock.fixed(Instant.parse("2026-11-03T20:00:00Z"), ZoneOffset.UTC),
+                Mockito.mock(IncomeRuleRepository::class.java),
             ),
             plans,
             owner,

@@ -33,7 +33,7 @@ class JdbcOperationPlanRepository(
         jdbc
             .sql(
                 """
-                SELECT p.*,COALESCE(o.due_on,i.due_on) AS due_on,o.rule_id
+                SELECT p.*,COALESCE(o.due_on,i.due_on) AS due_on,COALESCE(o.rule_id,i.rule_id) AS rule_id
                 FROM operation_plan_links p
                 LEFT JOIN recurring_occurrence o ON o.household_id=p.household_id AND o.id=p.occurrence_id
                 LEFT JOIN expected_income i ON i.household_id=p.household_id AND i.id=p.expected_income_id

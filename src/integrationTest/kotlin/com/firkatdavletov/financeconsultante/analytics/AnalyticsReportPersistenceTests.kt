@@ -1,11 +1,9 @@
 package com.firkatdavletov.financeconsultante.analytics
 
 import com.firkatdavletov.financeconsultante.PostgresIntegrationTest
-import com.firkatdavletov.financeconsultante.analytics.application.AnalyticsReportCoordinator
 import com.firkatdavletov.financeconsultante.analytics.application.AnalyticsReportRepository
 import com.firkatdavletov.financeconsultante.analytics.application.AnalyticsReportService
 import com.firkatdavletov.financeconsultante.analytics.domain.AnalyticsPeriod
-import com.firkatdavletov.financeconsultante.budget.application.DailyReportJobRepository
 import com.firkatdavletov.financeconsultante.ledger.application.AccountingService
 import com.firkatdavletov.financeconsultante.ledger.application.CorrectionResult
 import com.firkatdavletov.financeconsultante.ledger.application.EntryCorrections
@@ -22,7 +20,6 @@ import com.firkatdavletov.financeconsultante.ledger.domain.Household
 import com.firkatdavletov.financeconsultante.ledger.domain.LedgerEntry
 import com.firkatdavletov.financeconsultante.ledger.domain.Member
 import com.firkatdavletov.financeconsultante.shared.domain.Money
-import com.firkatdavletov.financeconsultante.telegram.infrastructure.JdbcOutboxStore
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.assertThatThrownBy
 import org.junit.jupiter.api.AfterEach
@@ -50,13 +47,10 @@ class AnalyticsReportPersistenceTests
         private val corrections: EntryCorrections,
         private val reports: AnalyticsReportService,
         private val reportRepository: AnalyticsReportRepository,
-        private val jobs: DailyReportJobRepository,
         private val jdbc: JdbcTemplate,
-        jdbcClient: JdbcClient,
         transactionManager: PlatformTransactionManager,
     ) : PostgresIntegrationTest() {
         private val tx = TransactionTemplate(transactionManager)
-        private val outbox = JdbcOutboxStore(jdbcClient, Duration.ofMinutes(2))
         private lateinit var setup: BudgetSetup
         private lateinit var owner: OwnedLedger
 
@@ -153,45 +147,6 @@ class AnalyticsReportPersistenceTests
                 .hasMessage("Budget access denied")
         }
 
-        @Test
-        fun `Monday first-of-month catch-up queues distinct weekly and monthly immutable texts`() {
-            val catchUpClock = Clock.fixed(Instant.parse("2026-06-02T03:00:00Z"), ZoneOffset.UTC)
-            val service = AnalyticsReportService(reportRepository, catchUpClock)
-            val coordinator = AnalyticsReportCoordinator(jobs, service, catchUpClock)
-
-            assertThat(runOnce(coordinator)).isTrue()
-            assertThat(runOnce(coordinator)).isTrue()
-            assertThat(runOnce(coordinator)).isFalse()
-            assertThat(
-                jdbc.queryForList(
-                    "SELECT report_type FROM daily_report_job WHERE household_id = ? ORDER BY report_type",
-                    String::class.java,
-                    owner.householdId,
-                ),
-            ).containsExactly("MONTHLY", "WEEKLY")
-            assertThat(count("telegram_outbox")).isEqualTo(2)
-
-            val first = checkNotNull(outbox.claim(BOT))
-            assertThat(first.text).contains("Завершённый").hasSizeLessThanOrEqualTo(4096)
-            record(Direction.EXPENSE, "10", expense("Продукты"), "after-snapshot", "2026-05-31")
-            jdbc.update(
-                "UPDATE telegram_outbox SET lease_until = clock_timestamp() - interval '1 second' WHERE id = ?",
-                first.id,
-            )
-            val retried = checkNotNull(outbox.claim(BOT))
-            assertThat(retried.reportJobId).isEqualTo(first.reportJobId)
-            assertThat(retried.text).isEqualTo(first.text)
-            assertThat(retried.text).doesNotContain("10.00 KZT")
-        }
-
-        private fun runOnce(coordinator: AnalyticsReportCoordinator): Boolean =
-            tx.execute {
-                coordinator.prepare(BOT, OWNER)
-                val job = coordinator.claim(BOT, Duration.ofMinutes(2)) ?: return@execute false
-                coordinator.complete(job)
-                true
-            }
-
         private fun record(
             direction: Direction,
             amount: String,
@@ -250,18 +205,7 @@ class AnalyticsReportPersistenceTests
 
         private fun income(): UUID = setup.categories.single { it.kind == CategoryKind.INCOME }.id
 
-        private fun count(table: String): Long =
-            checkNotNull(
-                jdbc.queryForObject(
-                    "SELECT count(*) FROM $table WHERE " +
-                        if (table == "telegram_outbox") "owner_id = ?" else "household_id = ?",
-                    Long::class.java,
-                    if (table == "telegram_outbox") OWNER else owner.householdId,
-                ),
-            )
-
         private fun cleanupOwner() {
-            jdbc.update("DELETE FROM telegram_outbox WHERE owner_id = ?", OWNER)
             val households = jdbc.queryForList("SELECT household_id FROM member WHERE telegram_user_id = ?", OWNER)
             households.forEach { row ->
                 val household = row.getValue("household_id")
@@ -284,12 +228,10 @@ class AnalyticsReportPersistenceTests
                 }
                 jdbc.update("DELETE FROM household WHERE id = ?", household)
             }
-            jdbc.update("DELETE FROM telegram_polling_state WHERE bot_id = ?", BOT)
         }
 
         companion object {
             private const val OWNER = 717171L
-            private const val BOT = 616161L
             private val ZONE: ZoneId = ZoneId.of("Asia/Almaty")
         }
     }

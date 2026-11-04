@@ -32,7 +32,7 @@ class OneTimeRuleMigrationTests
                             .defaultSchema(schema)
                             .locations("classpath:db/migration")
                     configuration
-                        .target(if (upgrade) MigrationVersion.fromVersion("31") else MigrationVersion.LATEST)
+                        .target(if (upgrade) MigrationVersion.fromVersion("31") else MigrationVersion.fromVersion("32"))
                         .load()
                         .migrate()
                     val household = UUID.randomUUID()
@@ -65,7 +65,7 @@ class OneTimeRuleMigrationTests
                             "SELECT to_jsonb(r)::text FROM $schema.recurring_rule r",
                             String::class.java,
                         )
-                    configuration.target(MigrationVersion.LATEST).load().migrate()
+                    configuration.target(MigrationVersion.fromVersion("32")).load().migrate()
                     assertThat(
                         jdbc.queryForObject(
                             "SELECT to_jsonb(r)::text FROM $schema.recurring_rule r",

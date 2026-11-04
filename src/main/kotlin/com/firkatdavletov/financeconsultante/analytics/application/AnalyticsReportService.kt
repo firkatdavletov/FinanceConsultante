@@ -6,7 +6,7 @@ import com.firkatdavletov.financeconsultante.analytics.domain.PeriodAnalytics
 import com.firkatdavletov.financeconsultante.analytics.domain.ReportRange
 import com.firkatdavletov.financeconsultante.analytics.domain.ReportRanges
 import com.firkatdavletov.financeconsultante.ledger.application.OwnedLedger
-import com.firkatdavletov.financeconsultante.telegram.domain.ACCOUNTING_ZONE
+import com.firkatdavletov.financeconsultante.shared.domain.ACCOUNTING_ZONE
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Isolation
 import org.springframework.transaction.annotation.Propagation

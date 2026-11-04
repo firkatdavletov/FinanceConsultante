@@ -2,6 +2,16 @@
 
 Это общий источник инженерных решений для всех трёх ролей. Ролевые SKILL.md перечислены в [AGENTS.md](AGENTS.md). Ниже описана архитектура; фактическое состояние перечислено в [CONTEXT.md](CONTEXT.md).
 
+## Актуальная граница интерфейсов
+
+С 2026-11-04 рабочий интерфейс — Android Saldomi через Firebase HTTP v4.
+Пакет telegram, Bot API client, polling, диалоги, доставка и расписание сообщений
+удалены. OpenAI inbox workflow также удалён; provider/evaluation остаются отдельными
+проверками. ACCOUNTING_ZONE перенесён в shared/domain.
+Секции ниже, описывающие Telegram, являются исторической архитектурой.
+Старые миграции и legacy-поля сохраняют идентичность и финансовую историю; они
+не дают доступа через Telegram и не включают фоновых worker.
+
 ## 1. Рекомендуемый стек
 
 | Область | Решение | Причина / граница |
@@ -70,7 +80,6 @@ com.firkatdavletov.financeconsultante
 ├── goals/          # цели, фактические allocations и будущие планы взносов
 ├── advice/         # сценарий покупки и пояснения по вычисленным данным
 ├── mobileapi/      # HTTP-контракт мобильного приложения, auth и transport DTO
-├── telegram/       # polling, команды, callback, представление ответов
 ├── ai/             # адаптер OpenAI и версии prompt/schema
 ├── notifications/  # расписание, очередь исходящих сообщений, доставка
 └── shared/         # только общие Money, Clock/config и технические типы
@@ -78,17 +87,12 @@ com.firkatdavletov.financeconsultante
 
 ```mermaid
 flowchart LR
-    TG[Telegram Bot API] --> IN[Polling и проверка доступа]
-    IN --> DB[(PostgreSQL: inbox)]
-    DB --> UC[Application use cases]
+    A[Android Saldomi] --> API[Firebase HTTP v4]
+    API --> AUTH[UID и активное членство]
+    AUTH --> UC[Application use cases]
     UC --> D[Чистый Kotlin domain]
-    UC --> PG[(PostgreSQL: ledger и outbox)]
-    UC --> AI[Адаптер OpenAI]
-    S[Планировщик] --> UC
-    FX[Currencylayer live] --> XW[Worker дневного курса]
-    XW --> PG
-    PG --> OUT[Доставка сообщений]
-    OUT --> TG
+    UC --> PG[(PostgreSQL: ledger, планы, аудит, receipts)]
+    G[Генерация экземпляров] --> UC
 ```
 
 `domain` не зависит от Spring, SQL, Telegram или OpenAI. `application` координирует сценарий и объявляет порты хранения/внешних сервисов; реализации портов находятся в `infrastructure`. Spring-транзакции допустимы в application-сервисах. Межмодульное обращение идёт через application API; общий `shared` не превращать в хранилище всей бизнес-логики. Сложные аналитические запросы разрешено выполнять через отдельный read-port с SQL-проекциями.
@@ -145,6 +149,25 @@ ISO-днём недели 1–7 либо ONCE с `scheduleValue = null` и ед�
 неоплаченные occurrences. Деактивация отменяет будущие обязательства, не удаляя просроченную и оплаченную
 историю. ONCE использует те же ограничения и переходы состояний; повторная материализация
 не меняет сохранённое обязательство. [Мобильный контракт ONCE](docs/one-time-expense-rules.md).
+
+V33 добавляет nullable rule_name и effective_on расходного правила. Полная правка
+UPDATE_RULE/replaceDetails заменяет определение с authoredOn, сохраняя UUID совпадающих
+дат, всю прошлую/связанную историю и закрытые экземпляры. Генерация учитывает
+сохранённую границу; системная отмена расписания отличается от ручной отмены.
+Генератор читает определения под FOR SHARE SKIP LOCKED: изменение определения ждёт
+начатую генерацию, а занятое изменением правило пропускается до следующего вызова.
+Это сохраняет прогноз REQUIRES_NEW внутри внешней финансовой транзакции без ожидания её блокировок.
+Без replaceDetails сохраняется прежняя правка только суммы.
+
+income_rule отдельно хранит метаинформацию и якорь due_on для ONCE/WEEKLY/BIWEEKLY/MONTHLY.
+Конкретные доходы остаются expected_income; nullable rule_id/scheduled_on и составной FK
+с уникальностью сохраняют историю и связи operation_plan_links. UPDATE_INCOME_RULE
+выделяет правило с ID прежнего отдельного дохода, не заменяя его экземпляр.
+Триггеры journal/cache инвалидируют срезы в транзакции мутации.
+GET Firebase-бюджета объявляет incomeRuleEditingV1 независимо от заголовка клиента;
+confirmedPlanLinkingV1 отдельно определяет поддержку связей. dailyLimitPlanningV1
+не объявляется: редактор не реализует подтверждение остатка и поля remainder*.
+[Контракт и граница capability Android](docs/full-rule-editing.md).
 
 Фактическая оплата обязательства — POSTED `EXPENSE` с отдельной связью в
 `recurring_occurrence_payment`; команда оплаты создаёт проводку, а явное сопоставление может связать уже

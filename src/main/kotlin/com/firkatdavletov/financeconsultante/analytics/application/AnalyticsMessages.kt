@@ -4,8 +4,8 @@ import com.firkatdavletov.financeconsultante.analytics.domain.AnalyticsChange
 import com.firkatdavletov.financeconsultante.analytics.domain.AnalyticsPeriod
 import com.firkatdavletov.financeconsultante.analytics.domain.AnalyticsReport
 import com.firkatdavletov.financeconsultante.analytics.domain.CategoryAnalytics
+import com.firkatdavletov.financeconsultante.shared.domain.ACCOUNTING_ZONE
 import com.firkatdavletov.financeconsultante.shared.domain.Money
-import com.firkatdavletov.financeconsultante.telegram.domain.ACCOUNTING_ZONE
 import java.time.LocalDate
 
 @Suppress("TooManyFunctions") // One bounded plain-text presenter owns the analytics wording and sanitization.

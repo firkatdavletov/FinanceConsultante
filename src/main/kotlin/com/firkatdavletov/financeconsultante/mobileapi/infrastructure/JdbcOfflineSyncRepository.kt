@@ -256,6 +256,11 @@ class JdbcOfflineSyncRepository(
             version = node["version"]?.asLong(),
             createdAt = string("created_at")?.let(::timestamp),
             modifiedAt = string("updated_at")?.let(::timestamp),
+            ruleName = string("rule_name"),
+            incomeName = string("income_name"),
+            incomeFrequency = string("income_frequency"),
+            incomeActive = node["income_active"]?.takeUnless { it.isNull }?.asBoolean(),
+            scheduledOn = date("scheduled_on"),
         )
     }
 
@@ -263,6 +268,7 @@ class JdbcOfflineSyncRepository(
         private val PLAN_KINDS =
             setOf(
                 "RECURRING_RULE",
+                "INCOME_RULE",
                 "RECURRING_OCCURRENCE",
                 "EXPECTED_INCOME",
                 "OCCURRENCE_PAYMENT",

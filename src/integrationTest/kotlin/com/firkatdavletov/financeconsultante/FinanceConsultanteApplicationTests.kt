@@ -1,8 +1,6 @@
 package com.firkatdavletov.financeconsultante
 
 import com.firkatdavletov.financeconsultante.exchange.application.ExchangeRateWorker
-import com.firkatdavletov.financeconsultante.telegram.application.TelegramDeliveryWorker
-import com.firkatdavletov.financeconsultante.telegram.application.TelegramPoller
 import io.micrometer.core.instrument.MeterRegistry
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
@@ -18,19 +16,16 @@ class FinanceConsultanteApplicationTests
         private val meterRegistry: MeterRegistry,
     ) : PostgresIntegrationTest() {
         private companion object {
-            const val OPERATIONAL_GAUGE_COUNT = 11
+            const val OPERATIONAL_GAUGE_COUNT = 2
         }
 
         @Test
         fun `context starts with external integrations disabled`() {
             assertThat(environment.activeProfiles).containsExactly("test")
-            assertThat(environment.getProperty("app.telegram.enabled", Boolean::class.java)).isFalse()
-            assertThat(environment.getProperty("app.openai.enabled", Boolean::class.java)).isFalse()
-            assertThat(environment.getProperty("app.notifications.enabled", Boolean::class.java)).isFalse()
             assertThat(environment.getProperty("app.exchange-rates.enabled", Boolean::class.java)).isFalse()
             assertThat(applicationContext.getBeansOfType(ExchangeRateWorker::class.java)).isEmpty()
-            assertThat(applicationContext.getBeansOfType(TelegramPoller::class.java)).isEmpty()
-            assertThat(applicationContext.getBeansOfType(TelegramDeliveryWorker::class.java)).isEmpty()
+            assertThat(applicationContext.beanDefinitionNames.mapNotNull { applicationContext.getType(it)?.name })
+                .noneMatch { it.startsWith("com.firkatdavletov.financeconsultante.telegram.") }
         }
 
         @Test

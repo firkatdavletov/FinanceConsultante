@@ -11,9 +11,3 @@ app:
     enabled: false
     access-key: ${CURRENCYLAYER_ACCESS_KEY:}
     base-url: ${CURRENCYLAYER_BASE_URL:https://api.currencylayer.com}
-  telegram:
-    enabled: false
-  openai:
-    enabled: ${OPENAI_ENABLED:false}
-  notifications:
-    enabled: ${NOTIFICATIONS_ENABLED:false}

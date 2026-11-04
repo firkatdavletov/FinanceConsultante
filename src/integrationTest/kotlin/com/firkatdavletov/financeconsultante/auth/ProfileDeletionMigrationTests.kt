@@ -40,7 +40,7 @@ class ProfileDeletionMigrationTests
                         .schemas(schema)
                         .defaultSchema(schema)
                         .load()
-                assertThat(current.migrate().migrationsExecuted).isEqualTo(3)
+                assertThat(current.migrate().migrationsExecuted).isEqualTo(4)
                 current.validate()
                 assertThat(jdbc.queryForMap("SELECT * FROM $schema.firebase_user")).isEqualTo(before)
                 assertThat(jdbc.queryForMap("SELECT * FROM $schema.household")).isEqualTo(budget)

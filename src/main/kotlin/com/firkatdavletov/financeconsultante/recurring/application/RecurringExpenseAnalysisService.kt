@@ -14,9 +14,9 @@ import com.firkatdavletov.financeconsultante.recurring.domain.RecurringExpenseCa
 import com.firkatdavletov.financeconsultante.recurring.domain.RecurringExpenseDetector
 import com.firkatdavletov.financeconsultante.recurring.domain.RecurringPriceIncrease
 import com.firkatdavletov.financeconsultante.recurring.domain.RulePaymentObservation
+import com.firkatdavletov.financeconsultante.shared.domain.ACCOUNTING_ZONE
 import com.firkatdavletov.financeconsultante.shared.domain.Currency
 import com.firkatdavletov.financeconsultante.shared.domain.Money
-import com.firkatdavletov.financeconsultante.telegram.domain.ACCOUNTING_ZONE
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import java.math.BigDecimal

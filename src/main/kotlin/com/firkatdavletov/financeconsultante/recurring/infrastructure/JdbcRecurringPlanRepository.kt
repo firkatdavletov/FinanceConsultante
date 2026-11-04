@@ -26,7 +26,7 @@ import java.util.UUID
 
 @Repository
 @Transactional(propagation = Propagation.MANDATORY)
-@Suppress("TooManyFunctions") // The adapter implements one cohesive recurring-plan persistence port.
+@Suppress("TooManyFunctions", "LargeClass") // One adapter owns the recurring-plan persistence port.
 class JdbcRecurringPlanRepository(
     private val jdbc: JdbcClient,
 ) : RecurringPlanRepository {
@@ -37,8 +37,8 @@ class JdbcRecurringPlanRepository(
                     """
                     INSERT INTO recurring_rule(
                         id, household_id, member_id, category_id, frequency, schedule_value, amount, currency,
-                        starts_on, active, version, created_at, updated_at, normalized_description
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        starts_on, active, version, created_at, updated_at, normalized_description, rule_name, effective_on
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """.trimIndent(),
                 ).params(
                     rule.id,
@@ -55,6 +55,8 @@ class JdbcRecurringPlanRepository(
                     offset(rule.createdAt),
                     offset(rule.updatedAt),
                     SqlParameterValue(Types.VARCHAR, rule.normalizedDescription),
+                    SqlParameterValue(Types.VARCHAR, rule.ruleName),
+                    SqlParameterValue(Types.DATE, rule.effectiveOn),
                 ).update() == 1,
         ) { "Recurring rule was not inserted" }
     }
@@ -74,13 +76,17 @@ class JdbcRecurringPlanRepository(
             .query { row, _ -> RecurringRuleView(mapRule(row), row.getString("category_name")) }
             .list()
 
-    override fun activeRules(householdId: UUID?): List<RecurringRule> {
+    override fun activeRules(
+        householdId: UUID?,
+        forGeneration: Boolean,
+    ): List<RecurringRule> {
+        val generationLock = if (forGeneration) " FOR SHARE SKIP LOCKED" else ""
         val statement =
             if (householdId == null) {
-                jdbc.sql("SELECT * FROM recurring_rule WHERE active ORDER BY household_id, id")
+                jdbc.sql("SELECT * FROM recurring_rule WHERE active ORDER BY household_id, id" + generationLock)
             } else {
                 jdbc
-                    .sql("SELECT * FROM recurring_rule WHERE household_id = ? AND active ORDER BY id")
+                    .sql("SELECT * FROM recurring_rule WHERE household_id = ? AND active ORDER BY id" + generationLock)
                     .param(householdId)
             }
         return statement.query { row, _ -> mapRule(row) }.list()
@@ -149,6 +155,84 @@ class JdbcRecurringPlanRepository(
             ).params(rule.amount.amount, offset(rule.updatedAt), rule.householdId, rule.id, effectiveOn)
             .update()
         return true
+    }
+
+    override fun replaceRuleDetails(
+        rule: RecurringRule,
+        previousVersion: Long,
+    ): Boolean {
+        val updated =
+            jdbc
+                .sql(
+                    """
+                    UPDATE recurring_rule SET category_id=?, amount=?, frequency=?, schedule_value=?, starts_on=?,
+                        rule_name=?, effective_on=?, version=?, updated_at=?
+                    WHERE household_id=? AND id=? AND version=? AND active
+                    """.trimIndent(),
+                ).params(
+                    rule.categoryId,
+                    rule.amount.amount,
+                    rule.frequency.name,
+                    SqlParameterValue(Types.SMALLINT, rule.scheduleValue),
+                    rule.startsOn,
+                    SqlParameterValue(Types.VARCHAR, rule.ruleName),
+                    requireNotNull(rule.effectiveOn),
+                    rule.version,
+                    offset(rule.updatedAt),
+                    rule.householdId,
+                    rule.id,
+                    previousVersion,
+                ).update()
+        if (updated != 1) return false
+        val occurrences =
+            jdbc
+                .sql(
+                    """
+                    SELECT o.* FROM recurring_occurrence o
+                    WHERE household_id=? AND rule_id=? AND due_on>=? AND (status='SCHEDULED' OR schedule_cancelled)
+                        AND NOT EXISTS (SELECT 1 FROM operation_plan_links p
+                            WHERE p.household_id=o.household_id AND p.occurrence_id=o.id)
+                    FOR UPDATE
+                    """.trimIndent(),
+                ).params(rule.householdId, rule.id, requireNotNull(rule.effectiveOn))
+                .query { row, _ -> mapOccurrence(row) }
+                .list()
+        val through =
+            jdbc
+                .sql("SELECT MAX(due_on) FROM recurring_occurrence WHERE household_id=? AND rule_id=?")
+                .params(rule.householdId, rule.id)
+                .query(LocalDate::class.java)
+                .optional()
+                .orElse(rule.effectiveOn)
+        val dates = rule.dueDatesThrough(through).toSet()
+        occurrences.forEach { occurrence ->
+            val retained = occurrence.dueOn in dates
+            if (!retained && occurrence.status == OccurrenceStatus.CANCELLED) return@forEach
+            replaceUnpaidOccurrence(rule, occurrence, retained)
+        }
+        insertOccurrences(rule, dates.toList(), rule.updatedAt)
+        return true
+    }
+
+    private fun replaceUnpaidOccurrence(
+        rule: RecurringRule,
+        occurrence: RecurringOccurrence,
+        retained: Boolean,
+    ) {
+        jdbc
+            .sql(
+                """
+                UPDATE recurring_occurrence SET category_id=?, planned_amount=?, status=?, schedule_cancelled=?,
+                    version=version+1, updated_at=? WHERE id=?
+                """.trimIndent(),
+            ).params(
+                if (retained) rule.categoryId else occurrence.categoryId,
+                if (retained) rule.amount.amount else occurrence.plannedAmount.amount,
+                if (retained) "SCHEDULED" else "CANCELLED",
+                !retained,
+                offset(rule.updatedAt),
+                occurrence.id,
+            ).update()
     }
 
     override fun deactivateRule(
@@ -410,6 +494,7 @@ class JdbcRecurringPlanRepository(
                 """
                 SELECT e.* FROM expected_income e
                 WHERE e.household_id = :household AND e.category_id = :category AND e.status = 'SCHEDULED'
+                    AND e.income_active IS DISTINCT FROM FALSE
                     AND NOT EXISTS (
                         SELECT 1 FROM expected_income_match m
                         JOIN ledger_entry l ON l.household_id = m.household_id AND l.id = m.ledger_entry_id
@@ -530,6 +615,8 @@ class JdbcRecurringPlanRepository(
             instant(row, "created_at"),
             instant(row, "updated_at"),
             row.getString("normalized_description"),
+            row.getString("rule_name"),
+            row.getObject("effective_on", LocalDate::class.java),
         )
 
     private fun mapOccurrence(row: java.sql.ResultSet): RecurringOccurrence =
@@ -565,6 +652,15 @@ class JdbcRecurringPlanRepository(
             row.getLong("version"),
             instant(row, "created_at"),
             instant(row, "updated_at"),
+            ruleId = row.getObject("rule_id", UUID::class.java),
+            scheduledOn = row.getObject("scheduled_on", LocalDate::class.java),
+            incomeName = row.getString("income_name"),
+            incomeFrequency =
+                row
+                    .getString(
+                        "income_frequency",
+                    )?.let(com.firkatdavletov.financeconsultante.recurring.domain.IncomeFrequency::valueOf),
+            incomeActive = row.getObject("income_active", Boolean::class.javaObjectType),
         )
 
     private fun mapExpectedView(row: java.sql.ResultSet): ExpectedIncomeView =

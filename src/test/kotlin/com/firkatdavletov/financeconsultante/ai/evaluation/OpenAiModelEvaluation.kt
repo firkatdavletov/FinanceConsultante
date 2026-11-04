@@ -10,7 +10,7 @@ import com.firkatdavletov.financeconsultante.ai.domain.RecognitionCategory
 import com.firkatdavletov.financeconsultante.ai.domain.RecognitionInput
 import com.firkatdavletov.financeconsultante.ai.domain.RecognitionValidation
 import com.firkatdavletov.financeconsultante.ai.domain.RecognitionValidator
-import com.firkatdavletov.financeconsultante.ai.infrastructure.OpenAiConfiguration
+import com.firkatdavletov.financeconsultante.ai.infrastructure.OpenAiClientFactory
 import com.firkatdavletov.financeconsultante.ai.infrastructure.OpenAiProperties
 import com.firkatdavletov.financeconsultante.ai.infrastructure.OpenAiTransactionRecognizer
 import com.firkatdavletov.financeconsultante.ledger.domain.Direction
@@ -37,7 +37,7 @@ fun main() {
     require(apiKey.isNotEmpty()) { "OPENAI_API_KEY is required for the live evaluation" }
     val model = System.getenv("OPENAI_MODEL")?.trim()?.takeIf(String::isNotEmpty) ?: OpenAiProperties.DEFAULT_MODEL
     val properties = OpenAiProperties(enabled = true, apiKey = apiKey, model = model)
-    val configuration = OpenAiConfiguration()
+    val configuration = OpenAiClientFactory()
     val client = configuration.openAiClient(properties)
     try {
         val mapper = ObjectMapper()

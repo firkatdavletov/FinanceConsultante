@@ -89,9 +89,6 @@ tasks.withType<Test>().configureEach {
     useJUnitPlatform()
     systemProperty("spring.profiles.active", "test")
     // System properties override inherited environment flags from a developer's shell.
-    systemProperty("app.telegram.enabled", "false")
-    systemProperty("app.openai.enabled", "false")
-    systemProperty("app.notifications.enabled", "false")
     systemProperty("app.exchange-rates.enabled", "false")
     systemProperty("app.mobile-api.enabled", "false")
     systemProperty("app.firebase-auth.enabled", "false")

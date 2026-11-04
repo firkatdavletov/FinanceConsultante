@@ -29,6 +29,8 @@ data class RecurringRule(
     val createdAt: Instant,
     val updatedAt: Instant = createdAt,
     val normalizedDescription: String? = null,
+    val ruleName: String? = null,
+    val effectiveOn: LocalDate? = null,
 ) {
     init {
         amount.requirePositive()
@@ -41,6 +43,9 @@ data class RecurringRule(
             },
         ) { "Invalid recurrence schedule" }
         require(version >= 0 && updatedAt >= createdAt) { "Invalid recurring rule version" }
+        require(ruleName == null || ruleName == planName(ruleName)) {
+            "Invalid rule name"
+        }
         require(
             normalizedDescription == null ||
                 com.firkatdavletov.financeconsultante.ledger.domain.ExpenseDescriptionNormalizer
@@ -54,7 +59,7 @@ data class RecurringRule(
             RecurrenceFrequency.MONTHLY -> monthlyDates(throughInclusive)
             RecurrenceFrequency.WEEKLY -> weeklyDates(throughInclusive)
             RecurrenceFrequency.ONCE -> listOf(startsOn)
-        }
+        }.filter { effectiveOn == null || it >= effectiveOn }
     }
 
     private fun monthlyDates(throughInclusive: LocalDate): List<LocalDate> {
@@ -164,6 +169,11 @@ data class ExpectedIncome(
     val version: Long = 0,
     val createdAt: Instant,
     val updatedAt: Instant = createdAt,
+    val ruleId: UUID? = null,
+    val scheduledOn: LocalDate? = null,
+    val incomeName: String? = null,
+    val incomeFrequency: IncomeFrequency? = null,
+    val incomeActive: Boolean? = null,
 ) {
     init {
         plannedAmount.requirePositive()
@@ -191,7 +201,9 @@ data class ExpectedIncomeView(
 
     val forecastAmount: Money
         get() =
-            if (expectedIncome.status == ExpectedIncomeStatus.SCHEDULED && !fulfilled) {
+            if (expectedIncome.status == ExpectedIncomeStatus.SCHEDULED && expectedIncome.incomeActive != false &&
+                !fulfilled
+            ) {
                 remainingAmount
             } else {
                 Money.of(BigDecimal.ZERO, expectedIncome.plannedAmount.currency)

@@ -24,7 +24,10 @@ interface RecurringPlanRepository {
         limit: Int,
     ): List<RecurringRuleView>
 
-    fun activeRules(householdId: UUID? = null): List<RecurringRule>
+    fun activeRules(
+        householdId: UUID? = null,
+        forGeneration: Boolean = false,
+    ): List<RecurringRule>
 
     fun findRule(
         householdId: UUID,
@@ -41,6 +44,11 @@ interface RecurringPlanRepository {
         rule: RecurringRule,
         previousVersion: Long,
         effectiveOn: LocalDate,
+    ): Boolean
+
+    fun replaceRuleDetails(
+        rule: RecurringRule,
+        previousVersion: Long,
     ): Boolean
 
     fun deactivateRule(

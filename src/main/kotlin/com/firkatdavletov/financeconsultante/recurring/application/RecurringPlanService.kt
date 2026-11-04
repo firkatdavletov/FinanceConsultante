@@ -37,6 +37,7 @@ class RecurringPlanService(
     private val ledger: LedgerRepository,
     private val accounting: AccountingService,
     private val clock: Clock,
+    private val incomeRules: IncomeRuleRepository,
 ) {
     fun createRule(
         owner: BudgetActor,
@@ -48,6 +49,7 @@ class RecurringPlanService(
         normalizedDescription: String? = null,
         id: UUID = UUID.randomUUID(),
         authoredOn: LocalDate? = null,
+        ruleName: String? = null,
     ): PlanChange<RecurringRuleView> {
         if (!owner.canManageHousehold) return ownerOnly()
         if (budgets.findOwnedAccount(owner.householdId, owner.memberId, lock = true) == null) return ownerOnly()
@@ -76,6 +78,7 @@ class RecurringPlanService(
                 startsOn,
                 createdAt = now,
                 normalizedDescription = normalizedDescription,
+                ruleName = ruleName?.trim(),
             )
         plans.insertRule(rule)
         generate(rule, horizon(startsOn), now)
@@ -541,15 +544,17 @@ class RecurringPlanService(
 
     fun generateAll() {
         val today = LocalDate.now(clock.withZone(ACCOUNTING_ZONE))
-        val through = horizon(today)
-        plans.activeRules().forEach { generate(it, through, now()) }
+        generate(null, horizon(today))
     }
 
     private fun generate(
-        householdId: UUID,
+        householdId: UUID?,
         throughInclusive: LocalDate,
     ) {
-        plans.activeRules(householdId).forEach { generate(it, throughInclusive, now()) }
+        // SHARE serializes materialization with definition changes. SKIP LOCKED also permits
+        // a REQUIRES_NEW forecast inside a transaction that already edits the definition.
+        plans.activeRules(householdId, forGeneration = true).forEach { generate(it, throughInclusive, now()) }
+        incomeRules.rules(householdId, forGeneration = true).forEach { incomeRules.materialize(it, throughInclusive) }
     }
 
     private fun generate(

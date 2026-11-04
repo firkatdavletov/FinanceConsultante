@@ -16,9 +16,9 @@ import com.firkatdavletov.financeconsultante.ledger.application.LedgerInteractio
 import com.firkatdavletov.financeconsultante.ledger.application.OwnedLedger
 import com.firkatdavletov.financeconsultante.recurring.application.RecurringPlanService
 import com.firkatdavletov.financeconsultante.recurring.domain.RecurringOccurrenceView
+import com.firkatdavletov.financeconsultante.shared.domain.ACCOUNTING_ZONE
 import com.firkatdavletov.financeconsultante.shared.domain.Currency
 import com.firkatdavletov.financeconsultante.shared.domain.Money
-import com.firkatdavletov.financeconsultante.telegram.domain.ACCOUNTING_ZONE
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Isolation
 import org.springframework.transaction.annotation.Transactional

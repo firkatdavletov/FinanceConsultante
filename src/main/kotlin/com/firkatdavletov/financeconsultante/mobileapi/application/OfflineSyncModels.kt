@@ -94,6 +94,11 @@ data class SyncPlanRecord(
     val version: Long? = null,
     val createdAt: Instant? = null,
     val modifiedAt: Instant? = null,
+    val ruleName: String? = null,
+    val incomeName: String? = null,
+    val incomeFrequency: String? = null,
+    val incomeActive: Boolean? = null,
+    val scheduledOn: LocalDate? = null,
 )
 
 data class RecordedMobileOperation(

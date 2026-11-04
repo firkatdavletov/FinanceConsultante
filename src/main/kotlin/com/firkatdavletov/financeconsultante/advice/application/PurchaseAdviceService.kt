@@ -9,7 +9,7 @@ import com.firkatdavletov.financeconsultante.analytics.domain.BudgetForecastCalc
 import com.firkatdavletov.financeconsultante.analytics.domain.ForecastPurchase
 import com.firkatdavletov.financeconsultante.analytics.domain.SpendingEstimateSource
 import com.firkatdavletov.financeconsultante.ledger.application.OwnedLedger
-import com.firkatdavletov.financeconsultante.telegram.domain.ACCOUNTING_ZONE
+import com.firkatdavletov.financeconsultante.shared.domain.ACCOUNTING_ZONE
 import org.springframework.stereotype.Service
 import java.time.Clock
 import java.time.LocalDate

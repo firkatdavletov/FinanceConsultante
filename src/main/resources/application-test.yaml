@@ -5,9 +5,3 @@ app:
     scheduler-enabled: false
   exchange-rates:
     enabled: false
-  telegram:
-    enabled: false
-  openai:
-    enabled: false
-  notifications:
-    enabled: false
