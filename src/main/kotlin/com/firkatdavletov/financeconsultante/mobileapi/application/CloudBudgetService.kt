@@ -102,6 +102,7 @@ class CloudBudgetService(
                 },
             )
         }
+        require(request.currency == null || request.currency == "KZT")
         bootstrapValidator.validate(request)
         repository.create(tokenHash, request, fingerprint)
         return CloudBudget(actor(tokenHash).scope())
@@ -153,6 +154,7 @@ class CloudBudgetService(
         c: CloudBudgetCommand,
     ): BudgetCommandReceipt {
         repository.importLegacy(tokenHash)
+        require(c.currency == null || c.currency == "KZT")
         return command(actor(tokenHash), c)
     }
 
@@ -202,7 +204,9 @@ class CloudBudgetService(
 
     private fun validateFields(c: CloudBudgetCommand) {
         require(c.replaceDetails != true || c.type in setOf("UPDATE_OPERATION", "UPDATE_RULE"))
-        require(c.currency == null || c.currency == "KZT")
+        // A queued command may have been entered before the denomination changed.
+        // Its accounting number is used as-is, and the original request is fingerprinted above.
+        require(c.currency == null || c.currency in BUDGET_CURRENCIES)
         c.ruleName?.let(::planName)
     }
 

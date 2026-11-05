@@ -271,11 +271,19 @@ class FirebaseBudgetImportTests
             postImport(request).andExpect(status().isOk)
         }
 
+        @Test fun `import preserves the local budget denomination and request identity`() {
+            val withCurrency = request.copy(budget = bootstrap.copy(currency = "EUR"))
+            val imported = creation.importLocal(uid, withCurrency)
+            assertThat(imported.id).isEqualTo(bootstrap.householdId)
+            assertThat(imported.currency).isEqualTo("EUR")
+            assertThat(creation.importLocal(uid, withCurrency)).isEqualTo(imported)
+        }
+
         @Test fun `invalid bootstrap never changes existing data or creates a partial budget`() {
             listOf(
                 bootstrap.copy(categories = bootstrap.categories.drop(1)),
                 bootstrap.copy(openingBalance = "1.001"),
-                bootstrap.copy(currency = "RUB"),
+                bootstrap.copy(currency = "GBP"),
                 bootstrap.copy(accountingStartedOn = date.plusDays(2)),
                 bootstrap.copy(categories = bootstrap.categories.map { it.copy(id = bootstrap.categories[0].id) }),
             ).forEach { invalid ->

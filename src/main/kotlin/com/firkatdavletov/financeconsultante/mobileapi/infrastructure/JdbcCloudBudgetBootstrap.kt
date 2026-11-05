@@ -15,7 +15,10 @@ class JdbcCloudBudgetBootstrap(
         request: CreateCloudBudget,
         name: String = "Мой бюджет",
     ) {
-        jdbc.sql("INSERT INTO household(id, budget_name) VALUES (?, ?)").params(request.householdId, name).update()
+        jdbc
+            .sql("INSERT INTO household(id, budget_name, budget_currency) VALUES (?, ?, ?)")
+            .params(request.householdId, name, request.currency ?: "KZT")
+            .update()
         jdbc
             .sql(
                 """

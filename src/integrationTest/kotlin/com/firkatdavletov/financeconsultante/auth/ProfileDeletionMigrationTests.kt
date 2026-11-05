@@ -40,10 +40,11 @@ class ProfileDeletionMigrationTests
                         .schemas(schema)
                         .defaultSchema(schema)
                         .load()
-                assertThat(current.migrate().migrationsExecuted).isEqualTo(4)
+                assertThat(current.migrate().migrationsExecuted).isEqualTo(5)
                 current.validate()
                 assertThat(jdbc.queryForMap("SELECT * FROM $schema.firebase_user")).isEqualTo(before)
-                assertThat(jdbc.queryForMap("SELECT * FROM $schema.household")).isEqualTo(budget)
+                assertThat(jdbc.queryForMap("SELECT * FROM $schema.household"))
+                    .isEqualTo(budget + mapOf("budget_currency" to "KZT", "budget_currency_version" to 0L))
                 assertThat(
                     jdbc.queryForObject("SELECT count(*) FROM $schema.firebase_profile_deletion", Int::class.java),
                 ).isZero()

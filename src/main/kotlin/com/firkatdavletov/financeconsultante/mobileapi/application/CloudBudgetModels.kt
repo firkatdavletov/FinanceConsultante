@@ -6,6 +6,9 @@ import java.time.Instant
 import java.time.LocalDate
 import java.util.UUID
 
+// The v4 denomination labels the budget's exact accounting values.
+internal val BUDGET_CURRENCIES = setOf("KZT", "RUB", "USD", "EUR")
+
 data class CloudBudget(
     val scope: SyncScope,
     val capabilities: List<String> = listOf("confirmedPlanLinkingV1", "incomeRuleEditingV1"),
@@ -36,8 +39,11 @@ data class CloudBudgetActor(
     override val role: MemberRole,
     val createRequestId: UUID? = null,
     val createPayloadHash: String? = null,
+    val currency: String = "KZT",
+    val currencyVersion: Long = 0,
 ) : BudgetActor {
-    fun scope() = SyncScope(householdId, memberId, role.name, startedAt)
+    fun scope() =
+        SyncScope(householdId, memberId, role.name, startedAt, currency = currency, currencyVersion = currencyVersion)
 }
 
 data class CloudBudgetCommand(

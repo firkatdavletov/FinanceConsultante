@@ -13,6 +13,7 @@ data class SyncScope(
     val accountingStartedAt: Instant,
     val timeZone: String = "Asia/Almaty",
     val currency: String = "KZT",
+    val currencyVersion: Long = 0,
 )
 
 data class SyncLedger(
@@ -31,6 +32,7 @@ data class SyncLedger(
     val refundOf: UUID?,
     val requestId: UUID?,
     val occurredAt: Instant = createdAt,
+    val rubKztRate: String? = null,
 )
 
 data class SyncCategory(

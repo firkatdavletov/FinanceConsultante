@@ -13,7 +13,8 @@ class CloudBudgetBootstrapValidator(
     private val clock: Clock,
 ) {
     fun validate(request: CreateCloudBudget) {
-        require((request.currency == null || request.currency == "KZT") && request.accountingStartedOn.year >= 1)
+        require(request.currency == null || request.currency in BUDGET_CURRENCIES)
+        require(request.accountingStartedOn.year >= 1)
         Money.of(request.openingBalance)
         require(request.accountingStartedOn <= LocalDate.now(clock.withZone(ZoneId.of("Asia/Almaty"))))
         val dictionary =

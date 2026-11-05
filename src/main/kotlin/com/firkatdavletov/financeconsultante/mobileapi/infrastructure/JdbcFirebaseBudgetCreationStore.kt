@@ -74,7 +74,7 @@ class JdbcFirebaseBudgetCreationStore(
         jdbc
             .sql(
                 """
-                SELECT c.payload_hash, h.id, h.budget_name, b.member_id FROM firebase_budget_creation c
+                SELECT c.payload_hash, h.id, h.budget_name, h.budget_currency, h.budget_currency_version, b.member_id FROM firebase_budget_creation c
                 JOIN household h ON h.id = c.household_id
                 JOIN firebase_budget_access b ON b.firebase_uid = c.firebase_uid AND b.household_id = c.household_id
                 WHERE c.firebase_uid = ? AND c.request_id = ?
@@ -88,6 +88,8 @@ class JdbcFirebaseBudgetCreationStore(
                         row.getString("budget_name"),
                         row.getObject("member_id", UUID::class.java),
                         "OWNER",
+                        row.getString("budget_currency"),
+                        row.getLong("budget_currency_version"),
                     ),
                 )
             }.optional()
@@ -112,6 +114,6 @@ class JdbcFirebaseBudgetCreationStore(
                 """.trimIndent(),
             ).params(uid, request.requestId, payloadHash, request.householdId)
             .update()
-        return FirebaseBudgetSummary(request.householdId, name, request.memberId, "OWNER")
+        return FirebaseBudgetSummary(request.householdId, name, request.memberId, "OWNER", request.currency ?: "KZT")
     }
 }

@@ -20,6 +20,7 @@ import org.springframework.test.context.TestPropertySource
 import org.springframework.test.context.bean.override.mockito.MockitoBean
 import org.springframework.test.web.servlet.MockMvc
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get
+import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.header
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath
@@ -106,6 +107,76 @@ class FirebaseBudgetCreationTests
                 ),
             ).isEqualByComparingTo("1234.50")
         }
+
+        @Test fun `currency changes are revisioned and replay leaves the current denomination intact`() {
+            val budget = creation.create(uid, request.copy(currency = "RUB"))
+            assertThat(budget.currency).isEqualTo("RUB")
+            val member = UUID.randomUUID()
+            jdbc.update("INSERT INTO member(id, household_id, role) VALUES (?, ?, 'MEMBER')", member, budget.id)
+            jdbc.update(
+                "INSERT INTO firebase_budget_access(firebase_uid, household_id, member_id) VALUES (?, ?, ?)",
+                otherUid,
+                budget.id,
+                member,
+            )
+            val first = UUID.randomUUID()
+            changeCurrency(budget.id, first, "USD", "t06-other").andExpect(status().isForbidden)
+            changeCurrency(budget.id, first, "USD")
+                .andExpect(status().isOk)
+                .andExpect(jsonPath("$.name").value(budget.name))
+                .andExpect(jsonPath("$.currencyVersion").value(1))
+            val entryId = UUID.randomUUID()
+            val category =
+                jdbc.queryForObject(
+                    "SELECT id FROM category WHERE household_id=? AND dictionary_key='GROCERIES'",
+                    UUID::class.java,
+                    budget.id,
+                )
+            mvc
+                .perform(
+                    post("/api/v4/budgets/${budget.id}/sync/commands")
+                        .header("Authorization", "Bearer t06-owner")
+                        .contentType("application/json")
+                        .content(
+                            """{"requestId":"${UUID.randomUUID()}","householdId":"${budget.id}",
+                                "memberId":"${budget.memberId}","type":"CREATE_OPERATION","entityId":"$entryId",
+                                "authoredOn":"2026-09-05","occurredOn":"2026-09-05","kind":"EXPENSE",
+                                "categoryId":"$category","amount":"12.34","currency":"RUB"}""",
+                        ),
+                ).andExpect(status().isOk)
+            changeCurrency(budget.id, UUID.randomUUID(), "EUR").andExpect(status().isOk)
+            changeCurrency(budget.id, first, "USD")
+                .andExpect(status().isOk)
+                .andExpect(jsonPath("$.currency").value("EUR"))
+                .andExpect(jsonPath("$.currencyVersion").value(2))
+            changeCurrency(budget.id, first, "KZT").andExpect(status().isConflict)
+            mvc
+                .perform(get("/api/v4/budgets/${budget.id}/sync/changes").header("Authorization", "Bearer t06-other"))
+                .andExpect(status().isOk)
+                .andExpect(jsonPath("$.scope.currency").value("EUR"))
+                .andExpect(jsonPath("$.scope.currencyVersion").value(2))
+                .andExpect(jsonPath("$.changes[?(@.kind == 'BUDGET_SETTINGS')]").isNotEmpty)
+                .andExpect(jsonPath("$.changes[?(@.operation.amountKzt == '12.34')]").isNotEmpty)
+            assertThat(
+                jdbc.queryForObject(
+                    "SELECT opening_balance FROM account WHERE household_id=?",
+                    BigDecimal::class.java,
+                    budget.id,
+                ),
+            ).isEqualByComparingTo("1234.50")
+        }
+
+        private fun changeCurrency(
+            id: UUID,
+            requestId: UUID,
+            currency: String,
+            token: String = "t06-owner",
+        ) = mvc.perform(
+            patch("/api/v4/budgets/$id")
+                .header("Authorization", "Bearer $token")
+                .contentType("application/json")
+                .content("""{"requestId":"$requestId","currency":"$currency"}"""),
+        )
 
         @Test fun `delete is replayable preserves other budget and prevents creation replay`() {
             val budget = creation.create(uid, request)
@@ -347,7 +418,7 @@ class FirebaseBudgetCreationTests
                 request.copy(openingBalance = "1.001"),
                 request.copy(openingBalance = "100000000000000000.00"),
                 request.copy(accountingStartedOn = LocalDate.parse("2026-09-07")),
-                request.copy(currency = "RUB"),
+                request.copy(currency = "GBP"),
             ).forEach { post(it).andExpect(status().isBadRequest) }
             post(request, "invalid").andExpect(status().isUnauthorized)
             post(request, "synthetic-t06-static-token-1234567890").andExpect(status().isUnauthorized)

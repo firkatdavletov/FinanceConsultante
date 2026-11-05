@@ -10,6 +10,8 @@ data class FirebaseBudgetSummary(
     val name: String,
     val memberId: UUID,
     val role: String,
+    val currency: String = "KZT",
+    val currencyVersion: Long = 0,
 )
 
 interface FirebaseBudgetRepository {

@@ -107,14 +107,23 @@ class JdbcFirebaseFamilyBudgetStore(
     ): FirebaseBudgetSummary =
         jdbc
             .sql(
-                "SELECT h.budget_name, m.role FROM household h JOIN member m ON m.household_id " +
-                    "= h.id WHERE h.id = ? AND m.id = ?",
+                """
+                SELECT h.budget_name, h.budget_currency, h.budget_currency_version, m.role
+                FROM household h JOIN member m ON m.household_id = h.id WHERE h.id = ? AND m.id = ?
+                """.trimIndent(),
             ).params(budgetId, memberId)
             .query {
                 row,
                 _,
                 ->
-                FirebaseBudgetSummary(budgetId, row.getString("budget_name"), memberId, row.getString("role"))
+                FirebaseBudgetSummary(
+                    budgetId,
+                    row.getString("budget_name"),
+                    memberId,
+                    row.getString("role"),
+                    row.getString("budget_currency"),
+                    row.getLong("budget_currency_version"),
+                )
             }.single()
 
     override fun members(

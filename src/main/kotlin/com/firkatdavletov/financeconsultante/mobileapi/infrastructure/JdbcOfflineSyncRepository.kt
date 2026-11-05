@@ -204,6 +204,7 @@ class JdbcOfflineSyncRepository(
             refundOf = node["refund_of"]?.takeUnless { it.isNull }?.asString()?.let(UUID::fromString),
             requestId = requestId,
             occurredAt = timestamp(node["occurred_at"].asString()),
+            rubKztRate = node["rub_kzt"]?.takeUnless { it.isNull }?.decimalValue()?.toPlainString(),
         )
 
     private fun category(node: JsonNode): SyncCategory {

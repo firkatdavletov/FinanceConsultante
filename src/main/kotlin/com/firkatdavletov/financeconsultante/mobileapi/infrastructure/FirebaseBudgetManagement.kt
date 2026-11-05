@@ -2,6 +2,7 @@ package com.firkatdavletov.financeconsultante.mobileapi.infrastructure
 
 import com.firkatdavletov.financeconsultante.auth.infrastructure.JdbcFirebaseAccountAccess
 import com.firkatdavletov.financeconsultante.auth.infrastructure.deletionHash
+import com.firkatdavletov.financeconsultante.mobileapi.application.BUDGET_CURRENCIES
 import com.firkatdavletov.financeconsultante.mobileapi.application.CloudBudgetFailure
 import com.firkatdavletov.financeconsultante.mobileapi.application.FirebaseBudgetRepository
 import com.firkatdavletov.financeconsultante.mobileapi.application.FirebaseBudgetSummary
@@ -13,7 +14,8 @@ import java.util.UUID
 
 data class RenameFirebaseBudget(
     val requestId: UUID,
-    val name: String,
+    val name: String? = null,
+    val currency: String? = null,
 )
 
 private const val MAX_NAME_LENGTH = 80
@@ -30,19 +32,35 @@ class FirebaseBudgetManagement(
         id: UUID,
         request: RenameFirebaseBudget,
     ): FirebaseBudgetSummary {
-        require(
-            request.name == request.name.trim() && request.name.length in 1..MAX_NAME_LENGTH &&
-                request.name.none(
-                    Char::isISOControl,
-                ),
-        )
+        require(request.name != null || request.currency != null)
+        require(request.currency == null || request.currency in BUDGET_CURRENCIES)
+        request.name?.let { name ->
+            require(name == name.trim() && name.length in 1..MAX_NAME_LENGTH && name.none(Char::isISOControl))
+        }
         lock(uid, id, request.requestId)
-        val payload = deletionHash("RENAME:$id:${request.name}")
+        val payload =
+            deletionHash(
+                if (request.currency == null) {
+                    "RENAME:$id:${request.name}"
+                } else {
+                    "CURRENCY:$id:${request.currency}:${request.name?.length ?: -1}:${request.name.orEmpty()}"
+                },
+            )
         val previous = receipt(uid, request.requestId, payload)
         val actor = budgets.actor(uid, id) ?: throw MobileApiAccessDenied()
         if (actor.role.name != "OWNER") throw MobileApiAccessDenied()
         if (!previous) {
-            jdbc.sql("UPDATE household SET budget_name=? WHERE id=?").params(request.name, id).update()
+            request.name?.let { jdbc.sql("UPDATE household SET budget_name=? WHERE id=?").params(it, id).update() }
+            request.currency?.let {
+                jdbc
+                    .sql(
+                        """
+                        UPDATE household SET budget_currency=?, budget_currency_version=budget_currency_version+1
+                        WHERE id=? AND budget_currency IS DISTINCT FROM ?
+                        """.trimIndent(),
+                    ).params(it, id, it)
+                    .update()
+            }
             remember(uid, request.requestId, payload)
         }
         return budgets.list(uid).single { it.id == id }

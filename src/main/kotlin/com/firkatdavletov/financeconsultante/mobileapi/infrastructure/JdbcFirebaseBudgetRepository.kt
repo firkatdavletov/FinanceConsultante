@@ -54,6 +54,7 @@ class JdbcFirebaseBudgetRepository(
                 """
                 INSERT INTO firebase_budget_access(firebase_uid, household_id, member_id)
                 SELECT ?, m.household_id, m.id FROM member m JOIN account a ON a.household_id = m.household_id
+                JOIN household h ON h.id = m.household_id
                 WHERE m.id = ? AND m.revoked_at IS NULL ON CONFLICT DO NOTHING
                 """.trimIndent(),
             ).params(uid, memberId)
@@ -70,7 +71,8 @@ class JdbcFirebaseBudgetRepository(
         return jdbc
             .sql(
                 """
-                SELECT b.household_id, h.budget_name, m.id, m.role FROM firebase_budget_access b
+                SELECT b.household_id, h.budget_name, m.id, m.role, h.budget_currency, h.budget_currency_version
+                FROM firebase_budget_access b
                 JOIN member m ON m.household_id = b.household_id AND m.id = b.member_id
                 JOIN household h ON h.id = b.household_id JOIN account a ON a.household_id = h.id
                 WHERE b.firebase_uid = ? AND m.revoked_at IS NULL ORDER BY h.budget_name, h.id
@@ -82,6 +84,8 @@ class JdbcFirebaseBudgetRepository(
                     row.getString("budget_name"),
                     row.getObject("id", UUID::class.java),
                     row.getString("role"),
+                    row.getString("budget_currency"),
+                    row.getLong("budget_currency_version"),
                 )
             }.list()
     }
@@ -94,9 +98,11 @@ class JdbcFirebaseBudgetRepository(
         return jdbc
             .sql(
                 """
-                SELECT m.household_id, m.id, m.role, a.accounting_started_at FROM firebase_budget_access b
+                SELECT m.household_id, m.id, m.role, a.accounting_started_at, h.budget_currency, h.budget_currency_version
+                FROM firebase_budget_access b
                 JOIN member m ON m.household_id = b.household_id AND m.id = b.member_id
                 JOIN account a ON a.household_id = m.household_id
+                JOIN household h ON h.id = m.household_id
                 WHERE b.firebase_uid = ? AND b.household_id = ? AND m.revoked_at IS NULL FOR SHARE OF b, m
                 """.trimIndent(),
             ).params(uid, budgetId)
@@ -106,6 +112,8 @@ class JdbcFirebaseBudgetRepository(
                     row.getObject("id", UUID::class.java),
                     row.getObject("accounting_started_at", OffsetDateTime::class.java).toInstant(),
                     MemberRole.valueOf(row.getString("role")),
+                    currency = row.getString("budget_currency"),
+                    currencyVersion = row.getLong("budget_currency_version"),
                 )
             }.optional()
             .orElse(null)

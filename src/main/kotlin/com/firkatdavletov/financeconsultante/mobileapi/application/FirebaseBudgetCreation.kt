@@ -72,7 +72,7 @@ class FirebaseBudgetCreation(
         store.lock(uid, request.requestId)
         previous(uid, request.requestId, fingerprint)?.let { return it }
         validateName(request.name)
-        require(request.currency == "KZT" && request.openingBalance.length <= MAX_BALANCE_LENGTH)
+        require(request.currency in BUDGET_CURRENCIES && request.openingBalance.length <= MAX_BALANCE_LENGTH)
         val balance = Money.of(request.openingBalance).amount.toPlainString()
         val today = LocalDate.now(clock.withZone(ZoneId.of("Asia/Almaty")))
         require(request.accountingStartedOn.year >= 1 && request.accountingStartedOn <= today)
@@ -92,7 +92,7 @@ class FirebaseBudgetCreation(
                         category.name,
                     )
                 },
-                "KZT",
+                request.currency,
             )
         return store.create(uid, request.name, bootstrap, fingerprint)
     }
