@@ -4,6 +4,13 @@
 
 ## Актуальная граница интерфейсов
 
+Saldomi 0.1 проверяет UUID установки через `GET /api/v4/app/access` без Firebase.
+V35 хранит активность установок. Отключаемый servlet-фильтр читает PostgreSQL на
+каждом облачном запросе до Firebase use case и receipt replay. Это выдача функций,
+а не аутентификация: UID, активное членство и роль остаются обязательными.
+Удаление профиля и опрос его статуса обходят фильтр. Контракт и выпуск:
+[доступ установки](docs/internal-device-access.md).
+
 С 2026-11-04 рабочий интерфейс — Android Saldomi через Firebase HTTP v4.
 Пакет telegram, Bot API client, polling, диалоги, доставка и расписание сообщений
 удалены. OpenAI inbox workflow также удалён; provider/evaluation остаются отдельными

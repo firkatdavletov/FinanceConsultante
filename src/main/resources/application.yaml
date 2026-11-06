@@ -48,6 +48,8 @@ management:
       application: ${spring.application.name}
 
 app:
+  internal-device-gate:
+    enabled: ${INTERNAL_DEVICE_GATE_ENABLED:false}
   firebase-auth:
     enabled: ${FIREBASE_AUTH_ENABLED:false}
     project-id: ${FIREBASE_PROJECT_ID:}

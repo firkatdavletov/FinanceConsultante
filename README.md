@@ -1,5 +1,8 @@
 # FinanceConsultante
 
+Доступ установки к облачным функциям Saldomi 0.1, операторский список и порядок выпуска:
+[Internal device access](docs/internal-device-access.md).
+
 Firebase-вход мобильного клиента (T03), отдельный тестовый сервер и контракт профиля:
 [Firebase Authentication](docs/firebase-authentication.md).
 Регистрация, подтверждение email, вход по паролю и привязка способов входа для Android:
