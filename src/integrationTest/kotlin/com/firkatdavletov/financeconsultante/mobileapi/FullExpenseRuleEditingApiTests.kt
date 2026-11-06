@@ -41,6 +41,111 @@ class FullExpenseRuleEditingApiTests
         @Autowired private lateinit var recurring:
             com.firkatdavletov.financeconsultante.recurring.application.RecurringPlanService
 
+        @Test fun `Android creates named expense rules with replaceDetails and can replay the commands`() {
+            list("synthetic-owner")
+            val schedules = mapOf("MONTHLY" to 19, "WEEKLY" to 6, "ONCE" to null)
+            for ((frequency, scheduleValue) in schedules) {
+                val rule = UUID.randomUUID()
+                val body =
+                    command(
+                        "CREATE_RULE",
+                        rule,
+                        fields =
+                            mapOf(
+                                "categoryId" to request.categories[0].id,
+                                "amount" to "125.00",
+                                "frequency" to frequency,
+                                "scheduleValue" to scheduleValue,
+                                "startsOn" to "2026-09-19",
+                                "ruleName" to "Synthetic expense",
+                                "replaceDetails" to true,
+                            ),
+                    )
+                val receipt =
+                    send(body)
+                        .andExpect(status().isOk)
+                        .andReturn()
+                        .response.contentAsString
+                val definition = snapshot("recurring_rule", rule)
+                val record = record("RECURRING_RULE", rule)
+                assertThat(record["ruleName"].asString()).isEqualTo("Synthetic expense")
+                assertThat(record["frequency"].asString()).isEqualTo(frequency)
+                assertThat(record["scheduleValue"]?.takeUnless { it.isNull }?.asInt()).isEqualTo(scheduleValue)
+                val occurrence = expenseOccurrence(rule, "2026-09-19")
+                val datesSql = "SELECT due_on FROM recurring_occurrence WHERE rule_id=? ORDER BY due_on"
+                val dates = jdbc.queryForList(datesSql, rule)
+                if (frequency == "ONCE") assertThat(dates).hasSize(1)
+
+                assertThat(
+                    send(body)
+                        .andExpect(status().isOk)
+                        .andReturn()
+                        .response.contentAsString,
+                ).isEqualTo(receipt)
+                send(body.replace("\"replaceDetails\":true", "\"replaceDetails\":false")).andExpect(status().isConflict)
+                assertThat(snapshot("recurring_rule", rule)).isEqualTo(definition)
+                assertThat(expenseOccurrence(rule, "2026-09-19")).isEqualTo(occurrence)
+                assertThat(jdbc.queryForList(datesSql, rule)).isEqualTo(dates)
+            }
+            assertThat(jdbc.queryForList("SELECT id FROM recurring_rule WHERE household_id=?", request.householdId))
+                .hasSize(schedules.size)
+            assertThat(jdbc.queryForList("SELECT id FROM ledger_entry WHERE household_id=?", request.householdId))
+                .isEmpty()
+        }
+
+        @Test fun `saving an unsynced monthly rule again creates it under the original rule ID`() {
+            list("synthetic-owner")
+            val rule = UUID.randomUUID()
+            val body =
+                command(
+                    "UPDATE_RULE",
+                    rule,
+                    fields =
+                        mapOf(
+                            "expectedToken" to 0,
+                            "categoryId" to request.categories[0].id,
+                            "amount" to "125.00",
+                            "frequency" to "MONTHLY",
+                            "scheduleValue" to 19,
+                            "startsOn" to "2026-09-19",
+                            "ruleName" to "Synthetic expense",
+                            "replaceDetails" to true,
+                        ),
+                )
+            send(body).andExpect(status().isOk)
+            assertThat(record("RECURRING_RULE", rule)["ruleName"].asString()).isEqualTo("Synthetic expense")
+            expenseOccurrence(rule, "2026-09-19")
+        }
+
+        @Test fun `create rule compatibility still rejects invalid schedules and unsupported commands`() {
+            list("synthetic-owner")
+            val fields =
+                mapOf(
+                    "categoryId" to request.categories[0].id,
+                    "amount" to "125.00",
+                    "startsOn" to "2026-09-19",
+                    "replaceDetails" to true,
+                )
+            for ((frequency, scheduleValue) in mapOf("MONTHLY" to 32, "WEEKLY" to 8, "ONCE" to 1)) {
+                val body =
+                    command(
+                        "CREATE_RULE",
+                        UUID.randomUUID(),
+                        fields = fields + mapOf("frequency" to frequency, "scheduleValue" to scheduleValue),
+                    )
+                send(body).andExpect(status().isBadRequest)
+            }
+            send(
+                command(
+                    "CREATE_OPERATION",
+                    UUID.randomUUID(),
+                    fields = fields + mapOf("kind" to "EXPENSE", "occurredOn" to "2026-09-06"),
+                ),
+            ).andExpect(status().isBadRequest)
+            assertThat(jdbc.queryForList("SELECT id FROM recurring_rule WHERE household_id=?", request.householdId))
+                .isEmpty()
+        }
+
         @Test fun `generation skips definitions being edited and resumes after their transaction commits`() {
             list("synthetic-owner")
             val expense = UUID.randomUUID()

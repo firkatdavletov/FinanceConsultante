@@ -66,6 +66,10 @@ V27 хранит receipt UID/memberId, повтор не создаёт член
 
 ## Одноразовые правила расходов
 
+Firebase sync v4 принимает Android-команды `CREATE_RULE` с `replaceDetails: true`
+для MONTHLY, WEEKLY и ONCE. На Android команда в статусе REJECTED требует
+повторного сохранения существующего правила, чтобы снова попасть в очередь.
+
 Полное редактирование правил подготовлено в V33: sync v4 принимает ruleName и
 UPDATE_RULE/replaceDetails, сохраняет историю и связи при пересчёте будущих дат.
 Добавлены INCOME_RULE, метаинформация доходов, WEEKLY/BIWEEKLY/MONTHLY и выделение

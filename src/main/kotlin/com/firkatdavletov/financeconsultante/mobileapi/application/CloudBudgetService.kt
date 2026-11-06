@@ -203,7 +203,7 @@ class CloudBudgetService(
     }
 
     private fun validateFields(c: CloudBudgetCommand) {
-        require(c.replaceDetails != true || c.type in setOf("UPDATE_OPERATION", "UPDATE_RULE"))
+        require(c.replaceDetails != true || c.type in setOf("UPDATE_OPERATION", "CREATE_RULE", "UPDATE_RULE"))
         // A queued command may have been entered before the denomination changed.
         // Its accounting number is used as-is, and the original request is fingerprinted above.
         require(c.currency == null || c.currency in BUDGET_CURRENCIES)
@@ -505,7 +505,7 @@ class CloudBudgetService(
             )
             return
         }
-        if (c.replaceDetails == true) {
+        if (c.type == "UPDATE_RULE" && c.replaceDetails == true) {
             applied(
                 expenseRuleEditing.replaceRuleDetails(
                     actor,
