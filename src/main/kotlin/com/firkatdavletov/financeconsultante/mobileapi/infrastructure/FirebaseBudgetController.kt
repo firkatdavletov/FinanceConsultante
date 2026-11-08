@@ -116,6 +116,7 @@ class FirebaseBudgetController(
         FirebaseBudgetController::class,
         FirebaseBudgetInvitationController::class,
         FirebaseFamilyBudgetController::class,
+        CategoryUsageController::class,
     ],
 )
 class FirebaseBudgetErrors {

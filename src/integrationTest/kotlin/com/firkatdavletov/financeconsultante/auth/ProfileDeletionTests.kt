@@ -9,6 +9,8 @@ import com.firkatdavletov.financeconsultante.auth.infrastructure.FirebaseAdminTo
 import com.firkatdavletov.financeconsultante.auth.infrastructure.JdbcProfileDeletion
 import com.firkatdavletov.financeconsultante.auth.infrastructure.ProfileDeletionWorker
 import com.firkatdavletov.financeconsultante.auth.infrastructure.deletionHash
+import com.firkatdavletov.financeconsultante.mobileapi.application.CategoryUsage
+import com.firkatdavletov.financeconsultante.mobileapi.application.CategoryUsageEvent
 import com.firkatdavletov.financeconsultante.mobileapi.application.CreateFirebaseBudget
 import com.firkatdavletov.financeconsultante.mobileapi.application.FirebaseBudgetCreation
 import com.firkatdavletov.financeconsultante.mobileapi.application.FirebaseBudgets
@@ -43,6 +45,7 @@ class ProfileDeletionTests
         private val creation: FirebaseBudgetCreation,
         private val deletion: JdbcProfileDeletion,
         private val budgets: FirebaseBudgets,
+        private val categoryUsage: CategoryUsage,
         private val worker: ProfileDeletionWorker,
         private val mvc: MockMvc,
         private val clock: Clock,
@@ -79,6 +82,9 @@ class ProfileDeletionTests
             val second = budget(uid)
             users.upsert(VerifiedFirebaseIdentity(other, "Synthetic", null))
             addMember(other, owned.id)
+            recordUsage(uid, owned.id)
+            recordUsage(other, owned.id)
+            recordUsage(uid, second.id)
             addOperation(owned.id, owned.memberId)
             addDependentData(owned.id, owned.memberId)
             verified()
@@ -95,6 +101,7 @@ class ProfileDeletionTests
                     "ledger_entry",
                     "entry_revision",
                     "category",
+                    "category_usage_event",
                     "mobile_sync_change",
                     "mobile_sync_state",
                     "firebase_budget_access",
@@ -133,9 +140,12 @@ class ProfileDeletionTests
             users.upsert(VerifiedFirebaseIdentity(uid, "Synthetic", "person@example.test"))
             val old = addMember(uid, foreign.id)
             addOperation(foreign.id, old)
+            recordUsage(uid, foreign.id)
             jdbc.update("UPDATE member SET revoked_at=now() WHERE id=?", old)
             jdbc.update("DELETE FROM firebase_budget_access WHERE firebase_uid=?", uid)
             val current = addMember(uid, foreign.id)
+            recordUsage(uid, foreign.id)
+            recordUsage(other, foreign.id)
             jdbc.update(
                 """
                 INSERT INTO firebase_budget_invitation(id, household_id, invited_by, code_hash, created_at, expires_at,
@@ -157,6 +167,13 @@ class ProfileDeletionTests
                 )
             deletion.accept(uid, deletionHash(secret))
             assertThat(budgets.budget(other, foreign.id).scope.memberId).isEqualTo(foreign.memberId)
+            assertThat(
+                jdbc.queryForList(
+                    "SELECT member_id FROM category_usage_event WHERE household_id=?",
+                    UUID::class.java,
+                    foreign.id,
+                ),
+            ).containsExactly(foreign.memberId)
             assertThat(
                 jdbc.queryForObject(
                     "SELECT sum(amount_kzt) FROM ledger_entry WHERE household_id=?",
@@ -317,6 +334,17 @@ class ProfileDeletionTests
         ): com.firkatdavletov.financeconsultante.mobileapi.application.FirebaseBudgetSummary {
             users.upsert(VerifiedFirebaseIdentity(user, null, null))
             return creation.create(user, request())
+        }
+
+        private fun recordUsage(
+            uid: String,
+            budgetId: UUID,
+        ) {
+            categoryUsage.push(
+                uid,
+                budgetId,
+                listOf(CategoryUsageEvent(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), 0)),
+            )
         }
 
         private fun addMember(

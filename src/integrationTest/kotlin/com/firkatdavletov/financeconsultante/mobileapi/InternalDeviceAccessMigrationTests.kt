@@ -38,6 +38,7 @@ class InternalDeviceAccessMigrationTests
                         .dataSource(dataSource)
                         .schemas(schema)
                         .defaultSchema(schema)
+                        .target("35")
                         .load()
                 assertThat(current.migrate().migrationsExecuted).isEqualTo(1)
                 assertThat(

@@ -132,6 +132,14 @@ class JdbcProfileDeletion(
         jdbc.sql("DELETE FROM telegram_inbox WHERE member_id=?").param(member).update()
         jdbc
             .sql(
+                """
+                DELETE FROM category_usage_event e USING member m
+                WHERE m.id=? AND e.household_id=m.household_id AND e.member_id=m.id
+                """.trimIndent(),
+            ).param(member)
+            .update()
+        jdbc
+            .sql(
                 "UPDATE member SET revoked_at=COALESCE(revoked_at, now()), reports_enabled=FALSE, " +
                     "telegram_user_id=NULL WHERE id=? AND role='MEMBER'",
             ).param(member)

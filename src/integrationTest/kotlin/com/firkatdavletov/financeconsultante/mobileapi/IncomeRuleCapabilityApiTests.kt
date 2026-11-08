@@ -34,7 +34,8 @@ class IncomeRuleCapabilityApiTests
                     .andExpect(jsonPath("$.scope.currency").value("KZT"))
                     .andExpect(jsonPath("$.capabilities[0]").value("confirmedPlanLinkingV1"))
                     .andExpect(jsonPath("$.capabilities[1]").value("incomeRuleEditingV1"))
-                    .andExpect(jsonPath("$.capabilities.length()").value(2))
+                    .andExpect(jsonPath("$.capabilities[2]").value("categoryUsageV1"))
+                    .andExpect(jsonPath("$.capabilities.length()").value(EXPECTED_CAPABILITY_COUNT))
             }
         }
 
@@ -127,7 +128,8 @@ class IncomeRuleCapabilityApiTests
         }
 
         companion object {
+            private const val EXPECTED_CAPABILITY_COUNT = 3
             private const val ANDROID_CAPABILITIES =
-                "confirmedPlanLinkingV1,incomeRuleEditingV1,dailyLimitPlanningV1"
+                "confirmedPlanLinkingV1,incomeRuleEditingV1,dailyLimitPlanningV1,categoryUsageV1"
         }
     }

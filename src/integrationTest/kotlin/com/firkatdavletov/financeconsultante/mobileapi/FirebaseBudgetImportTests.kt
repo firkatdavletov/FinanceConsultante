@@ -213,6 +213,23 @@ class FirebaseBudgetImportTests
             ).isEqualByComparingTo("100.00")
         }
 
+        @Test fun `imported budget accepts pending category usage with the original scope`() {
+            postImport(request).andExpect(status().isOk)
+            val id = UUID.randomUUID()
+            val categoryId = bootstrap.categories.first().id
+            val event = """{"id":"$id","operationId":"$id","categoryId":"$categoryId","usedAtMillis":0}"""
+            mvc
+                .perform(
+                    post("/api/v4/category-usage/events")
+                        .queryParam("budgetId", bootstrap.householdId.toString())
+                        .header("Authorization", "Bearer t07-owner")
+                        .contentType("application/json")
+                        .content("""{"events":[$event]}"""),
+                ).andExpect(status().isOk)
+                .andExpect(jsonPath("$.scopeKey").value("${bootstrap.householdId}:${bootstrap.memberId}"))
+                .andExpect(jsonPath("$.acceptedIds[0]").value(id.toString()))
+        }
+
         @Test fun `concurrent retries import one budget and competing UIDs cannot claim the same local IDs`() {
             val start = CountDownLatch(1)
             val executor = Executors.newFixedThreadPool(4)

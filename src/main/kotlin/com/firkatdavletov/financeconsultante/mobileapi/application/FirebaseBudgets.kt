@@ -61,7 +61,7 @@ class FirebaseBudgets(
     fun budget(
         uid: String,
         budgetId: UUID,
-    ): CloudBudget = CloudBudget(actor(uid, budgetId).scope())
+    ): CloudBudget = CloudBudget(actor(uid, budgetId).scope(), BUDGET_SYNC_CAPABILITIES + "categoryUsageV1")
 
     @Transactional(isolation = Isolation.REPEATABLE_READ)
     fun changes(
@@ -80,7 +80,7 @@ class FirebaseBudgets(
         capabilities: String? = null,
     ): BudgetCommandReceipt = cloud.command(actor(uid, budgetId), command, capabilities)
 
-    private fun actor(
+    internal fun actor(
         uid: String,
         budgetId: UUID,
     ): CloudBudgetActor {

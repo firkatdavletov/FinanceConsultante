@@ -9,9 +9,11 @@ import java.util.UUID
 // The v4 denomination labels the budget's exact accounting values.
 internal val BUDGET_CURRENCIES = setOf("KZT", "RUB", "USD", "EUR")
 
+internal val BUDGET_SYNC_CAPABILITIES = listOf("confirmedPlanLinkingV1", "incomeRuleEditingV1")
+
 data class CloudBudget(
     val scope: SyncScope,
-    val capabilities: List<String> = listOf("confirmedPlanLinkingV1", "incomeRuleEditingV1"),
+    val capabilities: List<String> = BUDGET_SYNC_CAPABILITIES,
 )
 
 data class CloudSeedCategory(

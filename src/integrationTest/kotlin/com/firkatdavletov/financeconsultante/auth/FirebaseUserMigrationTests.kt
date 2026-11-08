@@ -57,7 +57,7 @@ class FirebaseUserMigrationTests
                         .schemas(schema)
                         .defaultSchema(schema)
                         .load()
-                assertThat(flyway.migrate().migrationsExecuted).isEqualTo(13)
+                assertThat(flyway.migrate().migrationsExecuted).isEqualTo(14)
                 flyway.validate()
                 assertThat(jdbc.queryForMap("SELECT * FROM $schema.account WHERE id = ?", account)).isEqualTo(before)
                 assertThat(jdbc.queryForObject("SELECT member_id FROM $schema.mobile_budget_access", UUID::class.java))
@@ -114,13 +114,15 @@ class FirebaseUserMigrationTests
                         .schemas(schema)
                         .defaultSchema(schema)
                         .load()
-                assertThat(current.migrate().migrationsExecuted).isEqualTo(11)
+                assertThat(current.migrate().migrationsExecuted).isEqualTo(12)
                 current.validate()
                 assertThat(jdbc.queryForMap("SELECT * FROM $schema.firebase_budget_access")).isEqualTo(before)
                 assertThat(jdbc.queryForMap("SELECT * FROM $schema.account")).isEqualTo(account)
                 assertThat(
                     jdbc.queryForObject("SELECT count(*) FROM $schema.firebase_budget_creation", Int::class.java),
                 ).isZero()
+                assertThat(jdbc.queryForObject("SELECT count(*) FROM $schema.category_usage_event", Int::class.java))
+                    .isZero()
             } finally {
                 jdbc.execute("DROP SCHEMA IF EXISTS $schema CASCADE")
             }
