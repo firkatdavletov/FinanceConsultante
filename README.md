@@ -1,253 +1,236 @@
 # FinanceConsultante
 
-Доступ установки к облачным функциям Saldomi 0.1, операторский список и порядок выпуска:
-[Internal device access](docs/internal-device-access.md).
+**The Kotlin / Spring Boot backend for Saldomi, an Android app for personal and family budgeting.**
 
-Firebase-вход мобильного клиента (T03), отдельный тестовый сервер и контракт профиля:
-[Firebase Authentication](docs/firebase-authentication.md).
-Регистрация, подтверждение email, вход по паролю и привязка способов входа для Android:
-[Email/Password API](docs/firebase-email-password.md).
-Подключение прежнего бюджета (T05), создание Firebase-бюджета (T06) и импорт локального (T07):
-[Firebase budgets](docs/firebase-budgets.md).
-Создание, копирование и отзыв семейного кода (Firebase T09):
-[Firebase invitations](docs/firebase-budget-invitations.md).
-Вступление MEMBER, список участников и отзыв доступа (Firebase T10):
-[Firebase family budgets](docs/firebase-family-budgets.md).
+Saldomi helps users track income and expenses, plan upcoming payments, and manage a shared household budget. The Android client works offline and connects to cloud synchronization explicitly. This repository contains the server application; the Android client is maintained separately.
 
-Сервер личного и семейного бюджета для Android Saldomi на Kotlin / Spring Boot.
-Основной интерфейс — Firebase HTTP API v4; Android работает локально и подключает
-облачную синхронизацию явно. Деньги и прогнозы рассчитываются Kotlin-кодом,
-PostgreSQL хранит проводки, аудит, правила, экземпляры, цели и членство.
-Основная валюта — KZT, часовой пояс — Asia/Almaty; прежние RUB-записи сохраняются.
+FinanceConsultante provides a Firebase-authenticated HTTP API, stores financial history in PostgreSQL, and calculates balances, daily spending limits, and forecasts with deterministic Kotlin code.
 
-Telegram-интеграция удалена: poller, HTTP-клиент, обработчики, диалоги и рассылки
-не входят в приложение. Старые миграции и идентификаторы сохранены для существующих
-бюджетов. Переменные TELEGRAM_* и NOTIFICATIONS_ENABLED больше не включают фоновые процессы.
+## Key Features
 
-## Требования и версии
+- **Income and expense tracking:** transaction history, categories, corrections, refunds, and an audit trail.
+- **Offline synchronization:** import an existing local budget, preserve UUIDs, and synchronize operations, categories, and plans through API v4. Persistent request receipts make retries idempotent.
+- **Personal and family budgets:** multiple budgets per account, owner/member roles, single-use invitation codes, member management, and access revocation.
+- **Payment planning:** one-time, weekly, and monthly expense rules; income rules also support biweekly schedules. Confirmed links connect planned payments to actual transactions.
+- **Budget management:** create, rename, and delete budgets; choose KZT, RUB, USD, or EUR as the budget currency. Changing the currency preserves numeric amounts without conversion.
+- **Category customization:** category names, icon codes, and per-member usage event synchronization. The Android client calculates frequent and recent category lists.
+- **Account lifecycle:** Firebase sign-in with Google or verified email/password, server-side profiles, and profile deletion.
+- **Financial calculation services:** savings allocations, daily budget estimates, analytics, forecasts, recurring expense detection, and purchase affordability calculations. Availability in the Android UI depends on the client integration.
 
-| Компонент | Версия |
+## Technology Stack
+
+| Area | Technology |
 | --- | --- |
-| JDK / целевой bytecode | 17 |
-| Kotlin | 2.3.21 |
-| Spring Boot | 4.1.1 |
-| Gradle Wrapper | 9.5.1, с проверкой SHA-256 |
-| ktlint Gradle plugin / ktlint | 14.2.0 / 1.8.0 |
-| Detekt | 2.0.0-alpha.3 |
-| JaCoCo | 0.8.15 |
-| PostgreSQL / Compose и Testcontainers image | 17.11 / `postgres:17.11-alpine` |
-| Flyway | 12.4.0 |
-| PostgreSQL JDBC / HikariCP | 42.7.13 / 7.0.2 |
-| OpenAI Java SDK | 4.61.0 |
-| Testcontainers | 2.0.5 |
-| WireMock | 3.13.2 standalone, только тесты |
+| Language and runtime | Kotlin 2.3.21, Java 17 |
+| Application framework | Spring Boot 4.1.1, Spring MVC, Spring Scheduling |
+| Build | Gradle Wrapper 9.5.1, Kotlin DSL |
+| Persistence | PostgreSQL 17.11, Spring JDBC / `JdbcClient`, HikariCP |
+| Database migrations | Flyway SQL migrations |
+| Authentication | Firebase Authentication, Firebase Admin SDK 9.11.0 |
+| Observability | Spring Boot Actuator, Micrometer, Prometheus |
+| Testing | JUnit Jupiter, Kotlin Test, AssertJ, PostgreSQL Testcontainers, WireMock |
+| Code quality | ktlint 1.8.0, Detekt 2.0.0-alpha.3, JaCoCo 0.8.15 |
+| Delivery | Docker, Docker Compose, GitHub Actions; Railway deployment runbook |
+| Optional integrations | Currencylayer exchange-rate adapter; OpenAI Java SDK 4.61.0 for standalone recognition evaluation |
 
-Используйте установленный JDK 17 и Gradle Wrapper; отдельно устанавливать Gradle не нужно. Первый запуск скачивает Gradle и зависимости, поэтому требует доступа к Maven Central, Gradle Plugin Portal и серверам дистрибутивов Gradle. Сборка не задаёт локальные абсолютные пути JDK и не загружает JDK автоматически.
+Dependency declarations live in [build.gradle.kts](build.gradle.kts). Spring Boot dependency management supplies the versions of managed libraries. Detekt uses a prerelease compatible with the project's Kotlin compiler and is a development tool only.
 
-Detekt закреплён на alpha.3, поскольку он собран с Kotlin 2.3.21, а стабильный 1.23.8 — с Kotlin 2.0.21. Это осознанная зависимость инструмента разработки от предварительного релиза; библиотека не входит в JAR приложения. Совместимость подтверждается запуском проверок. При обновлении Kotlin нужно повторно сверить [таблицу Detekt](https://detekt.dev/docs/introduction/compatibility/).
+## Architecture
 
-Flyway, JDBC, HikariCP и Testcontainers закреплены BOM Spring Boot 4.1.1. Подключены `spring-boot-starter-jdbc`, `spring-boot-starter-flyway` и модуль `flyway-database-postgresql` согласно [документации Boot](https://docs.spring.io/spring-boot/how-to/data-initialization.html). Автоматическая инициализация SQL отключена; production-схема меняется только Flyway-миграциями, `clean` запрещён, checksum проверяется при запуске.
+FinanceConsultante is a **modular monolith**: one Gradle module and one deployable Spring Boot application, organized by business capability.
 
-Для обычного `integrationTest` / `check` нужен работающий Docker. Testcontainers запускает отдельный PostgreSQL 17.11 без подключения к пользовательской БД и без пропуска тестов при отсутствии Docker. Для Compose требуется команда `docker compose` (v2 или новее). В CI доступность Docker проверяется явно.
+```mermaid
+flowchart LR
+    Android[Android Saldomi<br/>Local data and sync queue] -->|Firebase ID token| API[HTTP API v4]
+    API --> Auth[Token verification<br/>Active membership and role checks]
+    Auth --> App[Application services]
+    App --> Domain[Deterministic Kotlin domain]
+    App --> JDBC[JDBC repositories]
+    JDBC --> DB[(PostgreSQL)]
+    Flyway[Flyway migrations] --> DB
+```
 
-Если Docker Desktop установлен на macOS с CLI в пользовательском каталоге, а текущий терминал пишет `docker: command not found`, откройте новое окно терминала либо выполните `export PATH="$HOME/.docker/bin:$PATH"`. Проверьте `docker version`: нужны секции Client и Server. Testcontainers автоматически обнаруживает сокет Docker Desktop в `~/.docker/run/docker.sock`.
+Business modules use three layers where needed:
 
-## Запуск
+- `domain`: financial models and calculations, independent of Spring, SQL, and external APIs.
+- `application`: use cases, transaction coordination, and repository/provider interfaces.
+- `infrastructure`: HTTP controllers, JDBC repositories, external adapters, and Spring configuration.
 
-Из корня проекта сначала подготовьте `.env` из `.env.example`, замените пример локального пароля и загрузите переменные в окружение (см. ниже), затем:
+The base package is `com.firkatdavletov.financeconsultante`.
+
+| Package | Responsibility |
+| --- | --- |
+| `auth`, `access` | Firebase identity, profile lifecycle, family membership, and authorization |
+| `mobileapi` | Mobile HTTP contracts, budget management, and synchronization |
+| `ledger` | Entries, categories, balances, corrections, and audit history |
+| `budget`, `analytics` | Daily budgets, reports, and forecasts |
+| `recurring` | Expense and income rules, dated occurrences, and recurring expense analysis |
+| `goals`, `advice` | Savings allocations and purchase affordability calculations |
+| `exchange` | Exchange-rate provider, persistent jobs, and retries |
+| `ai` | Standalone recognition provider and validation contracts |
+| `operations`, `shared` | Metrics, accounting time, money types, and shared configuration |
+
+### Financial and Access Guarantees
+
+- Monetary calculations use `BigDecimal`; monetary API fields use decimal strings.
+- Expected income does not become available cash until it is actually recorded. Reserving savings does not create an expense.
+- Firebase UID verification and active budget membership checks precede access to financial data. The server determines permissions.
+- Transactions, database constraints, and request receipts prevent repeated delivery of a `requestId` from changing the budget twice.
+- Financial history and stable identifiers are preserved across synchronization. Schema changes use versioned Flyway migrations.
+- AI output is an untrusted proposal that must pass validation; it does not calculate balances or write directly to the ledger.
+
+See [ARCHITECTURE.md](ARCHITECTURE.md) for detailed invariants and engineering conventions. Historical Telegram sections in that document describe the former application.
+
+## Build and Run
+
+### Prerequisites
+
+- **JDK 17**, available through `JAVA_HOME` or your shell.
+- **Docker with Docker Compose v2+** for the local database and standard integration tests.
+- Network access on the first build to download Gradle and dependencies.
+
+Use the included Gradle Wrapper; a separate Gradle installation is not required. On Windows, use `gradlew.bat` and configure environment variables in your shell or IDE. The commands below use bash/zsh.
+
+### Local Setup
+
+Run these commands from the repository root:
 
 ```bash
 java -version
 ./gradlew --version
+cp .env.example .env
+```
+
+Edit `.env` and replace the example `POSTGRES_PASSWORD` before continuing. Spring Boot does **not** load `.env` automatically; export your local configuration:
+
+```bash
+set -a
+. ./.env
+set +a
+
 docker compose up -d --wait postgres
 ./gradlew bootRun
 ```
 
-На macOS при нескольких JDK можно выбрать установленный JDK 17:
+The default `local` profile starts the server on port `8080` (override with `PORT`). Check database-aware readiness at `http://localhost:8080/actuator/health/readiness`.
 
-```bash
-export JAVA_HOME="$(/usr/libexec/java_home -v 17)"
-export PATH="$JAVA_HOME/bin:$PATH"
-```
+PostgreSQL binds to `127.0.0.1:5432` by default. Set `POSTGRES_PORT` if that port is occupied. Data persists in the `postgres-data` volume; `docker compose stop postgres` stops the database while preserving it.
 
-На Windows используйте `gradlew.bat` вместо `./gradlew` и задайте `JAVA_HOME` на JDK 17.
+Flyway applies migrations from `src/main/resources/db/migration` at startup. The initial database contains no personal financial data. Once Firebase is configured, create or import a budget through API v4.
 
-Для запуска собранного приложения:
+### Build an Executable JAR
 
 ```bash
 ./gradlew bootJar
 java -jar build/libs/FinanceConsultante-0.0.1-SNAPSHOT.jar --spring.profiles.active=local
 ```
 
-БД доступна только на loopback-порту `${POSTGRES_PORT:-5432}`; данные сохраняются в именованном томе `postgres-data`. `docker compose stop postgres` останавливает БД, `docker compose up -d --wait postgres` запускает её снова с теми же данными. Если порт 5432 занят, задайте свободный `POSTGRES_PORT` в `.env`.
+The JAR uses the database environment configured above. `bootJar` packages the application but does not run the full verification suite.
 
-Миграции находятся в `src/main/resources/db/migration`. Приложение само применяет их при запуске. Начальная схема не содержит финансовых данных владельца; бюджет и начальный остаток создаются через Firebase API v4. Не меняйте уже применённый SQL-файл — добавляйте следующую версию.
+### Enable the Mobile API
 
-## Конфигурация
-
-| Профиль | Назначение |
-| --- | --- |
-| `local` | Профиль по умолчанию; datasource использует `POSTGRES_*` из окружения либо явные `DATABASE_*` |
-| `test` | Загрузчик курса, mobile API и Firebase выключены; datasource тестовый и задаётся интеграционным набором |
-| `prod` | Обязательны `DATABASE_URL` в формате JDBC, `DATABASE_USERNAME`, `DATABASE_PASSWORD`; интеграции по умолчанию выключены |
-
-Рабочий вход использует Firebase ID tokens. Telegram и отправка уведомлений удалены.
-OpenAI-провайдер и синтетический корпус сохранены для отдельно выбранной оценки;
-очередь распознавания Telegram и её фоновые worker удалены. Ключ не нужен для обычного запуска.
-
-Загрузчик курса выключен по умолчанию. Для локального запуска задайте ключ только в окружении и включите worker:
-
-```bash
-export CURRENCYLAYER_ACCESS_KEY='<локальный ключ>'
-export EXCHANGE_RATES_ENABLED=true
-./gradlew bootRun
-```
-
-Адаптер вызывает документированный Currencylayer endpoint [`/live`](https://currencylayer.com/documentation) только с валютами RUB и KZT. Ответ имеет базу USD, поэтому приложение детерминированно вычисляет количество KZT за 1 RUB как `USDKZT / USDRUB`, округляя снимок до 8 знаков через `HALF_UP`. В БД сохраняются локальная дата `Asia/Almaty`, код источника `CURRENCYLAYER_LIVE_USD_CROSS`, provider timestamp `quoted_at` и время получения `fetched_at`; access key, URL запроса и тело ответа не логируются.
-
-Задание на каждый календарный день, включая выходные, становится доступным в 07:00 Asia/Almaty. Worker проверяет очередь каждую минуту, захватывает запись с lease, выполняет HTTP вне транзакции и фиксирует курс в отдельной короткой транзакции. Timeout, 5xx, ошибка провайдера, устаревший или некорректный ответ оставляют задание в `RETRY`; задержка растёт от 5 минут до 6 часов. После рестарта создаются пропущенные даты, а незавершённые и просроченные lease продолжаются. Повторная фиксация не меняет существующий снимок.
-
-Выбран именно live endpoint. Поэтому для пропущенного дня после простоя или явно запрошенной прошлой даты сохраняется первый успешно полученный после восстановления live-снимок, а не ретроспективная котировка того дня. Это видно по `quoted_at`/`fetched_at` и коду источника. RUB-операция ждёт снимок своей локальной даты; произвольный старый курс к ней не подставляется.
-
-`.env.example` содержит безопасный шаблон переменных. Spring Boot **не читает `.env` автоматически**. Укажите значения в окружении процесса или настройках Run Configuration в IDE. Для своего проверенного локального `.env` в bash/zsh:
-
-```bash
-cp .env.example .env
-set -a
-. ./.env
-set +a
-docker compose up -d --wait postgres
-./gradlew bootRun
-```
-
-Не сохраняйте реальные ключи в `application*.yaml`, Gradle, CI или тестовых фикстурах. Файлы `.env` и `.env.*` исключены из Git, кроме `.env.example`. Неиспользуемые интеграции оставляйте выключенными, а их credentials — пустыми.
-
-## Мобильный API
-
-Действующий мобильный API использует Firebase Authentication: Google или Email/Password
-с подтверждённым email. Включение:
+Mobile endpoints and Firebase authentication are disabled by default. To enable them, set the following before starting the application:
 
 ```bash
 export MOBILE_API_ENABLED=true
 export FIREBASE_AUTH_ENABLED=true
-export FIREBASE_PROJECT_ID='<Firebase project ID>'
-export GOOGLE_APPLICATION_CREDENTIALS='<absolute path to the service account JSON>'
+export FIREBASE_PROJECT_ID='<your-firebase-project-id>'
+export GOOGLE_APPLICATION_CREDENTIALS='/absolute/path/to/service-account.json'
+./gradlew bootRun
 ```
 
-JSON-ключ находится вне репозитория и Android. Сервер проверяет Firebase ID token;
-собственный JWT не выдаёт. Каждый запрос бюджета адресуется через budgetId, а роль
-определяется по проверенному UID и активному членству.
+Keep the service-account file outside the repository and the Android app. The backend verifies Firebase ID tokens and does not issue its own JWT. See the [Firebase setup guide](docs/firebase-authentication.md) and [email/password contract](docs/firebase-email-password.md).
 
-- POST /api/v4/auth/firebase — серверный профиль текущего пользователя.
-- GET /api/v4/budgets — доступные бюджеты; POST — создание с requestId.
-- POST /api/v4/budgets/import — перенос локального бюджета с исходными UUID.
-- GET /api/v4/budgets/{budgetId} и GET …/sync/changes — бюджет и снимок/изменения.
-- POST …/sync/commands — команды v4 с неизменным requestId/payload и receipt.
-- POST …/invitations, GET …/invitations/current и DELETE …/invitations/{id} — код OWNER.
-- POST /api/v4/budgets/invitations/accept — вступление MEMBER.
-- GET …/members и DELETE …/members/{memberId} — участники и отзыв доступа OWNER.
+### Configuration Profiles
 
-С Firebase T12 статический мобильный токен отключён. Прежние v1–v3 и unscoped v4
-не принимают credentials; оставленная переменная MOBILE_API_TOKEN игнорируется.
-История, UUID, прежние binding rows и финансовые receipts сохраняются. Существующие
-v4-команды отправляются через Firebase без преобразования requestId или payload.
+| Profile | Purpose |
+| --- | --- |
+| `local` | Default profile; database settings come from `POSTGRES_*` or explicit `DATABASE_*` variables |
+| `test` | Isolated test database; external adapters are disabled unless a test explicitly configures a stub |
+| `prod` | Requires `DATABASE_URL` in JDBC format, `DATABASE_USERNAME`, and `DATABASE_PASSWORD` |
 
-[Настройка, миграция и выпуск T12](docs/firebase-static-token-retirement.md),
-[Firebase budgets](docs/firebase-budgets.md),
-[семейный доступ](docs/firebase-family-budgets.md).
+[.env.example](.env.example) lists configuration variables. Keep credentials in the process environment or a secret store. Firebase, OpenAI, and Currencylayer credentials are not required to build the JAR or run the standard tests.
 
-## Финансовые сценарии
+The optional exchange-rate adapter is separate from budget currency selection. It obtains live RUB/KZT cross rates from Currencylayer; it does not provide general conversion between all four budget currencies. Accounting dates use `Asia/Almaty`.
 
-- Фактические доходы, расходы, исправления и возвраты записываются транзакционно с аудитом.
-- Плановые расходы и доходы не изменяют баланс до фактической проводки.
-- Правила расходов поддерживают ONCE, WEEKLY и MONTHLY; доходов — также BIWEEKLY.
-- Связи планов с операциями используют confirmedPlanLinkingV1 и сохраняют финансовую историю.
-- Цели резервируют имеющиеся средства; Kotlin рассчитывает дневной лимит и прогноз.
+## Testing and Quality Checks
 
-Контракты: [полное редактирование правил](docs/full-rule-editing.md),
-[одноразовые расходы](docs/one-time-expense-rules.md),
-[связи с планами](docs/mobile-operation-plan-links.md),
-[категории](docs/category-icons.md), [управление бюджетом](docs/budget-management.md),
-[удаление профиля](docs/firebase-profile-deletion.md).
-
-GET `/api/v4/budgets/{budgetId}` объявляет `incomeRuleEditingV1` для редактора доходов
-и `confirmedPlanLinkingV1` для связей. Android может передавать также `dailyLimitPlanningV1`
-в заголовке запроса; сервер не объявляет её, поскольку подтверждение остатка дохода
-и поля remainder* не реализованы. Подробности — в контракте редактирования.
-
-## Отдельная оценка распознавания
-
-SDK OpenAI, validator и тестовый корпус доступны через `./gradlew openAiModelEvaluation`.
-Живой платный прогон выполняется только при явном выборе и соответствующих переменных
-из тестового evaluation harness. Он не входит в test/check, не запускает фоновых worker
-и не связывается с production-бюджетом.
-
-## Проверки
-
-Основная команда, совпадающая с CI:
+Run the full verification and packaging sequence with Docker running:
 
 ```bash
 ./gradlew --no-daemon clean check bootJar
 ```
 
-При первой проверке нового Docker-окружения добавьте `--no-build-cache`: `./gradlew --no-daemon --no-build-cache clean check bootJar`. Это обеспечивает фактический запуск тестов после `clean`, а не восстановление сохранённых результатов.
+For the first verification of a new Docker environment, add `--no-build-cache` so test results are not restored from the build cache.
 
-| Команда | Назначение |
+| Command | Purpose |
 | --- | --- |
-| `./gradlew test` | Unit-тесты денег, parser, OpenAI-контракта, конвертации, бюджета, прогноза, целей, recurring-детектора; внешние API заменены WireMock |
-| `./gradlew integrationTest` | PostgreSQL/Testcontainers: миграции, JDBC, аудит, очереди, цели, прогноз, recurring-анализ, атомарность, конкуренция и Spring wiring |
-| `./gradlew ktlintCheck` | Форматирование Kotlin, Gradle Kotlin DSL и всех Kotlin source sets |
-| `./gradlew ktlintFormat` | Применение форматирования; после него снова запустить `check` |
-| `./gradlew detekt` | Статический анализ production-, unit- и integration-кода |
-| `./gradlew jacocoTestReport` | Тесты и общий HTML/XML-отчёт покрытия по двум наборам |
-| `./gradlew check` | Все тесты, ktlint, Detekt и JaCoCo |
-| `./gradlew bootJar` | Исполняемый Spring Boot JAR; сам по себе не запускает все проверки |
+| `./gradlew test` | Unit tests and isolated external-provider contract tests |
+| `./gradlew integrationTest` | PostgreSQL/Testcontainers tests for migrations, persistence, HTTP flows, transactions, and concurrency |
+| `./gradlew ktlintCheck` | Kotlin and Gradle Kotlin DSL formatting checks |
+| `./gradlew ktlintFormat` | Apply formatting |
+| `./gradlew detekt` | Static analysis |
+| `./gradlew jacocoTestReport` | Run both test suites and generate combined coverage reports |
+| `./gradlew check` | Unit and integration tests, ktlint, Detekt, and JaCoCo |
+| `./gradlew bootJar` | Package the executable Spring Boot JAR |
 
-Gradle задаёт профиль test и выключает внешние Firebase/mobile/курсовые адаптеры
-через system properties. Тесты отдельных HTTP endpoints включают только нужные флаги,
-Firebase verifier заменяется заглушкой. Внешние OpenAI/Currencylayer HTTP-контракты
-проверяются локальным WireMock; mobile API — MockMvc и PostgreSQL/Testcontainers.
+Gradle forces the `test` profile and disables external Firebase, mobile, and exchange-rate adapters through system properties. Endpoint tests enable the required components with stub authentication. WireMock replaces external HTTP providers; ordinary tests do not call paid APIs.
 
-Для диагностики без Docker можно **явно** выбрать отдельный локальный PostgreSQL 17: `./gradlew check bootJar -PtestPostgresUrl=jdbc:postgresql://127.0.0.1:55432/financeconsultante_test`. Заранее создайте изолированный тестовый кластер с ролью `test_owner`, паролем `synthetic-test-password` и пустой БД `financeconsultante_test`. Допускается только такой localhost URL с явным портом. Тесты применяют миграции и меняют данные/схему этой БД. Это дополнительный режим проверки SQL; он не подтверждает работу Compose/Testcontainers. Без параметра запускается только Testcontainers, без автоматического fallback. CI использует обычный режим Docker.
+Integration tests start an isolated PostgreSQL 17.11 container. Missing Docker causes a failure rather than a silent skip or fallback.
 
-Отчёты: [integrationTest](build/reports/tests/integrationTest/index.html), [ktlint](build/reports/ktlint/), [Detekt](build/reports/detekt/detekt.html), [JaCoCo](build/reports/jacoco/test/html/index.html). Они появляются после соответствующих задач и не сохраняются в Git. Произвольный порог покрытия не задан: сначала появляются реальные доменные сценарии, затем оцениваются пробелы.
+<details>
+<summary>Explicit local PostgreSQL test mode</summary>
 
-## CI
+For diagnostics without Docker, prepare a separate PostgreSQL 17 cluster with an empty database named `financeconsultante_test`, role `test_owner`, and synthetic password `synthetic-test-password`. Then run:
 
-[GitHub Actions workflow](.github/workflows/ci.yml) запускается для push в `main`, pull request и вручную:
-устанавливает Java 17, использует Wrapper, проверяет Docker, выполняет `clean check bootJar`
-и собирает deployment image из корневого `Dockerfile`. Загрузка отчётов и JAR в GitHub Artifacts отключена. Production-секреты не требуются. Публикация и deploy
-самим workflow не выполняются; Railway может ждать его успеха через Wait for CI.
+```bash
+./gradlew check bootJar \
+  -PtestPostgresUrl=jdbc:postgresql://127.0.0.1:55432/financeconsultante_test
+```
 
-Git remote `origin` указывает на GitHub. Успешная локальная сборка не является наблюдавшимся запуском GitHub
-Actions или Railway deployment.
+Only this database name on `127.0.0.1` with an explicit port is accepted. Tests migrate and modify this database and its schema, so it must be disposable. This mode checks SQL behavior but does not validate Docker or Testcontainers. CI uses the standard Docker mode.
 
-## Развёртывание на Railway (T11)
+</details>
 
-Проект подготовлен к сборке Railway из GitHub: приложение запускается в non-root контейнере на точном Java 17
-runtime, слушает предоставленный `PORT`, имеет DB-aware readiness, graceful shutdown и приватные Prometheus
-метрики очередей. Отдельный GitHub-root `ops/backup` создаёт зашифрованные `age` logical dumps и удаляет объекты
-старше 14 дней.
+Generated reports are available locally after their tasks run:
 
-Полная последовательность создания app/PostgreSQL, reference variables, секретов, Wait for CI,
-backup, smoke, restore drill, RPO/RTO и cost limits описана в
-[`docs/RAILWAY_DEPLOYMENT.md`](docs/RAILWAY_DEPLOYMENT.md). Подготовленные файлы не означают, что Railway-услуги
-уже подключены или T11 завершена.
+- Unit tests: `build/reports/tests/test/index.html`
+- Integration tests: `build/reports/tests/integrationTest/index.html`
+- ktlint: `build/reports/ktlint/`
+- Detekt: `build/reports/detekt/detekt.html`
+- Coverage: `build/reports/jacoco/test/html/index.html`
 
-## Документация проекта
+The [GitHub Actions workflow](.github/workflows/ci.yml) runs on pushes to `main`, pull requests, and manual dispatch. It verifies Docker, runs `clean check bootJar`, and builds the deployment image. The workflow does not publish or deploy the application.
 
-- [CONTEXT.md](CONTEXT.md) — продукт и фактическое состояние.
-- [ARCHITECTURE.md](ARCHITECTURE.md) — архитектура, code style и финансовые правила.
-- [AGENTS.md](AGENTS.md) — инструкции Codex и ссылки на ролевые навыки.
-- [docs/RAILWAY_DEPLOYMENT.md](docs/RAILWAY_DEPLOYMENT.md) — подробный production deploy/runbook для Railway.
+## Development Status
 
+**Under active development.** The application version is `0.0.1-SNAPSHOT`; the current mobile contract is **Firebase API v4**.
 
-## Синхронизация мобильных категорий и планов
+The repository includes the financial core, Firebase authentication, budget creation and import, family invitations and membership, offline synchronization, rule editing, profile deletion, budget currency selection, and category usage synchronization. Automated unit and PostgreSQL integration tests accompany the implementation.
 
-Используется Firebase v4: GET /api/v4/budgets/{budgetId}/sync/changes и
-POST /api/v4/budgets/{budgetId}/sync/commands. Снимок содержит scope, changes,
-nextCursor, hasMore и snapshotRevision. Категории и планы передаются тем же журналом;
-денежные поля остаются десятичными строками. Подтверждение содержит requestId,
-revision и entityToken. Повтор после потерянного ответа сохраняет финансовую
-идемпотентность; memberId/householdId команды проверяются независимо от URL.
-Прежние публичные HTTP v1–v3 отключены. [Переход T12](docs/firebase-static-token-retirement.md).
+Current boundaries:
+
+- Android Saldomi is the active client. Telegram integration, polling, dialogs, and scheduled message delivery have been removed; historical migrations and identifiers remain for existing budgets.
+- Static mobile-token authentication and the former public v1–v3 / unscoped v4 financial endpoints are disabled. Current financial synchronization is scoped to `/api/v4/budgets/{budgetId}`.
+- `confirmedPlanLinkingV1`, `incomeRuleEditingV1`, and `categoryUsageV1` are available. `dailyLimitPlanningV1`, including remainder-income confirmation, is not implemented on the server.
+- The OpenAI provider, validator, and synthetic evaluation corpus remain available for separately enabled evaluation via `./gradlew openAiModelEvaluation`. Recognition is not part of the active mobile workflow, and live paid evaluation is excluded from `test` and `check`.
+- Docker packaging and a Railway deployment runbook are provided. Repository implementation and automated checks do not establish production deployment or Android end-to-end acceptance for every recent feature; feature documents record release requirements and remaining checks.
+
+See [CONTEXT.md](CONTEXT.md) for the detailed implementation record and feature-specific verification notes.
+
+## Documentation
+
+Most detailed engineering documents are currently written in Russian.
+
+| Topic | Reference |
+| --- | --- |
+| Product scope and implementation history | [Project context](CONTEXT.md) |
+| Architecture, financial invariants, and code style | [Architecture](ARCHITECTURE.md) |
+| Firebase setup and sign-in | [Authentication](docs/firebase-authentication.md), [email/password](docs/firebase-email-password.md) |
+| Budget creation, import, and management | [Firebase budgets](docs/firebase-budgets.md), [management](docs/budget-management.md), [currencies](docs/budget-currencies.md) |
+| Family collaboration | [Invitations](docs/firebase-budget-invitations.md), [membership](docs/firebase-family-budgets.md) |
+| Planning and transaction links | [Rule editing](docs/full-rule-editing.md), [one-time rules](docs/one-time-expense-rules.md), [confirmed links](docs/mobile-operation-plan-links.md) |
+| Categories and account lifecycle | [Category icons](docs/category-icons.md), [profile deletion](docs/firebase-profile-deletion.md) |
+| API migration and installation access | [Static-token retirement](docs/firebase-static-token-retirement.md), [installation access](docs/internal-device-access.md) |
+| Deployment, backups, and recovery | [Railway runbook](docs/RAILWAY_DEPLOYMENT.md) |
+| Contributor agent instructions | [AGENTS.md](AGENTS.md) |
