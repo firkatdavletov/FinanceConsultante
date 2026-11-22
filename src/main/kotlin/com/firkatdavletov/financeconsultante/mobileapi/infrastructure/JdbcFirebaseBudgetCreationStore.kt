@@ -74,7 +74,8 @@ class JdbcFirebaseBudgetCreationStore(
         jdbc
             .sql(
                 """
-                SELECT c.payload_hash, h.id, h.budget_name, h.budget_currency, h.budget_currency_version, b.member_id FROM firebase_budget_creation c
+                SELECT c.payload_hash, h.id, h.budget_name, h.budget_currency, h.budget_currency_version, b.member_id,
+                    h.archived_at IS NOT NULL AS archived FROM firebase_budget_creation c
                 JOIN household h ON h.id = c.household_id
                 JOIN firebase_budget_access b ON b.firebase_uid = c.firebase_uid AND b.household_id = c.household_id
                 WHERE c.firebase_uid = ? AND c.request_id = ?
@@ -91,6 +92,7 @@ class JdbcFirebaseBudgetCreationStore(
                         row.getString("budget_currency"),
                         row.getLong("budget_currency_version"),
                     ),
+                    row.getBoolean("archived"),
                 )
             }.optional()
             .orElse(null)

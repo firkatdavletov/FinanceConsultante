@@ -14,6 +14,7 @@ import com.firkatdavletov.financeconsultante.mobileapi.application.CategoryUsage
 import com.firkatdavletov.financeconsultante.mobileapi.application.CreateFirebaseBudget
 import com.firkatdavletov.financeconsultante.mobileapi.application.FirebaseBudgetCreation
 import com.firkatdavletov.financeconsultante.mobileapi.application.FirebaseBudgets
+import com.firkatdavletov.financeconsultante.mobileapi.infrastructure.FirebaseBudgetManagement
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.assertThatThrownBy
 import org.junit.jupiter.api.AfterEach
@@ -31,6 +32,7 @@ import org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPat
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.status
 import java.time.Clock
 import java.time.LocalDate
+import java.time.OffsetDateTime
 import java.util.Base64
 import java.util.UUID
 
@@ -45,6 +47,7 @@ class ProfileDeletionTests
         private val creation: FirebaseBudgetCreation,
         private val deletion: JdbcProfileDeletion,
         private val budgets: FirebaseBudgets,
+        private val management: FirebaseBudgetManagement,
         private val categoryUsage: CategoryUsage,
         private val worker: ProfileDeletionWorker,
         private val mvc: MockMvc,
@@ -87,6 +90,14 @@ class ProfileDeletionTests
             recordUsage(uid, second.id)
             addOperation(owned.id, owned.memberId)
             addDependentData(owned.id, owned.memberId)
+            management.delete(uid, owned.id, UUID.randomUUID())
+            val archivedAt =
+                jdbc.queryForObject(
+                    "SELECT archived_at FROM household WHERE id=?",
+                    OffsetDateTime::class.java,
+                    owned.id,
+                )
+            assertThat(archivedAt).isNotNull()
             verified()
             mvc
                 .perform(
@@ -119,6 +130,15 @@ class ProfileDeletionTests
                 users.upsert(VerifiedFirebaseIdentity(uid, null, null))
             }.isInstanceOf(InvalidFirebaseToken::class.java)
             assertThatThrownBy { creation.create(uid, request()) }.isInstanceOf(InvalidFirebaseToken::class.java)
+            assertThat(
+                jdbc.queryForObject(
+                    "SELECT restore_firebase_budget(?, ?, ?)",
+                    Boolean::class.java,
+                    uid,
+                    owned.id,
+                    archivedAt,
+                ),
+            ).isFalse()
             mvc.perform(delete("/api/v4/profile").header("X-Deletion-Token", secret)).andExpect(status().isAccepted)
             worker.runOnce()
             Mockito.verify(deleter).delete(uid)

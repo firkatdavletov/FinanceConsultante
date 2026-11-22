@@ -5,6 +5,7 @@ import com.firkatdavletov.financeconsultante.auth.application.FirebaseAuthentica
 import com.firkatdavletov.financeconsultante.auth.application.InvalidFirebaseToken
 import com.firkatdavletov.financeconsultante.auth.application.VerifiedFirebaseIdentity
 import com.firkatdavletov.financeconsultante.auth.infrastructure.FirebaseAdminTokenVerifier
+import com.firkatdavletov.financeconsultante.auth.infrastructure.deletionHash
 import com.firkatdavletov.financeconsultante.mobileapi.application.CreateFirebaseBudget
 import com.firkatdavletov.financeconsultante.mobileapi.application.FirebaseBudgetCreation
 import org.assertj.core.api.Assertions.assertThat
@@ -77,13 +78,13 @@ class FirebaseBudgetCreationTests
                     otherUid,
                 )
             ids.forEach { id ->
-                jdbc.update("DELETE FROM firebase_budget_creation WHERE household_id = ?", id)
-                jdbc.update("DELETE FROM firebase_budget_access WHERE household_id = ?", id)
-                listOf("entry_revision", "ledger_entry", "category", "account", "member").forEach {
-                    jdbc.update("DELETE FROM $it WHERE household_id = ?", id)
-                }
-                jdbc.update("DELETE FROM household WHERE id = ?", id)
+                jdbc.queryForList("SELECT erase_firebase_budget(?)", id)
             }
+            jdbc.update(
+                "DELETE FROM firebase_budget_management WHERE uid_hash IN (?, ?)",
+                deletionHash(uid),
+                deletionHash(otherUid),
+            )
             jdbc.update("DELETE FROM firebase_user WHERE firebase_uid IN (?, ?)", uid, otherUid)
         }
 
@@ -185,8 +186,12 @@ class FirebaseBudgetCreationTests
             management.delete(uid, budget.id, deletion)
             management.delete(uid, budget.id, deletion)
             assertThat(
-                jdbc.queryForObject("SELECT count(*) FROM household WHERE id=?", Int::class.java, budget.id),
-            ).isZero()
+                jdbc.queryForObject(
+                    "SELECT archived_at IS NOT NULL FROM household WHERE id=?",
+                    Boolean::class.java,
+                    budget.id,
+                ),
+            ).isTrue()
             assertThat(
                 jdbc.queryForObject("SELECT count(*) FROM account WHERE household_id=?", Int::class.java, other.id),
             ).isEqualTo(1)
@@ -222,8 +227,12 @@ class FirebaseBudgetCreationTests
                     ),
                 ).isEqualTo(1)
                 assertThat(
-                    jdbc.queryForObject("SELECT count(*) FROM household WHERE id=?", Int::class.java, budget.id),
-                ).isZero()
+                    jdbc.queryForObject(
+                        "SELECT archived_at IS NOT NULL FROM household WHERE id=?",
+                        Boolean::class.java,
+                        budget.id,
+                    ),
+                ).isTrue()
             } finally {
                 start.countDown()
                 pool.shutdownNow()

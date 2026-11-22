@@ -37,13 +37,13 @@ class JdbcFirebaseFamilyBudgetStore(
             }.optional()
             .orElse(null)
 
-    override fun lock(budgetId: UUID) {
+    override fun lockActiveBudget(budgetId: UUID): Boolean =
         jdbc
-            .sql("SELECT id FROM household WHERE id = ? FOR UPDATE")
+            .sql("SELECT id FROM household WHERE id = ? AND archived_at IS NULL FOR UPDATE")
             .param(budgetId)
             .query(UUID::class.java)
-            .single()
-    }
+            .optional()
+            .isPresent
 
     override fun membership(
         uid: String,

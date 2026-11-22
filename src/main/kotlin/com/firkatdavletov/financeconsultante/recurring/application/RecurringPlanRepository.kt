@@ -29,6 +29,8 @@ interface RecurringPlanRepository {
         forGeneration: Boolean = false,
     ): List<RecurringRule>
 
+    fun lockActiveGenerationBudgets(): List<UUID>
+
     fun findRule(
         householdId: UUID,
         id: UUID,

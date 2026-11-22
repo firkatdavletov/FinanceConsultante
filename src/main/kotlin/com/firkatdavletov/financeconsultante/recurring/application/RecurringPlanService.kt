@@ -19,6 +19,7 @@ import com.firkatdavletov.financeconsultante.recurring.domain.RecurringRule
 import com.firkatdavletov.financeconsultante.shared.domain.Currency
 import com.firkatdavletov.financeconsultante.shared.domain.Money
 import org.springframework.stereotype.Service
+import org.springframework.transaction.annotation.Isolation
 import org.springframework.transaction.annotation.Transactional
 import java.math.BigDecimal
 import java.time.Clock
@@ -542,13 +543,15 @@ class RecurringPlanService(
         return PlanChange.Applied(expectedView(owner.householdId, expectedIncomeId))
     }
 
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     fun generateAll() {
         val today = LocalDate.now(clock.withZone(ACCOUNTING_ZONE))
-        generate(null, horizon(today))
+        val through = horizon(today)
+        plans.lockActiveGenerationBudgets().forEach { generate(it, through) }
     }
 
     private fun generate(
-        householdId: UUID?,
+        householdId: UUID,
         throughInclusive: LocalDate,
     ) {
         // SHARE serializes materialization with definition changes. SKIP LOCKED also permits

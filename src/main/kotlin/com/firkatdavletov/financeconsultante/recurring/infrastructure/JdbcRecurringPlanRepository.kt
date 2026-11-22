@@ -92,6 +92,30 @@ class JdbcRecurringPlanRepository(
         return statement.query { row, _ -> mapRule(row) }.list()
     }
 
+    override fun lockActiveGenerationBudgets(): List<UUID> {
+        val locked =
+            jdbc
+                .sql(
+                    """
+                    SELECT h.id FROM household h WHERE h.archived_at IS NULL
+                        AND (EXISTS (SELECT 1 FROM recurring_rule r WHERE r.household_id = h.id AND r.active)
+                            OR EXISTS (SELECT 1 FROM income_rule i WHERE i.household_id = h.id AND i.income_active))
+                        AND pg_try_advisory_xact_lock_shared(hashtextextended('profile-budget:' || h.id, 0))
+                    ORDER BY h.id
+                    """.trimIndent(),
+                ).query(UUID::class.java)
+                .list()
+                .filterNotNull()
+        // Use a fresh READ COMMITTED snapshot in case archival committed during the lock query.
+        return locked.filter { id ->
+            jdbc
+                .sql("SELECT EXISTS (SELECT 1 FROM household WHERE id = ? AND archived_at IS NULL)")
+                .param(id)
+                .query(Boolean::class.java)
+                .single()
+        }
+    }
+
     override fun findRule(
         householdId: UUID,
         id: UUID,

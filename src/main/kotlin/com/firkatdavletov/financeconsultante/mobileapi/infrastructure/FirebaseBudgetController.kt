@@ -14,6 +14,7 @@ import com.firkatdavletov.financeconsultante.mobileapi.application.ImportFirebas
 import com.firkatdavletov.financeconsultante.mobileapi.application.MobileApiAccessDenied
 import com.firkatdavletov.financeconsultante.mobileapi.application.PlanLinkFailure
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty
+import org.springframework.dao.PessimisticLockingFailureException
 import org.springframework.http.CacheControl
 import org.springframework.http.HttpHeaders
 import org.springframework.http.HttpStatus
@@ -135,7 +136,11 @@ class FirebaseBudgetErrors {
             .cacheControl(CacheControl.noStore())
             .body(mapOf("code" to "unauthorized"))
 
-    @ExceptionHandler(FirebaseAuthenticationUnavailable::class, FirebaseBudgetBindingUnavailable::class)
+    @ExceptionHandler(
+        FirebaseAuthenticationUnavailable::class,
+        FirebaseBudgetBindingUnavailable::class,
+        PessimisticLockingFailureException::class,
+    )
     fun unavailable() = error(HttpStatus.SERVICE_UNAVAILABLE, "server_unavailable")
 
     @ExceptionHandler(MobileApiAccessDenied::class)

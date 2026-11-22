@@ -55,7 +55,7 @@ class JdbcFirebaseBudgetRepository(
                 INSERT INTO firebase_budget_access(firebase_uid, household_id, member_id)
                 SELECT ?, m.household_id, m.id FROM member m JOIN account a ON a.household_id = m.household_id
                 JOIN household h ON h.id = m.household_id
-                WHERE m.id = ? AND m.revoked_at IS NULL ON CONFLICT DO NOTHING
+                WHERE m.id = ? AND m.revoked_at IS NULL AND h.archived_at IS NULL ON CONFLICT DO NOTHING
                 """.trimIndent(),
             ).params(uid, memberId)
             .update()
@@ -75,7 +75,7 @@ class JdbcFirebaseBudgetRepository(
                 FROM firebase_budget_access b
                 JOIN member m ON m.household_id = b.household_id AND m.id = b.member_id
                 JOIN household h ON h.id = b.household_id JOIN account a ON a.household_id = h.id
-                WHERE b.firebase_uid = ? AND m.revoked_at IS NULL ORDER BY h.budget_name, h.id
+                WHERE b.firebase_uid = ? AND m.revoked_at IS NULL AND h.archived_at IS NULL ORDER BY h.budget_name, h.id
                 """.trimIndent(),
             ).param(uid)
             .query { row, _ ->
@@ -103,7 +103,8 @@ class JdbcFirebaseBudgetRepository(
                 JOIN member m ON m.household_id = b.household_id AND m.id = b.member_id
                 JOIN account a ON a.household_id = m.household_id
                 JOIN household h ON h.id = m.household_id
-                WHERE b.firebase_uid = ? AND b.household_id = ? AND m.revoked_at IS NULL FOR SHARE OF b, m
+                WHERE b.firebase_uid = ? AND b.household_id = ? AND m.revoked_at IS NULL AND h.archived_at IS NULL
+                FOR SHARE OF b, m
                 """.trimIndent(),
             ).params(uid, budgetId)
             .query { row, _ ->

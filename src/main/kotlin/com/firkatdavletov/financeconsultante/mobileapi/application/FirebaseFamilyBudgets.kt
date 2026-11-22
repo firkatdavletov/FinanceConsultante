@@ -48,7 +48,7 @@ interface FirebaseFamilyBudgetStore {
         lock: Boolean,
     ): FirebaseInvitationAcceptance?
 
-    fun lock(budgetId: UUID)
+    fun lockActiveBudget(budgetId: UUID): Boolean
 
     fun membership(
         uid: String,
@@ -108,7 +108,7 @@ class FirebaseFamilyBudgets(
         val hash = codes.hash(normalize(request.code))
         val preview = store.invitation(hash, false) ?: invalid()
         accountAccess.budget(uid, preview.budgetId)
-        store.lock(preview.budgetId)
+        if (!store.lockActiveBudget(preview.budgetId)) invalid()
         val invitation = store.invitation(hash, true) ?: invalid()
         val membership = store.membership(uid, invitation.budgetId)
         val memberId =

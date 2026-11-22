@@ -126,6 +126,7 @@ class CloudBudgetService(
         capabilities: String? = null,
     ): SyncPage {
         requireNotNull(budgets.findOwnedAccount(actor.householdId, actor.memberId, lock = true))
+        // The household row lock rejects a sync snapshot that predates a concurrent archive.
         operationPlans.requireCapability(actor.householdId, capabilities)
         require(limit in 1..MAX_PAGE_SIZE)
         categoryManagement.ensureFallback(actor)

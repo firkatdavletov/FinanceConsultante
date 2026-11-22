@@ -12,7 +12,7 @@ FinanceConsultante provides a Firebase-authenticated HTTP API, stores financial 
 - **Offline synchronization:** import an existing local budget, preserve UUIDs, and synchronize operations, categories, and plans through API v4. Persistent request receipts make retries idempotent.
 - **Personal and family budgets:** multiple budgets per account, owner/member roles, single-use invitation codes, member management, and access revocation.
 - **Payment planning:** one-time, weekly, and monthly expense rules; income rules also support biweekly schedules. Confirmed links connect planned payments to actual transactions.
-- **Budget management:** create, rename, and delete budgets; choose KZT, RUB, USD, or EUR as the budget currency. Changing the currency preserves numeric amounts without conversion.
+- **Budget management:** create and rename budgets, recover deleted cloud budgets through support, and choose KZT, RUB, USD, or EUR without converting existing amounts.
 - **Category customization:** category names, icon codes, and per-member usage event synchronization. The Android client calculates frequent and recent category lists.
 - **Account lifecycle:** Firebase sign-in with Google or verified email/password, server-side profiles, and profile deletion.
 - **Financial calculation services:** savings allocations, daily budget estimates, analytics, forecasts, recurring expense detection, and purchase affordability calculations. Availability in the Android UI depends on the client integration.

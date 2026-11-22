@@ -28,6 +28,7 @@ data class ImportFirebaseBudget(
 data class FirebaseCreationReceipt(
     val payloadHash: String,
     val budget: FirebaseBudgetSummary,
+    val archived: Boolean,
 )
 
 interface FirebaseBudgetCreationStore {
@@ -133,7 +134,13 @@ class FirebaseBudgetCreation(
         fingerprint: String,
     ): FirebaseBudgetSummary? {
         val receipt = store.receipt(uid, requestId) ?: return null
-        if (receipt.payloadHash != fingerprint) throw CloudBudgetFailure("idempotency_conflict")
+        val conflict =
+            when {
+                receipt.payloadHash != fingerprint -> "idempotency_conflict"
+                receipt.archived -> "budget_deleted"
+                else -> null
+            }
+        if (conflict != null) throw CloudBudgetFailure(conflict)
         budgets.actor(uid, receipt.budget.id) ?: throw MobileApiAccessDenied()
         return receipt.budget
     }

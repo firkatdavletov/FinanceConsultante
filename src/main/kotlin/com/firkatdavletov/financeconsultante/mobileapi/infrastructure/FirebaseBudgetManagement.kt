@@ -77,21 +77,16 @@ class FirebaseBudgetManagement(
         if (receipt(uid, requestId, payload)) return
         val actor = budgets.actor(uid, id) ?: throw MobileApiAccessDenied()
         if (actor.role.name != "OWNER") throw MobileApiAccessDenied()
-        jdbc.sql("INSERT INTO firebase_deleted_budget(budget_id) VALUES (?) ON CONFLICT DO NOTHING").param(id).update()
+        jdbc.sql("UPDATE household SET archived_at = clock_timestamp() WHERE id = ?").param(id).update()
         jdbc
             .sql(
                 """
-                INSERT INTO firebase_deleted_creation(uid_hash, request_id)
-                SELECT ?, request_id FROM firebase_budget_creation WHERE household_id=?
-                ON CONFLICT DO NOTHING
+                UPDATE firebase_budget_invitation i SET revoked_at = h.archived_at
+                FROM household h WHERE h.id = ? AND i.household_id = h.id
+                    AND i.revoked_at IS NULL AND i.accepted_at IS NULL
                 """.trimIndent(),
-            ).params(deletionHash(uid), id)
+            ).param(id)
             .update()
-        jdbc
-            .sql("SELECT erase_firebase_budget(?)")
-            .param(id)
-            .query { _, _ -> Unit }
-            .single()
         remember(uid, requestId, payload)
     }
 

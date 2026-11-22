@@ -213,6 +213,23 @@ class FirebaseBudgetImportTests
             ).isEqualByComparingTo("100.00")
         }
 
+        @Test fun `archive reserves imported budget identities and rejects import replay`() {
+            val budget = creation.importLocal(uid, request)
+            mvc
+                .perform(
+                    org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+                        .delete("/api/v4/budgets/${budget.id}")
+                        .header("Authorization", "Bearer t07-owner")
+                        .param("requestId", UUID.randomUUID().toString()),
+                ).andExpect(status().isNoContent)
+            postImport(request)
+                .andExpect(status().isConflict)
+                .andExpect(jsonPath("$.code").value("budget_deleted"))
+            postImport(request.copy(budget = bootstrap.copy(requestId = UUID.randomUUID())), "t07-other")
+                .andExpect(status().isConflict)
+                .andExpect(jsonPath("$.code").value("budget_identity_conflict"))
+        }
+
         @Test fun `imported budget accepts pending category usage with the original scope`() {
             postImport(request).andExpect(status().isOk)
             val id = UUID.randomUUID()
