@@ -4,12 +4,11 @@
 
 ## Актуальная граница интерфейсов
 
-Saldomi 0.1 проверяет UUID установки через `GET /api/v4/app/access` без Firebase.
-V35 хранит активность установок. Отключаемый servlet-фильтр читает PostgreSQL на
-каждом облачном запросе до Firebase use case и receipt replay. Это выдача функций,
-а не аутентификация: UID, активное членство и роль остаются обязательными.
-Удаление профиля и опрос его статуса обходят фильтр. Контракт и выпуск:
-[доступ установки](docs/internal-device-access.md).
+Android управляет видимостью облачных функций через Firebase Remote Config
+`remote_access`. FinanceConsultante авторизует облачные запросы по Firebase UID,
+активному членству и роли. Для старых клиентов `GET /api/v4/app/access`
+возвращает `OFFLINE_FREE`. Миграция V35 и её таблица сохраняются.
+[Контракт и порядок выпуска](docs/internal-device-access.md).
 
 С 2026-11-04 рабочий интерфейс — Android Saldomi через Firebase HTTP v4.
 Пакет telegram, Bot API client, polling, диалоги, доставка и расписание сообщений
